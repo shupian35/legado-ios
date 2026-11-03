@@ -268,6 +268,8 @@ public struct Picker<Selection: Hashable, Content: View>: View {
 /// `SwiftUI.Menu`.
 public struct Menu<Content: View>: View {
     public init(@ViewBuilder content: () -> Content, @ViewBuilder label: () -> some View) {}
+    /// The `Menu(_:content:)` form — the title is the label.
+    public init<S: StringProtocol>(_ title: S, @ViewBuilder content: () -> Content) {}
     public var body: Never { fatalError("Menu has no body") }
 }
 

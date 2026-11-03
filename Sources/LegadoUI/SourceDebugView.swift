@@ -48,6 +48,10 @@ public struct SourceDebugView: View {
 
     @ObservedObject var model: LegadoAppModel
 
+    /// The source to debug — the upstream `BookSourceDebugActivity` is opened
+    /// with the key of the source that is being edited.
+    let sourceUrl: String?
+
     /// The sources the user can debug.
     @State private var selectedUrl: String = ""
     /// The keyword or the URL.
@@ -57,8 +61,9 @@ public struct SourceDebugView: View {
     /// Whether a debug run is in progress.
     @State private var isRunning = false
 
-    public init(model: LegadoAppModel) {
+    public init(model: LegadoAppModel, sourceUrl: String? = nil) {
         self.model = model
+        self.sourceUrl = sourceUrl
     }
 
     public var body: some View {
@@ -99,7 +104,9 @@ public struct SourceDebugView: View {
             }
             .navigationTitle("调试")
             .onAppear {
-                if selectedUrl.isEmpty, let first = model.sources.first {
+                if let sourceUrl {
+                    selectedUrl = sourceUrl
+                } else if selectedUrl.isEmpty, let first = model.sources.first {
                     selectedUrl = first.bookSourceUrl
                 }
             }

@@ -28,6 +28,13 @@ public struct SourceEditorView: View {
     @State private var message: String = ""
     @State private var isChecking = false
     @State private var isHelpPresented = false
+    /// The upstream `viewModel.autoComplete` — the rule completion is on.
+    @State private var autoComplete = false
+    @State private var isDebugPresented = false
+    @State private var isVariablesPresented = false
+    @State private var isQRPresented = false
+    @State private var isSharePresented = false
+    @State private var variableText: String = ""
 
     public init(model: LegadoAppModel, source: BookSource) {
         self.model = model
@@ -113,10 +120,7 @@ public struct SourceEditorView: View {
                     get: { source.searchUrl ?? "" },
                     set: { source.searchUrl = $0.isEmpty ? nil : $0 }
                 ))
-                RuleTextField(title: "搜索规则", value: Binding(
-                    get: { source.ruleSearch ?? "" },
-                    set: { source.ruleSearch = $0.isEmpty ? nil : $0 }
-                ))
+                RuleTextField(title: "搜索规则", value: ruleBinding(\.ruleSearch, kind: .search))
             }
 
             Section("发现") {
@@ -124,25 +128,13 @@ public struct SourceEditorView: View {
                     get: { source.exploreUrl ?? "" },
                     set: { source.exploreUrl = $0.isEmpty ? nil : $0 }
                 ))
-                RuleTextField(title: "发现规则", value: Binding(
-                    get: { source.ruleExplore ?? "" },
-                    set: { source.ruleExplore = $0.isEmpty ? nil : $0 }
-                ))
+                RuleTextField(title: "发现规则", value: ruleBinding(\.ruleExplore, kind: .explore))
             }
 
             Section("详情与目录") {
-                RuleTextField(title: "详情规则", value: Binding(
-                    get: { source.ruleBookInfo ?? "" },
-                    set: { source.ruleBookInfo = $0.isEmpty ? nil : $0 }
-                ))
-                RuleTextField(title: "目录规则", value: Binding(
-                    get: { source.ruleToc ?? "" },
-                    set: { source.ruleToc = $0.isEmpty ? nil : $0 }
-                ))
-                RuleTextField(title: "正文规则", value: Binding(
-                    get: { source.ruleContent ?? "" },
-                    set: { source.ruleContent = $0.isEmpty ? nil : $0 }
-                ))
+                RuleTextField(title: "详情规则", value: ruleBinding(\.ruleBookInfo, kind: .bookInfo))
+                RuleTextField(title: "目录规则", value: ruleBinding(\.ruleToc, kind: .toc))
+                RuleTextField(title: "正文规则", value: ruleBinding(\.ruleContent, kind: .content))
             }
 
             Section("校验") {
@@ -164,7 +156,127 @@ public struct SourceEditorView: View {
                     model.saveSource(source)
                 }
             }
+            ToolbarItem(placement: .secondaryAction) {
+                Menu("更多") {
+                    // The upstream `res/menu/source_edit.xml`.
+                    Button("调试") {
+                        model.saveSource(source)
+                        isDebugPresented = true
+                    }
+                    Button("清除Cookie") {
+                        model.environment.cookieStore.removeCookie(url: source.bookSourceUrl)
+                        message = "已清除该书源的Cookie"
+                    }
+                    Button(autoComplete ? "自动补全：开" : "自动补全：关") {
+                        autoComplete.toggle()
+                        message = autoComplete ? "规则将自动补全" : "规则不再自动补全"
+                    }
+                    Button("复制书源") {
+                        UIPasteboardShim.copy(sourceJSON)
+                        message = "已复制书源"
+                    }
+                    Button("粘贴书源") {
+                        pasteSource()
+                    }
+                    Button("设置变量") {
+                        variableText = BookSourceVariables.sourceVariables(source.key) ?? ""
+                        isVariablesPresented = true
+                    }
+                    Button("二维码分享") {
+                        isQRPresented = true
+                    }
+                    Button("分享") {
+                        isSharePresented = true
+                    }
+                    NavigationLink("帮助") {
+                        RuleHelpView()
+                    }
+                }
+            }
         }
+        .sheet(isPresented: $isDebugPresented) {
+            NavigationStack {
+                SourceDebugView(model: model, sourceUrl: source.bookSourceUrl)
+            }
+        }
+        .sheet(isPresented: $isVariablesPresented) {
+            NavigationStack {
+                VariableEditorView(
+                    title: "书源变量",
+                    comment: "书源变量是一个JSON对象，脚本中用 java.get('变量名') 读取。",
+                    value: variableText,
+                    onSave: { text in
+                        saveVariables(text)
+                    }
+                )
+            }
+        }
+        .sheet(isPresented: $isQRPresented) {
+            NavigationStack {
+                QRCodeView(text: sourceJSON)
+                    .navigationTitle("书源二维码")
+            }
+        }
+        .sheet(isPresented: $isSharePresented) {
+            ShareSheet(items: [sourceJSON])
+        }
+    }
+
+    /// The rule binding — with the auto-completion the upstream applies to
+    /// every sub-rule of a rule group.
+    private func ruleBinding(
+        _ keyPath: WritableKeyPath<BookSource, String?>,
+        kind: SourceRuleKind
+    ) -> Binding<String> {
+        Binding(
+            get: { source[keyPath: keyPath] ?? "" },
+            set: { newValue in
+                var updated = source
+                updated[keyPath: keyPath] = newValue.isEmpty ? nil : newValue
+                if autoComplete {
+                    updated[keyPath: keyPath] = RuleAutoCompleter.complete(ruleJSON: newValue, kind: kind)
+                }
+                source = updated
+            }
+        )
+    }
+
+    /// The source as a JSON document — the upstream `GSON.toJson(getSource())`.
+    private var sourceJSON: String {
+        BookSourceJSONBridge.encode(source).jsonString
+    }
+
+    /// Pastes a source from the clipboard — upstream `viewModel.pasteSource`.
+    private func pasteSource() {
+        guard let text = UIPasteboardShim.paste() else {
+            message = "剪贴板为空"
+            return
+        }
+        guard let value = try? JSONValue.parse(text),
+              let pasted = BookSourceJSONBridge.decode(value) else {
+            message = "剪贴板的内容不是一个书源"
+            return
+        }
+        source.bookSourceName = pasted.bookSourceName
+        source.bookSourceUrl = pasted.bookSourceUrl
+        source.bookSourceGroup = pasted.bookSourceGroup
+        message = "已粘贴书源：\(pasted.bookSourceName)"
+    }
+
+    /// Saves the source variables — upstream `setSourceVariable`.
+    private func saveVariables(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            BookSourceVariables.clearSourceVariables(source.key)
+            return
+        }
+        guard let value = try? JSONValue.parse(trimmed),
+              let members = value.objectValue else { return }
+        var variables: [String: String] = [:]
+        for (name, member) in members {
+            variables[name] = member.textValue
+        }
+        BookSourceVariables.setVariables(variables, for: source.key)
     }
 
     private func checkSource() {
