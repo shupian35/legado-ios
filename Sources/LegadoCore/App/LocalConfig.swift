@@ -1,0 +1,85 @@
+//
+//  LocalConfig.swift
+//  LegadoCore
+//
+//  Port of the upstream `help/config/LocalConfig.kt`.
+//
+//  Upstream keeps these preferences in their own SharedPreferences file
+//  (`local`), separate from the app preferences, so that they are **not**
+//  written into a backup: the password encrypts the sensitive parts of a
+//  backup (`help/storage/BackupAES.kt`) and must not travel with it.
+//
+
+import Foundation
+
+/// The preferences that stay on the device — upstream `LocalConfig`.
+public final class LocalConfig {
+
+    private let store: SettingsStore
+
+    public init(store: SettingsStore) {
+        self.store = store
+    }
+
+    /// The underlying store.
+    public var settingsStore: SettingsStore { store }
+
+    /// The local password — upstream `LocalConfig.password`.
+    ///
+    /// It is the key of the `servers.json` entry of a backup (the upstream
+    /// derives the AES key with `MD5Utils.md5Encode(password)`). A `nil`
+    /// value means the user has never chosen one; an empty string means the
+    /// user declined to set one (the upstream behaves the same way).
+    public var password: String? {
+        get { store.string(forKey: LocalConfig.passwordKey) }
+        set { store.set(newValue, forKey: LocalConfig.passwordKey) }
+    }
+
+    /// The key of the password in the store.
+    public static let passwordKey = "password"
+
+    /// Whether the privacy policy has been accepted — upstream
+    /// `LocalConfig.privacyPolicyOk`.
+    public var privacyPolicyAccepted: Bool {
+        get { store.bool(forKey: "privacyPolicyOk") ?? false }
+        set { store.set(newValue, forKey: "privacyPolicyOk") }
+    }
+
+    /// The time of the last backup — upstream `LocalConfig.lastBackup`.
+    public var lastBackup: Date? {
+        get {
+            let value = store.int(forKey: "lastBackup") ?? 0
+            return value > 0 ? Date(timeIntervalSince1970: Double(value) / 1000.0) : nil
+        }
+        set {
+            let millis = newValue.map { Int($0.timeIntervalSince1970 * 1000) } ?? 0
+            store.set(millis, forKey: "lastBackup")
+        }
+    }
+
+    /// Whether the app has been opened before — upstream
+    /// `LocalConfig.isFirstOpenApp` (which flips the flag when it is read).
+    public var isFirstOpen: Bool {
+        get {
+            let value = store.bool(forKey: "firstOpen") ?? true
+            if value {
+                store.set(false, forKey: "firstOpen")
+            }
+            return value
+        }
+    }
+
+    /// Whether the crash report has to be shown — upstream
+    /// `LocalConfig.appCrash`.
+    public var appCrash: Bool {
+        get { store.bool(forKey: "appCrash") ?? false }
+        set { store.set(newValue, forKey: "appCrash") }
+    }
+
+    /// Whether the original file of a book is deleted with the book —
+    /// upstream `LocalConfig.deleteBookOriginal`.
+    public var deleteBookOriginal: Bool {
+        get { store.bool(forKey: "deleteBookOriginal") ?? false }
+        set { store.set(newValue, forKey: "deleteBookOriginal") }
+    }
+}

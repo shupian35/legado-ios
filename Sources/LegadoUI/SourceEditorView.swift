@@ -1,0 +1,272 @@
+//
+//  SourceEditorView.swift
+//  LegadoUI
+//
+//  The book source editor — upstream `ui/book/source/edit/`.
+//
+//  The upstream edits every rule with a structured form. The port edits the
+//  raw rule JSON, because that is exactly how the rules are stored
+//  (`BookSource.ruleSearch` etc. are JSON strings) and because it keeps every
+//  rule field the upstream supports — including the ones the upstream form
+//  hides.
+//
+
+#if canImport(SwiftUI)
+import SwiftUI
+#else
+import LegadoUIShim
+#endif
+
+import LegadoCore
+
+/// The source editor.
+public struct SourceEditorView: View {
+
+    @ObservedObject var model: LegadoAppModel
+
+    @State private var source: BookSource
+    @State private var message: String = ""
+    @State private var isChecking = false
+    @State private var isHelpPresented = false
+
+    public init(model: LegadoAppModel, source: BookSource) {
+        self.model = model
+        self._source = State(initialValue: source)
+    }
+
+    public var body: some View {
+        Form {
+            Section("基本信息") {
+                TextField("名称", text: Binding(
+                    get: { source.bookSourceName },
+                    set: { source.bookSourceName = $0 }
+                ))
+                TextField("源地址", text: Binding(
+                    get: { source.bookSourceUrl },
+                    set: { source.bookSourceUrl = $0 }
+                ))
+                TextField("分组", text: Binding(
+                    get: { source.bookSourceGroup ?? "" },
+                    set: { source.bookSourceGroup = $0.isEmpty ? nil : $0 }
+                ))
+                Toggle("启用", isOn: Binding(
+                    get: { source.enabled },
+                    set: { source.enabled = $0 }
+                ))
+                Toggle("允许发现", isOn: Binding(
+                    get: { source.enabledExplore },
+                    set: { source.enabledExplore = $0 }
+                ))
+                TextField("排序", text: Binding(
+                    get: { String(source.customOrder) },
+                    set: { source.customOrder = Int64($0) ?? 0 }
+                ))
+                TextField("权重", text: Binding(
+                    get: { String(source.weight) },
+                    set: { source.weight = Int64($0) ?? 0 }
+                ))
+                TextField("备注", text: Binding(
+                    get: { source.bookSourceComment ?? "" },
+                    set: { source.bookSourceComment = $0.isEmpty ? nil : $0 }
+                ))
+            }
+
+            Section("网络") {
+                TextField("请求头", text: Binding(
+                    get: { source.header ?? "" },
+                    set: { source.header = $0.isEmpty ? nil : $0 }
+                ))
+                TextField("并发 rate", text: Binding(
+                    get: { source.concurrentRate ?? "" },
+                    set: { source.concurrentRate = $0.isEmpty ? nil : $0 }
+                ))
+                Toggle("使用 Cookie 罐", isOn: Binding(
+                    get: { source.enabledCookieJar },
+                    set: { source.enabledCookieJar = $0 }
+                ))
+                TextField("脚本库", text: Binding(
+                    get: { source.jsLib ?? "" },
+                    set: { source.jsLib = $0.isEmpty ? nil : $0 }
+                ))
+            }
+
+            Section("登录") {
+                TextField("登录脚本", text: Binding(
+                    get: { source.loginUrl ?? "" },
+                    set: { source.loginUrl = $0.isEmpty ? nil : $0 }
+                ))
+                TextField("登录界面", text: Binding(
+                    get: { source.loginUi ?? "" },
+                    set: { source.loginUi = $0.isEmpty ? nil : $0 }
+                ))
+                TextField("登录校验", text: Binding(
+                    get: { source.loginCheckJs ?? "" },
+                    set: { source.loginCheckJs = $0.isEmpty ? nil : $0 }
+                ))
+                Button("登录") {
+                    model.presentLogin(for: source)
+                }
+            }
+
+            Section("搜索") {
+                TextField("搜索地址", text: Binding(
+                    get: { source.searchUrl ?? "" },
+                    set: { source.searchUrl = $0.isEmpty ? nil : $0 }
+                ))
+                RuleTextField(title: "搜索规则", value: Binding(
+                    get: { source.ruleSearch ?? "" },
+                    set: { source.ruleSearch = $0.isEmpty ? nil : $0 }
+                ))
+            }
+
+            Section("发现") {
+                TextField("发现地址", text: Binding(
+                    get: { source.exploreUrl ?? "" },
+                    set: { source.exploreUrl = $0.isEmpty ? nil : $0 }
+                ))
+                RuleTextField(title: "发现规则", value: Binding(
+                    get: { source.ruleExplore ?? "" },
+                    set: { source.ruleExplore = $0.isEmpty ? nil : $0 }
+                ))
+            }
+
+            Section("详情与目录") {
+                RuleTextField(title: "详情规则", value: Binding(
+                    get: { source.ruleBookInfo ?? "" },
+                    set: { source.ruleBookInfo = $0.isEmpty ? nil : $0 }
+                ))
+                RuleTextField(title: "目录规则", value: Binding(
+                    get: { source.ruleToc ?? "" },
+                    set: { source.ruleToc = $0.isEmpty ? nil : $0 }
+                ))
+                RuleTextField(title: "正文规则", value: Binding(
+                    get: { source.ruleContent ?? "" },
+                    set: { source.ruleContent = $0.isEmpty ? nil : $0 }
+                ))
+            }
+
+            Section("校验") {
+                Button(isChecking ? "校验中…" : "校验书源") {
+                    checkSource()
+                }
+                Text(message)
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+                NavigationLink("规则帮助") {
+                    RuleHelpView()
+                }
+            }
+        }
+        .navigationTitle("编辑书源")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("保存") {
+                    model.saveSource(source)
+                }
+            }
+        }
+    }
+
+    private func checkSource() {
+        isChecking = true
+        Task {
+            let result = await SourceChecker.check(
+                source: source,
+                options: SourceCheckOptions(),
+                dependencies: model.environment.dependencies()
+            )
+            await MainActor.run {
+                isChecking = false
+                message = result.message
+                source = result.source
+                model.saveSource(result.source)
+            }
+        }
+    }
+}
+
+/// A multi-line editor for one rule (the rule JSON).
+struct RuleTextField: View {
+
+    let title: String
+    @Binding var value: String
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text(title)
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
+            TextEditor(text: $value)
+                .frame(minHeight: 80)
+        }
+    }
+}
+
+/// The rule syntax reference — upstream `assets/web/help/md/ruleHelp.md`.
+public struct RuleHelpView: View {
+
+    public init() {}
+
+    public var body: some View {
+        ScrollView {
+            Text(RuleHelp.text)
+                .font(.system(size: 13))
+                .padding()
+        }
+        .navigationTitle("规则帮助")
+    }
+}
+
+/// The rule syntax reference.
+public enum RuleHelp {
+
+    /// The condensed rule syntax reference (the upstream `ruleHelp.md`).
+    public static let text = """
+    规则语法速查（节选自上游 ruleHelp.md）
+
+    1. 规则类型由前缀决定，不会互相回退。
+       · @CSS:  CSS 选择器（jsoup），规则里可以省略 @CSS: 前缀。
+       · @XPath: XPath 表达式。
+       · @Json:  JSONPath 表达式。
+       · @js:    JavaScript 脚本，返回值作为规则结果。
+       · @put:   在规则中保存一个变量，形如 @put:{key: value}。
+       · @get:   读取一个变量，形如 @get:{key}。
+       · {{js}}  行内 JavaScript，插入到规则文本中执行。
+       · <js>…</js>  与 @js: 等价。
+
+    2. 组合符
+       · &&  与：前后都匹配才算命中。
+       · ||  或：取第一个非空结果。
+       · %%  交叉合并：把多段规则的结果按位置交叉排列。
+       · ##  替换：规则##正则##替换文本（两段为全部替换，三段为只替换第一处）。
+
+    3. 取值
+       · getString      取文本，多个结果用换行连接。
+       · getStringList  取文本列表。
+       · getElements    取元素列表，配合 CSS 选择器。
+       · getElement     取第一个元素。
+       · @js: 后跟 JS 时，脚本里可用 result（上一个步骤的结果）、
+         baseUrl、source、book、chapter 等变量。
+
+    4. 元素选择
+       · 标签.div.-1:10:2  取倒数第 1 个开始的 10 个中的第 2 个。
+       · 标签.div!0:3      取排除前 3 个之后的部分。
+       · 标签.div[-1, 3:-2:-10, 2]  列表式下标，支持倒序。
+       · @CSS:div@p     取属性（@text 取文本，@html 取源码）。
+       · @CSS:div@href  取链接地址。
+
+    5. JSONPath
+       · $.data.list[0].title  取字段。
+       · $.data.list[?(@.id==1)]  过滤。
+       · $..name  递归查找。
+
+    6. 变量
+       · @put:{token} 保存，@get:{token} 读取，变量在同一个源内共享。
+       · java.ajax / java.get / java.post 可在脚本里发请求。
+       · java.put / java.get 可读写源变量。
+
+    7. 换源与校验
+       · 校验会依次检查搜索、发现、详情、目录和正文。
+       · 换源按书名搜索，作者可选校验，结果按书源评分排序。
+    """
+}

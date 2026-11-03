@@ -1,0 +1,14 @@
+# The repository keeps the LF endings everywhere: the shell scripts and the
+# Swift sources must not change their line endings on a Windows checkout.
+* text=auto eol=lf
+
+*.sh text eol=lf
+*.swift text eol=lf
+*.py text eol=lf
+*.yml text eol=lf
+*.pbxproj text eol=lf
+*.plist text eol=lf
+*.png binary
+*.jpg binary
+*.ttf binary
+*.otf binary

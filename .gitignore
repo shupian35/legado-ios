@@ -1,0 +1,15 @@
+# The SwiftPM build directory (the CI uses `.build` as well).
+.build/
+.swiftpm/
+DerivedData/
+
+# The Xcode user state.
+*.xcuserdatad/
+xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# The logs of the helper script.
+*.log
+
+# macOS.
+.DS_Store

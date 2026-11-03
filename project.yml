@@ -1,0 +1,135 @@
+name: LegadoApp
+options:
+  bundleIdPrefix: io.legado.ios
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+  minimumXcodeGenVersion: "2.35.0"
+
+# The port is a SwiftPM package; the Xcode project is a thin iOS shell that
+# adds the `@main` scene, the bundle metadata and the deep-link registration.
+packages:
+  legado:
+    path: .
+
+targets:
+  LegadoApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/LegadoAppUI
+        excludes:
+          - "Info.plist"
+          - "Resources/**"
+      - path: Sources/LegadoAppUI/Resources
+        buildPhase: resources
+    dependencies:
+      - package: legado
+        product: LegadoCore
+      - package: legado
+        product: LegadoUI
+      - package: legado
+        product: LegadoServer
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.legado.ios.Legado
+        PRODUCT_NAME: Legado
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Sources/LegadoAppUI/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+    info:
+      path: Sources/LegadoAppUI/Info.plist
+      properties:
+        CFBundleDisplayName: 阅读
+        CFBundleName: Legado
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        LSRequiresIPhoneOS: true
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UILaunchScreen:
+          UIColorName: ""
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # The deep links of the Android app (`legado://import/bookSource?src=…`).
+        CFBundleURLTypes:
+          - CFBundleURLName: io.legado.app.deeplink
+            CFBundleTypeRole: Editor
+            CFBundleURLSchemes:
+              - legado
+        # The "Open with" of the upstream `FileAssociationActivity`: a local
+        # book or a JSON document with a book source / a rule.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: 书籍
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.plain-text
+              - public.json
+              - org.idpf.epub-container
+              - com.adobe.pdf
+          - CFBundleTypeName: 书源与规则
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.json
+        # The local books are imported through the Files app.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        # Most book sources are plain HTTP.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        ITSAppUsesNonExemptEncryption: false
+        # The launcher icons — the primary one and the six alternates of the
+        # upstream launcher activities (`help/LauncherIconHelp.kt`). The PNGs
+        # are rendered from the upstream vector drawables by
+        # `Scripts/render_launcher_icons.py`.
+        CFBundleIcons:
+          CFBundlePrimaryIcon:
+            CFBundleIconFiles:
+              - AppIcon60x60
+          CFBundleAlternateIcons:
+            Icon1:
+              CFBundleIconFiles:
+                - Icon1
+            Icon2:
+              CFBundleIconFiles:
+                - Icon2
+            Icon3:
+              CFBundleIconFiles:
+                - Icon3
+            Icon4:
+              CFBundleIconFiles:
+                - Icon4
+            Icon5:
+              CFBundleIconFiles:
+                - Icon5
+            Icon6:
+              CFBundleIconFiles:
+                - Icon6
+
+schemes:
+  LegadoApp:
+    build:
+      targets:
+        LegadoApp: all
+    run:
+      config: Debug
+    archive:
+      config: Release
