@@ -18,8 +18,8 @@ upstream feature is listed with its upstream file, the Swift implementation and
 its state (`[x]` done, `[~]` partial, `[ ]` not started), followed by the
 deliberate deviations.
 
-The port is ~44,200 lines of Swift in 183 files, with ~11,090 lines of tests
-(898 unit tests: 818 in `LegadoCoreTests`, 80 in `LegadoServerTests`) next to them.
+The port is ~56,200 lines of Swift in 221 files, with ~12,150 lines of tests
+(993 unit tests: 913 in `LegadoCoreTests`, 80 in `LegadoServerTests`) next to them.
 
 ## What is in here
 
@@ -34,7 +34,7 @@ Sources/
   LegadoServer/        the local HTTP + WebSocket server (the upstream web API)
   LegadoApp/           a command-line shell with a headless smoke test
   LegadoAppUI/         the iOS entry point (`@main`) + the Info.plist
-Tests/                 898 unit tests
+Tests/                 993 unit tests
 project.yml            the XcodeGen spec of the iOS application target
 Scripts/
   sw.sh                the build/test/run helper (WSL, a clean PATH, a scratch dir)
@@ -161,6 +161,24 @@ combinators, the element index syntax and the upstream quirks are all
 reproduced. `Plan/00-feature-parity-matrix.md` lists them one by one, and the
 "Known upstream quirks that are reproduced on purpose" section at its end lists
 the surprising ones.
+
+## The parity audits
+
+Four read-only audits walked the upstream `app/src/main/java/io/legado/app/`
+tree and compared every **user-visible** feature with the port. They found
+that the first version of the feature matrix was **overstated**: a preference
+key that exists in `AppSettings` is not a shipped feature unless a screen
+actually lets the user change it — 566 upstream features, 85 present, 157
+partial, 324 missing.
+
+The port then closed the great majority of them (the source manager, the
+replace rules, the theme list, the reader's settings, the RSS management, the
+multi-source search, the reader's tip system, the click-region editor, the
+read-aloud dialog, the text selection, the dictionary, the manga menu, …).
+`Plan/00-feature-parity-matrix.md` §8 keeps the audit's own gap lists with a
+state column, and **§8.6 is the honest remainder — 13 items**, one of them a
+deliberate deviation (the volume keys need a `UIApplication` subclass, which
+SwiftUI cannot install).
 
 ## The security differences from the Android app
 
