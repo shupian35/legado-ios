@@ -628,6 +628,157 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
         readAloud.chapterTitle = chapterTitle
     }
 
+    // MARK: - The continuous-scroll reading mode
+
+    /// The page offset of the continuous scroll — upstream
+    /// `ContentTextView.pageOffset` (0 = the top of the current page).
+    @Published public var scrollOffset: Double = 0
+
+    /// The height of a page's content — upstream `TextPage.height`
+    /// (the bottom of the last line).
+    private func scrollPageHeight(_ page: TextPage) -> Double {
+        page.lines.last?.lineBottom ?? page.height
+    }
+
+    /// The pages that are drawn in the continuous-scroll mode — upstream
+    /// `ContentTextView.drawPage` (the current page, the next page and the
+    /// page after that when it is visible).
+    public var scrollPages: [ReaderScrollPage] {
+        guard let chapter = readBook.curTextChapter else { return [] }
+        let index = min(max(0, readBook.pageIndex), max(0, chapter.pageSize - 1))
+        guard chapter.pages.indices.contains(index) else { return [] }
+        let current = chapter.pages[index]
+        let next = chapter.pages.indices.contains(index + 1) ? chapter.pages[index + 1] : nil
+        let nextPlus = chapter.pages.indices.contains(index + 2) ? chapter.pages[index + 2] : nil
+        let offsets = ScrollPageMode.stackedPages(
+            offset: scrollOffset,
+            currentHeight: scrollPageHeight(current),
+            nextHeight: next.map(scrollPageHeight) ?? 0,
+            hasNext: next != nil,
+            hasNextPlus: nextPlus != nil,
+            nextPlusHeight: nextPlus.map(scrollPageHeight) ?? 0,
+            visibleHeight: layoutBox.layout.viewHeight
+        )
+        return offsets.compactMap { item in
+            guard chapter.pages.indices.contains(index + item.index) else { return nil }
+            let page = chapter.pages[index + item.index]
+            return ReaderScrollPage(index: item.index, lines: page.lines, offset: item.offset)
+        }
+    }
+
+    /// Scrolls the content — upstream `ContentTextView.scroll(mOffset)`.
+    ///
+    /// When the offset leaves the current page the reader moves to the
+    /// previous or the next page (the upstream's `pageFactory.moveToPrev` /
+    /// `moveToNext`).
+    public func scroll(by delta: Double) {
+        guard let chapter = readBook.curTextChapter else { return }
+        let index = min(max(0, readBook.pageIndex), max(0, chapter.pageSize - 1))
+        guard chapter.pages.indices.contains(index) else { return }
+        let current = chapter.pages[index]
+        let result = ScrollPageMode.scroll(
+            offset: scrollOffset,
+            delta: delta,
+            pageHeight: scrollPageHeight(current),
+            visibleHeight: layoutBox.layout.viewHeight,
+            hasPrevious: index > 0,
+            hasNext: chapter.pages.indices.contains(index + 1)
+        )
+        scrollOffset = result.offset
+        switch result.pageDelta {
+        case -1:
+            if index > 0 {
+                readBook.updatePageIndex(index - 1)
+                refreshPage()
+            } else {
+                // The first page of the chapter — the upstream's `moveToPrev`
+                // continues in the previous chapter.
+                Task {
+                    if await readBook.moveToPrevChapter() {
+                        refreshPage()
+                    }
+                }
+            }
+        case 1:
+            if chapter.pages.indices.contains(index + 1) {
+                readBook.updatePageIndex(index + 1)
+                refreshPage()
+            } else {
+                // The last page of the chapter — the upstream's `moveToNext`
+                // continues in the next chapter.
+                Task {
+                    if await readBook.moveToNextChapter() {
+                        refreshPage()
+                    }
+                }
+            }
+        default:
+            break
+        }
+    }
+
+    /// The tap that turns the page in the continuous-scroll mode — upstream
+    /// `ScrollPageDelegate.nextPageByAnim` → `calcNextPageOffset`.
+    ///
+    /// The tap scrolls by one line, so the last line of the page stays
+    /// visible; a book of images scrolls by the whole visible height.
+    public func scrollToNextPage() {
+        guard let chapter = readBook.curTextChapter else { return }
+        let index = min(max(0, readBook.pageIndex), max(0, chapter.pageSize - 1))
+        guard chapter.pages.indices.contains(index) else { return }
+        let current = chapter.pages[index]
+        let offset = ScrollPageMode.nextOffset(
+            lastLineTop: current.lines.last?.lineTop ?? 0,
+            paddingTop: current.paddingTop,
+            visibleHeight: layoutBox.layout.viewHeight,
+            isImage: book.isImage,
+            hasImageOrEmpty: current.hasImageOrEmpty(),
+            isTextStyle: imageStyle == .text
+        )
+        scroll(by: offset)
+    }
+
+    /// The tap that turns the page back — upstream
+    /// `ScrollPageDelegate.prevPageByAnim` → `calcPrevPageOffset`.
+    public func scrollToPreviousPage() {
+        guard let chapter = readBook.curTextChapter else { return }
+        let index = min(max(0, readBook.pageIndex), max(0, chapter.pageSize - 1))
+        guard chapter.pages.indices.contains(index) else { return }
+        let current = chapter.pages[index]
+        let offset = ScrollPageMode.previousOffset(
+            firstLineBottom: current.lines.first?.lineBottom ?? 0,
+            paddingTop: current.paddingTop,
+            visibleHeight: layoutBox.layout.viewHeight,
+            isImage: book.isImage,
+            hasImageOrEmpty: current.hasImageOrEmpty(),
+            isTextStyle: imageStyle == .text
+        )
+        scroll(by: offset)
+    }
+
+    /// Resets the scroll offset — the upstream resets it when the content is
+    /// set (`ContentTextView.resetPageOffset`).
+    public func resetScrollOffset() {
+        scrollOffset = 0
+    }
+
+    /// The last vertical translation of the scroll gesture — the delta of the
+    /// drag is the difference to the previous event (upstream
+    /// `ScrollPageDelegate.onScroll` uses `touchY - lastY`).
+    public var lastScrollTranslation: Double = 0
+
+    /// The vertical drag of the continuous-scroll mode.
+    public func scrollDragChanged(translation: Double) {
+        let delta = translation - lastScrollTranslation
+        lastScrollTranslation = translation
+        scroll(by: delta)
+    }
+
+    /// The scroll drag ended — the next drag starts from zero.
+    public func scrollDragEnded() {
+        lastScrollTranslation = 0
+    }
+
     /// Registers the lock-screen and headset buttons — the upstream
     /// `receiver/MediaButtonReceiver.kt` registers the same six actions with
     /// the Android media session.
@@ -679,9 +830,19 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
         case .menu:
             isMenuPresented = true
         case .nextPage:
-            Task { await nextPage() }
+            // The continuous-scroll mode scrolls instead of turning the page
+            // — upstream `ScrollPageDelegate.nextPageByAnim`.
+            if pageTurnStyle == .scroll {
+                scrollToNextPage()
+            } else {
+                Task { await nextPage() }
+            }
         case .prevPage:
-            Task { await previousPage() }
+            if pageTurnStyle == .scroll {
+                scrollToPreviousPage()
+            } else {
+                Task { await previousPage() }
+            }
         case .nextChapter:
             Task { await readBook.moveToNextChapter() }
         case .prevChapter:
@@ -1163,28 +1324,15 @@ public struct ReaderView: View {
                         // The header of the page — upstream `PageView.upTipStyle`.
                         tipHeader
                         GeometryReader { proxy in
-                            PageTurnContainer(
-                                style: controller.pageTurnStyle,
-                                viewWidth: Double(proxy.size.width),
-                                // The horizontal drag turns the page — upstream
-                                // `ReadView.onPageScroll`.
-                                onTurn: { direction in
-                                    Task {
-                                        if direction == .next {
-                                            await controller.nextPage()
-                                        } else {
-                                            await controller.previousPage()
-                                        }
-                                    }
-                                }
-                            ) {
-                                ZStack {
-                                    PageTurnView(
-                                        lines: controller.pageLines,
+                            ZStack {
+                                if controller.pageTurnStyle == .scroll {
+                                    // The continuous-scroll mode — upstream
+                                    // `ContentTextView.drawPage` +
+                                    // `ScrollPageDelegate.onScroll`.
+                                    ReaderScrollContentView(
+                                        pages: controller.scrollPages,
                                         titleFont: controller.resolvedFonts.title.swiftUIFont,
                                         bodyFont: controller.resolvedFonts.body.swiftUIFont,
-                                        style: controller.pageTurnStyle,
-                                        direction: controller.pageTurnDirection,
                                         textColor: ColorHex.color(
                                             controller.backgroundPreset.textColorString(
                                                 for: controller.displayMode
@@ -1192,24 +1340,55 @@ public struct ReaderView: View {
                                             fallback: .primary
                                         )
                                     )
-                                    // The nine-zone tap area — upstream `ReadView.onSingleTapUp`.
-                                    ReaderTapArea(
-                                        configuration: ReaderInteractionConfiguration.configuration(
-                                            from: controller.environment.settings
-                                        ),
-                                        lines: controller.pageLines,
-                                        lineOffsets: controller.pageLineOffsets
-                                    ) { action in
-                                        controller.performClickAction(action)
-                                    } onLongPress: { offset in
-                                        // The long press starts the text
-                                        // selection — upstream
-                                        // `ReadView.onLongPress`.
-                                        controller.selection.selectParagraph(
-                                            around: offset,
-                                            in: controller.pageText
+                                    .gesture(scrollDrag)
+                                } else {
+                                    PageTurnContainer(
+                                        style: controller.pageTurnStyle,
+                                        viewWidth: Double(proxy.size.width),
+                                        // The horizontal drag turns the page — upstream
+                                        // `ReadView.onPageScroll`.
+                                        onTurn: { direction in
+                                            Task {
+                                                if direction == .next {
+                                                    await controller.nextPage()
+                                                } else {
+                                                    await controller.previousPage()
+                                                }
+                                            }
+                                        }
+                                    ) {
+                                        PageTurnView(
+                                            lines: controller.pageLines,
+                                            titleFont: controller.resolvedFonts.title.swiftUIFont,
+                                            bodyFont: controller.resolvedFonts.body.swiftUIFont,
+                                            style: controller.pageTurnStyle,
+                                            direction: controller.pageTurnDirection,
+                                            textColor: ColorHex.color(
+                                                controller.backgroundPreset.textColorString(
+                                                    for: controller.displayMode
+                                                ),
+                                                fallback: .primary
+                                            )
                                         )
                                     }
+                                }
+                                // The nine-zone tap area — upstream `ReadView.onSingleTapUp`.
+                                ReaderTapArea(
+                                    configuration: ReaderInteractionConfiguration.configuration(
+                                        from: controller.environment.settings
+                                    ),
+                                    lines: controller.pageLines,
+                                    lineOffsets: controller.pageLineOffsets
+                                ) { action in
+                                    controller.performClickAction(action)
+                                } onLongPress: { offset in
+                                    // The long press starts the text
+                                    // selection — upstream
+                                    // `ReadView.onLongPress`.
+                                    controller.selection.selectParagraph(
+                                        around: offset,
+                                        in: controller.pageText
+                                    )
                                 }
                             }
                             .onChange(of: proxy.size) { _, size in
@@ -1354,11 +1533,22 @@ public struct ReaderView: View {
         }
     }
 
+    /// The vertical drag of the continuous-scroll mode — upstream
+    /// `ScrollPageDelegate.onScroll`.
+    private var scrollDrag: DragGestureModifier {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                controller.scrollDragChanged(translation: Double(value.translation.height))
+            }
+            .onEnded { _ in
+                controller.scrollDragEnded()
+            }
+    }
+
     /// The header of the page — upstream `PageView.upTipStyle` (the tip row
     /// above the text).
     @ViewBuilder
-    private var tipHeader: some View {
-        let layout = controller.config.tipLayout
+    private var tipHeader: some View {        let layout = controller.config.tipLayout
         if controller.config.showHeader && layout.headerMode.isVisible(statusBarVisible: false) {
             ReaderTipView(
                 row: layout.header,
