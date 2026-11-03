@@ -46,90 +46,11 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: ""
         SUPPORTS_MACCATALYST: NO
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
-    info:
-      path: Sources/LegadoAppUI/Info.plist
-      properties:
-        CFBundleDisplayName: 阅读
-        CFBundleName: Legado
-        CFBundleShortVersionString: "1.0.0"
-        CFBundleVersion: "1"
-        LSRequiresIPhoneOS: true
-        UIApplicationSceneManifest:
-          UIApplicationSupportsMultipleScenes: false
-        UILaunchScreen: {}
-        # The read-aloud keeps playing with the screen off, like the upstream
-        # `BaseReadAloudService` (which uses a foreground service).
-        UIBackgroundModes:
-          - audio
-        # The QR scanner (`LegadoUI/QRScannerView.swift`) needs the camera;
-        # without this the app is killed the first time the scanner opens.
-        NSCameraUsageDescription: 扫描二维码导入书源或规则
-        UISupportedInterfaceOrientations:
-          - UIInterfaceOrientationPortrait
-          - UIInterfaceOrientationLandscapeLeft
-          - UIInterfaceOrientationLandscapeRight
-        UISupportedInterfaceOrientations~ipad:
-          - UIInterfaceOrientationPortrait
-          - UIInterfaceOrientationPortraitUpsideDown
-          - UIInterfaceOrientationLandscapeLeft
-          - UIInterfaceOrientationLandscapeRight
-        # The deep links of the Android app (`legado://import/bookSource?src=…`).
-        CFBundleURLTypes:
-          - CFBundleURLName: io.legado.app.deeplink
-            CFBundleTypeRole: Editor
-            CFBundleURLSchemes:
-              - legado
-        # The "Open with" of the upstream `FileAssociationActivity`: a local
-        # book or a JSON document with a book source / a rule.
-        CFBundleDocumentTypes:
-          - CFBundleTypeName: 书籍
-            CFBundleTypeRole: Editor
-            LSHandlerRank: Alternate
-            LSItemContentTypes:
-              - public.plain-text
-              - public.json
-              - org.idpf.epub-container
-              - com.adobe.pdf
-          - CFBundleTypeName: 书源与规则
-            CFBundleTypeRole: Editor
-            LSHandlerRank: Alternate
-            LSItemContentTypes:
-              - public.json
-        # The local books are imported through the Files app.
-        UIFileSharingEnabled: true
-        LSSupportsOpeningDocumentsInPlace: true
-        # Most book sources are plain HTTP.
-        NSAppTransportSecurity:
-          NSAllowsArbitraryLoads: true
-        ITSAppUsesNonExemptEncryption: false
-        # The launcher icons — the primary one and the six alternates of the
-        # upstream launcher activities (`help/LauncherIconHelp.kt`). The PNGs
-        # are rendered from the upstream vector drawables by
-        # `Scripts/render_launcher_icons.py`.
-        CFBundleIcons:
-          CFBundlePrimaryIcon:
-            CFBundleIconFiles:
-              - AppIcon60x60
-              - AppIcon76x76
-          CFBundleAlternateIcons:
-            Icon1:
-              CFBundleIconFiles:
-                - Icon1
-            Icon2:
-              CFBundleIconFiles:
-                - Icon2
-            Icon3:
-              CFBundleIconFiles:
-                - Icon3
-            Icon4:
-              CFBundleIconFiles:
-                - Icon4
-            Icon5:
-              CFBundleIconFiles:
-                - Icon5
-            Icon6:
-              CFBundleIconFiles:
-                - Icon6
+    # The Info.plist is committed and is the single source of truth: XcodeGen
+    # must not rewrite it (the generated file would differ in the ordering and
+    # the formatting and would dirty the working tree on every run). It
+    # carries the deep-link scheme, the document types, the launcher icons,
+    # the camera usage description and the audio background mode.
 
 schemes:
   LegadoApp:
