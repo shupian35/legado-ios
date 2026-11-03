@@ -51,6 +51,9 @@ extension View {
     public func background(_ color: Color) -> some View { ModifiedView(self) }
     public func overlay<V: View>(_ overlay: V) -> some View { ModifiedView(self) }
     public func overlay<V: View>(_ overlay: V, alignment: Alignment = .center) -> some View { ModifiedView(self) }
+    /// The real SwiftUI also has the builder form
+    /// (`overlay(alignment:content:)`) — the shim mirrors it.
+    public func overlay<V: View>(alignment: Alignment = .center, @ViewBuilder content: () -> V) -> some View { ModifiedView(self) }
     public func opacity(_ opacity: Double) -> some View { ModifiedView(self) }
     public func hidden() -> some View { ModifiedView(self) }
     public func cornerRadius(_ radius: Double) -> some View { ModifiedView(self) }

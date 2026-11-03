@@ -978,6 +978,7 @@ public final class LegadoAppModel: ObservableObject {
                     book: book,
                     chapters: chapters
                 )
+                controller.model = self
                 mangaReader = controller
                 isMangaPresented = true
                 return

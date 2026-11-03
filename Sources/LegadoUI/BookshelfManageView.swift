@@ -662,6 +662,12 @@ enum UIPasteboardShim {
         return ""
         #endif
     }
+
+    /// The text of the clipboard, or nil when it is empty.
+    static func paste() -> String? {
+        let text = string()
+        return text.isEmpty ? nil : text
+    }
 }
 
 /// Which variable the editor edits — upstream `BookInfoActivity.setSourceVariable`

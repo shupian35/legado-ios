@@ -441,6 +441,58 @@ public final class AnalyzeUrl {
         }
     }
 
+    // MARK: - Upload
+
+    /// Upload a file — the port of the upstream `AnalyzeUrl.upload`
+    /// (`app/src/main/java/io/legado/app/model/analyzeRule/AnalyzeUrl.kt:587`).
+    ///
+    /// The option block's `body` is a JSON map; every value equal to
+    /// `fileRequest` is replaced by the uploaded file (the upstream builds a
+    /// `mapOf("fileName", "file", "contentType")` for it). The request drops the
+    /// query (`url(urlNoQuery)`) and sends a `multipart/form-data` body.
+    public func upload(fileName: String, file: Data, contentType: String) async throws -> HttpResponse {
+        guard let body else {
+            throw AnalyzeUrlError.invalidURL("上传地址缺少 body 参数")
+        }
+        guard let parsed = try? JSONValue.parse(body), let map = parsed.objectValue else {
+            throw AnalyzeUrlError.invalidURL("上传地址的 body 不是合法的 JSON")
+        }
+        var parts: [MultipartBody.Part] = []
+        for (key, value) in map {
+            if value.stringValue == "fileRequest" {
+                parts.append(
+                    MultipartBody.Part(
+                        name: key,
+                        fileName: fileName,
+                        contentType: contentType,
+                        data: file
+                    )
+                )
+            } else {
+                parts.append(MultipartBody.Part.field(key, value.stringValue ?? ""))
+            }
+        }
+        let boundary = MultipartBody.makeBoundary()
+        let payload = MultipartBody.encode(parts, boundary: boundary)
+        return try await concurrentRateLimiter.withLimit {
+            setCookie()
+            var headers = headerMap
+            headers["Content-Type"] = "multipart/form-data; boundary=\(boundary)"
+            let request = HttpRequest(
+                url: urlNoQuery,
+                method: "POST",
+                headers: headers,
+                body: payload,
+                readTimeout: readTimeout,
+                callTimeout: max(60, readTimeout * 2),
+                proxy: proxy
+            )
+            let response = try await dependencies.httpClient.send(request)
+            saveCookie(response)
+            return response
+        }
+    }
+
     // MARK: - Scripts
 
     /// Evaluate a script — upstream `evalJS`.
@@ -544,7 +596,7 @@ public struct UrlOption {
     init(dictionary: [String: Any]) {
         method = UrlOption.string(dictionary["method"])
         charset = UrlOption.string(dictionary["charset"])
-        body = UrlOption.string(dictionary["body"])
+        body = UrlOption.body(dictionary["body"])
         origin = UrlOption.string(dictionary["origin"])
         js = UrlOption.string(dictionary["js"])
         webJs = UrlOption.string(dictionary["webJs"])
@@ -588,6 +640,36 @@ public struct UrlOption {
         }
         if let number = value as? NSNumber {
             return number.stringValue
+        }
+        return nil
+    }
+
+    /// The body of the option block — upstream `UrlOption.setBody` /
+    /// `UrlOption.getBody`.
+    ///
+    /// A JSON object or an array is re-serialized (the upstream keeps it as a
+    /// map and `getBody` writes it back as JSON); a plain string is kept.
+    private static func body(_ value: Any?) -> String? {
+        guard let value else { return nil }
+        if let string = value as? String {
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty { return nil }
+            if trimmed.hasPrefix("{") || trimmed.hasPrefix("[") {
+                // The upstream parses a JSON body into a map and writes it
+                // back as JSON.
+                if let parsed = try? JSONValue.parse(trimmed) {
+                    return parsed.jsonString
+                }
+            }
+            return trimmed
+        }
+        if value is [String: Any] || value is [Any] {
+            // `JSONSerialization` needs a valid object; the option block is
+            // already parsed from JSON.
+            if let data = try? JSONSerialization.data(withJSONObject: value),
+               let json = String(data: data, encoding: .utf8) {
+                return json
+            }
         }
         return nil
     }

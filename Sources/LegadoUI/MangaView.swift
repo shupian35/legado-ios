@@ -13,16 +13,79 @@ public final class MangaReaderController: ObservableObject {
     @Published public var isLoading = false
     @Published public var errorMessage: String?
     @Published public var zoom: Double = MangaMode.Zoom.defaultRate
+    /// The index of the visible page — upstream `MangaMenu.upSeekBar`.
+    @Published public var pageIndex: Int = 0
+    /// Whether the menu is shown — upstream `MangaMenu.runMenuIn`.
+    @Published public var isMenuVisible = false
 
     public let environment: AppEnvironment
     public let book: Book
     public let chapters: [BookChapter]
     public var currentChapterIndex: Int = 0
+    /// The app model — the menu opens the book info with it.
+    public weak var model: LegadoAppModel?
+    /// The screen integration (the brightness) — upstream
+    /// `MangaMenu.upBrightnessVwPos`.
+    public let system: ReaderSystemIntegration
 
     public init(environment: AppEnvironment, book: Book, chapters: [BookChapter]) {
         self.environment = environment
         self.book = book
         self.chapters = chapters
+        self.system = ReaderSystemIntegration(settings: environment.settings)
+    }
+
+    /// The title of the current chapter.
+    public var chapterTitle: String {
+        if let chapter { return chapter.title }
+        return chapters.indices.contains(currentChapterIndex)
+            ? chapters[currentChapterIndex].title
+            : ""
+    }
+
+    /// The address of the current chapter — upstream `tvChapterUrl`.
+    public var chapterURL: String {
+        chapters.indices.contains(currentChapterIndex) ? chapters[currentChapterIndex].url : ""
+    }
+
+    /// The number of the pages of the current chapter.
+    public var pageCount: Int {
+        chapter?.imageCount ?? 0
+    }
+
+    /// The text of the page indicator — upstream `upInfoBar`.
+    public var pageText: String {
+        footerText(pageIndex: pageIndex)
+    }
+
+    /// Jumps to a page — upstream `MangaMenu.CallBack.skipToPage`.
+    public func skipToPage(_ index: Int) {
+        guard index >= 0, index < max(pageCount, 1) else { return }
+        pageIndex = index
+    }
+
+    /// Goes to the next chapter — upstream `ReadManga.moveToNextChapter`.
+    public func moveToNextChapter() async {
+        guard currentChapterIndex + 1 < chapters.count else { return }
+        await loadChapter(at: currentChapterIndex + 1)
+        pageIndex = 0
+    }
+
+    /// Goes to the previous chapter — upstream `ReadManga.moveToPrevChapter`.
+    public func moveToPrevChapter() async {
+        guard currentChapterIndex > 0 else { return }
+        await loadChapter(at: currentChapterIndex - 1)
+        pageIndex = 0
+    }
+
+    /// The brightness the manga reader applies.
+    public var brightnessPercent: Int {
+        system.brightnessPercent
+    }
+
+    /// Changes the screen brightness.
+    public func setBrightness(percent: Int) {
+        Task { @MainActor in system.setBrightness(percent: percent) }
     }
 
     /// Loads the chapter — upstream `ReadMangaActivity.loadChapterImages`.
@@ -96,7 +159,6 @@ public enum MangaTapAction: Equatable {
 public struct MangaReaderView: View {
 
     @ObservedObject var controller: MangaReaderController
-    @State private var pageIndex = 0
     @State private var showsMenu = false
 
     public init(controller: MangaReaderController) {
@@ -108,16 +170,55 @@ public struct MangaReaderView: View {
             if controller.isLoading {
                 ProgressView("加载中")
             } else if let chapter = controller.chapter {
-                ScrollView {
-                    ForEach(Array(chapter.pages.enumerated()), id: \.offset) { index, page in
-                        MangaPageView(page: page, zoom: controller.zoom)
-                            .id(index)
+                GeometryReader { proxy in
+                    ScrollView {
+                        ForEach(Array(chapter.pages.enumerated()), id: \.offset) { index, page in
+                            MangaPageView(page: page, zoom: controller.zoom)
+                                .id(index)
+                        }
+                    }
+                    .onTapGesture { position in
+                        // Upstream `WebtoonFrame` — the middle opens the
+                        // menu, the bottom left goes back, the bottom right
+                        // goes forward.
+                        switch controller.handleTap(
+                            x: Double(position.x),
+                            y: Double(position.y),
+                            width: Double(proxy.size.width),
+                            height: Double(proxy.size.height)
+                        ) {
+                        case .menu:
+                            controller.isMenuVisible.toggle()
+                        case .previous:
+                            Task { await controller.moveToPrevChapter() }
+                        case .next:
+                            Task { await controller.moveToNextChapter() }
+                        case .none:
+                            break
+                        }
                     }
                 }
             } else {
                 EmptyState(text: controller.errorMessage ?? "没有可显示的图片")
             }
             footer
+        }
+        .overlay(alignment: .bottom) {
+            // The menu of the manga reader — upstream `MangaMenu`.
+            if controller.isMenuVisible {
+                MangaMenuView(
+                    controller: controller,
+                    onClose: { controller.isMenuVisible = false },
+                    onShowBookInfo: { showsBookInfo = true }
+                )
+            }
+        }
+        .sheet(isPresented: $showsBookInfo) {
+            if let model = controller.model {
+                NavigationStack {
+                    BookDetailView(model: model, book: controller.book)
+                }
+            }
         }
         .onAppear {
             Task {
@@ -126,26 +227,22 @@ public struct MangaReaderView: View {
         }
     }
 
+    /// Whether the book info is shown — upstream
+    /// `MangaMenu.CallBack.openBookInfoActivity`.
+    @State private var showsBookInfo = false
+
     private var footer: some View {
         HStack {
             Button("上一章") {
-                Task {
-                    await controller.loadChapter(at: max(0, controller.currentChapterIndex - 1))
-                    pageIndex = 0
-                }
+                Task { await controller.moveToPrevChapter() }
             }
             Spacer()
-            Text(controller.footerText(pageIndex: pageIndex))
+            Text(controller.footerText(pageIndex: controller.pageIndex))
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
             Spacer()
             Button("下一章") {
-                Task {
-                    await controller.loadChapter(
-                        at: min(controller.chapters.count - 1, controller.currentChapterIndex + 1)
-                    )
-                    pageIndex = 0
-                }
+                Task { await controller.moveToNextChapter() }
             }
         }
         .padding(16)

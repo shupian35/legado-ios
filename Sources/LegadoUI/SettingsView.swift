@@ -213,6 +213,9 @@ public struct SettingsView: View {
                     NavigationLink("全部设置") {
                         AdvancedSettingsView(model: model)
                     }
+                    NavigationLink("直链上传") {
+                        DirectLinkUploadConfigView(model: model)
+                    }
                 }
 
                 // The upstream "我的" menu (`ui/main/MainActivity` → the
