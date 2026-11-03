@@ -152,12 +152,25 @@ public struct BackupView: View {
                 store: model.environment.store.tableStore,
                 settings: backupSettings()
             )
+            let applied = applyPreferences(in: data)
             model.reloadAll()
-            status = "恢复完成：\(summary.restoredRows) 条记录"
+            status = "恢复完成：\(summary.restoredRows) 条记录，\(applied) 项设置"
         } catch {
             status = "恢复失败：\(error.localizedDescription)"
         }
         isWorking = false
+    }
+
+    /// Restores the preferences of a backup, skipping the ignored groups —
+    /// upstream `Restore.restoreConfig` + `BackupConfig.keyIsNotIgnore`.
+    private func applyPreferences(in data: Data) -> Int {
+        let preferences = (try? LegadoBackup.preferences(inZipData: data)) ?? [:]
+        let ignore = BackupIgnoreConfig.load(from: model.environment.settings.settingsStore)
+        return LegadoBackup.applyPreferences(
+            preferences,
+            to: model.environment.settings.settingsStore,
+            ignore: ignore
+        )
     }
 
     private func uploadToWebDav() {
@@ -204,8 +217,9 @@ public struct BackupView: View {
                     store: model.environment.store.tableStore,
                     settings: backupSettings()
                 )
+                let applied = applyPreferences(in: data)
                 model.reloadAll()
-                status = "恢复完成：\(summary.restoredRows) 条记录"
+                status = "恢复完成：\(summary.restoredRows) 条记录，\(applied) 项设置"
             } catch {
                 status = "恢复失败：\(error.localizedDescription)"
             }

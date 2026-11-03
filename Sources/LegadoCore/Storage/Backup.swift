@@ -275,6 +275,36 @@ public enum LegadoBackup {
         return try decodePreferences(file.string)
     }
 
+    /// The preference pairs of a zipped backup — upstream `Restore.restoreConfig`.
+    public static func preferences(inZipData data: Data) throws -> [String: String] {
+        let archive = try ZipArchive(data: data)
+        var files: [BackupFile] = []
+        for entry in archive.entries {
+            files.append(BackupFile(name: entry.name, data: try archive.data(for: entry)))
+        }
+        return try preferences(in: BackupArchive(fileName: "", files: files))
+    }
+
+    /// Writes the preferences of an archive back into the settings, skipping
+    /// the ones the ignore configuration excludes — upstream
+    /// `Restore.restoreConfig` + `BackupConfig.keyIsNotIgnore`.
+    ///
+    /// Returns the number of the restored preferences.
+    @discardableResult
+    public static func applyPreferences(
+        _ preferences: [String: String],
+        to settings: SettingsStore,
+        ignore: BackupIgnoreConfig? = nil
+    ) -> Int {
+        var applied = 0
+        for (key, value) in preferences {
+            if let ignore, !ignore.shouldRestore(key) { continue }
+            settings.set(value, forKey: key)
+            applied += 1
+        }
+        return applied
+    }
+
     // MARK: - Insertion
 
     private static func insert(

@@ -197,6 +197,10 @@ public struct SettingsView: View {
                     Button("备份与恢复") {
                         isBackupPresented = true
                     }
+                    NavigationLink("恢复时忽略的备份项") {
+                        BackupIgnoreConfigView(model: model)
+                    }
+                    ClearCacheButton(model: model)
                 }
 
                 Section("书源") {

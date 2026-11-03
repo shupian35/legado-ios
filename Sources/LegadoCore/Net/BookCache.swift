@@ -221,6 +221,13 @@ public final class BookCacheStorage: @unchecked Sendable {
     public func clearCache(book: Book) {
         try? fileManager.removeItem(at: layout.folder(for: book))
     }
+
+    /// Deletes the whole cache — upstream `BookHelp.clearCache()` (the version
+    /// without a book: it removes the cache folder of every book).
+    public func clearAllCache() {
+        try? fileManager.removeItem(at: layout.root)
+        try? fileManager.createDirectory(at: layout.root, withIntermediateDirectories: true)
+    }
 }
 
 /// The progress of one download batch.
