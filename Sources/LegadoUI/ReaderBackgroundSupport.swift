@@ -47,9 +47,26 @@ public struct ReaderBackgroundSupport: View {
 
     public var body: some View {
         ZStack {
+            // The upstream applies the opacity of the style to the background
+            // drawable (`PageView.kt:280`: `ReadBookConfig.bg?.alpha =
+            // (ReadBookConfig.bgAlpha / 100f * 255).toInt()`), the colour and
+            // the image are the same drawable there.
             ColorHex.color(preset.backgroundString(for: mode), fallback: .white)
+                .opacity(isColourBackground ? backgroundAlpha : 1)
             backgroundImage
+                .opacity(isColourBackground ? 1 : backgroundAlpha)
         }
+    }
+
+    /// The opacity of the background — upstream `Config.bgAlpha`.
+    private var backgroundAlpha: Double {
+        ReaderBackground.alpha(for: preset)
+    }
+
+    /// Whether the background of the current mode is a colour — upstream
+    /// `Config.bgType` (0: a colour, 1: an asset image, 2: another image).
+    private var isColourBackground: Bool {
+        preset.backgroundType(for: mode) == .color
     }
 
     @ViewBuilder

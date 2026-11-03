@@ -104,10 +104,30 @@ struct BrowserContent: View {
 
 #if canImport(WebKit)
 /// The `WKWebView` wrapper.
+///
+/// The wrapper loads an url or an HTML document. The HTML is used by the
+/// reader of the RSS articles — upstream `ReadRssActivity` loads the
+/// article with `loadDataWithBaseURL`.
 struct WebViewRepresentable: UIViewRepresentable {
 
     let webView: WKWebView
     let url: String
+    /// The HTML of the page — when it is set the HTML is loaded instead of
+    /// the url (upstream `ReadRssActivity.loadDataWithBaseURL`).
+    var html: String? = nil
+    /// The base url of the HTML — upstream `rssSource.loadWithBaseUrl`.
+    var baseURL: String? = nil
+    /// The JavaScript that runs when the page is loaded — upstream
+    /// `rssSource.injectJs`.
+    var injectJs: String? = nil
+    /// The JavaScript that decides whether a link is opened — upstream
+    /// `rssSource.shouldOverrideUrlLoading`.
+    var overrideJs: String? = nil
+    /// Whether a request of the page is allowed — upstream the white list
+    /// and the black list of the source.
+    var isAllowed: ((String) -> Bool)? = nil
+    /// The action of a link that may not be opened in the page.
+    var onOpenLink: ((String) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(webView: webView) }
 
@@ -117,16 +137,35 @@ struct WebViewRepresentable: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
-        guard context.coordinator.lastURL != url else { return }
-        context.coordinator.lastURL = url
+        let coordinator = context.coordinator
+        coordinator.injectJs = injectJs
+        coordinator.overrideJs = overrideJs
+        coordinator.isAllowed = isAllowed
+        coordinator.onOpenLink = onOpenLink
+        if let html {
+            guard coordinator.lastHTML != html else { return }
+            coordinator.lastHTML = html
+            coordinator.lastURL = url
+            let base = baseURL.flatMap { URL(string: $0) }
+            uiView.loadHTMLString(html, baseURL: base)
+            return
+        }
+        guard coordinator.lastURL != url else { return }
+        coordinator.lastURL = url
+        coordinator.lastHTML = nil
         if let target = URL(string: url) {
-            webView.load(URLRequest(url: target))
+            uiView.load(URLRequest(url: target))
         }
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate {
         let webView: WKWebView
         var lastURL: String?
+        var lastHTML: String?
+        var injectJs: String?
+        var overrideJs: String?
+        var isAllowed: ((String) -> Bool)?
+        var onOpenLink: ((String) -> Void)?
 
         init(webView: WKWebView) {
             self.webView = webView
@@ -134,6 +173,54 @@ struct WebViewRepresentable: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             lastURL = webView.url?.absoluteString
+            // Upstream `ReadRssActivity.onPageFinished` evaluates the
+            // `injectJs` of the source.
+            if let injectJs, !injectJs.isEmpty {
+                webView.evaluateJavaScript(injectJs, completionHandler: nil)
+            }
+        }
+
+        /// The decision of a link — upstream
+        /// `ReadRssActivity.CustomWebViewClient.shouldOverrideUrlLoading`.
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        ) {
+            guard let url = navigationAction.request.url else {
+                decisionHandler(.allow)
+                return
+            }
+            let absolute = url.absoluteString
+            // The white list and the black list of the source.
+            if let isAllowed, !isAllowed(absolute) {
+                decisionHandler(.cancel)
+                return
+            }
+            if let overrideJs, !overrideJs.isEmpty {
+                // The script of the source decides — upstream
+                // `source.evalJS(js) { put("url", url.toString()) }`.
+                let script = "try { (\(overrideJs)) } catch (e) { '' }"
+                webView.evaluateJavaScript(script) { result, _ in
+                    let handled = (result as? String)?.isEmpty == false
+                    if handled {
+                        decisionHandler(.cancel)
+                    } else {
+                        decisionHandler(.allow)
+                    }
+                }
+                return
+            }
+            switch url.scheme?.lowercased() {
+            case "http", "https", "jsbridge", nil:
+                decisionHandler(.allow)
+            case "legado", "yuedu":
+                decisionHandler(.cancel)
+                onOpenLink?(absolute)
+            default:
+                decisionHandler(.cancel)
+                onOpenLink?(absolute)
+            }
         }
     }
 }

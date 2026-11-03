@@ -105,8 +105,11 @@ public enum ViewBuilder {
         if let content { return AnyView(content) }
         return AnyView(EmptyView())
     }
-    public static func buildEither<T: View, F: View>(first: T) -> ConditionalContent<T, F> { ConditionalContent(first: first, second: nil) }
-    public static func buildEither<T: View, F: View>(second: F) -> ConditionalContent<T, F> { ConditionalContent(first: nil, second: second) }
+    // The `if`/`else` result is erased to `AnyView`: the generic
+    // `ConditionalContent<T, F>` form needs both branch types, and the
+    // compiler cannot infer `F` for `if let … { } else if let … { }`.
+    public static func buildEither<T: View>(first: T) -> AnyView { AnyView(first) }
+    public static func buildEither<F: View>(second: F) -> AnyView { AnyView(second) }
     public static func buildLimitedAvailability<C: View>(_ content: C) -> AnyView { AnyView(content) }
 }
 
@@ -360,6 +363,9 @@ public struct Section<Content: View>: View {
     public init<S: StringProtocol>(_ title: S, @ViewBuilder content: () -> Content) {}
     public init(@ViewBuilder header: () -> some View, @ViewBuilder content: () -> Content) {}
     public init(@ViewBuilder header: () -> some View, @ViewBuilder footer: () -> some View, @ViewBuilder content: () -> Content) {}
+    /// The `Section { … } header: { … }` form — the header is the LAST
+    /// parameter, exactly like the real SwiftUI.
+    public init(@ViewBuilder content: () -> Content, @ViewBuilder header: () -> some View) {}
     public var body: Never { fatalError("Section has no body") }
 }
 

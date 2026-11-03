@@ -186,6 +186,80 @@ public final class AppEnvironment {
         )
     }
 
+    /// Searches many sources at once — upstream `SearchModel.startSearch`.
+    ///
+    /// The sources are searched concurrently (upstream `mapParallelSafe`),
+    /// the results are merged and the exact matches come first (upstream
+    /// `SearchModel.mergeItems`).
+    ///
+    /// - Parameters:
+    ///   - precision: only the books whose name or author contain the
+    ///     keyword are kept (upstream `PreferKey.precisionSearch`).
+    ///   - threadCount: how many sources are searched at the same time.
+    public func search(
+        sources: [BookSource],
+        keyword: String,
+        precision: Bool = false,
+        threadCount: Int = 4
+    ) async -> [SearchBook] {
+        guard !sources.isEmpty, !keyword.isEmpty else { return [] }
+        let limit = max(1, min(threadCount, 8))
+        let dependencies = dependencies()
+        var collected: [SearchBook] = []
+        await withTaskGroup(of: [SearchBook].self) { group in
+            var iterator = sources.makeIterator()
+            for _ in 0..<limit {
+                guard let source = iterator.next() else { break }
+                group.addTask {
+                    await Self.searchOne(
+                        source: source,
+                        keyword: keyword,
+                        precision: precision,
+                        dependencies: dependencies
+                    )
+                }
+            }
+            while let result = await group.next() {
+                collected.append(contentsOf: result)
+                if let source = iterator.next() {
+                    group.addTask {
+                        await Self.searchOne(
+                            source: source,
+                            keyword: keyword,
+                            precision: precision,
+                            dependencies: dependencies
+                        )
+                    }
+                }
+            }
+        }
+        return SearchResultMerge.merge(collected, keyword: keyword, precision: precision)
+    }
+
+    /// Searches one source of a multi-source search — upstream
+    /// `SearchModel.startSearch` (`WebBook.searchBookAwait` with the filter).
+    private static func searchOne(
+        source: BookSource,
+        keyword: String,
+        precision: Bool,
+        dependencies: AnalyzeUrlDependencies
+    ) async -> [SearchBook] {
+        do {
+            return try await WebBook.searchBook(
+                bookSource: source,
+                key: keyword,
+                filter: { name, author in
+                    !precision || name.contains(keyword) || author.contains(keyword)
+                },
+                dependencies: dependencies
+            )
+        } catch {
+            // Upstream `SearchModel.startSearch` catches the error of a
+            // source and continues with the next one.
+            return []
+        }
+    }
+
     /// Lists the categories of a source (upstream `WebBook.exploreBook`).
     public func explore(source: BookSource, url: String) async throws -> [SearchBook] {
         try await WebBook.exploreBook(
@@ -267,31 +341,45 @@ public final class AppEnvironment {
         try store.allRssSources()
     }
 
-    /// Loads the articles of an RSS source (upstream `Rss.articles`).
-    public func rssArticles(source: RssSource, page: Int = 1) async throws -> [RssArticle] {
-        let result = try await Rss.articles(
-            sortName: source.sourceName,
-            sortUrl: source.sortUrl ?? source.sourceUrl,
-            rssSource: source,
-            page: page,
-            dependencies: dependencies(),
-            scriptEngine: scriptEngine
-        )
-        return result.articles
+    /// Loads the articles of an RSS source (upstream `Rss.getArticles`).
+    ///
+    /// Upstream returns the articles *and* the URL of the next page
+    /// (`Rss.getArticlesAwait` returns a `Pair`); the port keeps both in
+    /// `RssArticlePage`.
+    public func rssArticles(source: RssSource, page: Int = 1) async throws -> RssArticlePage {
+        try await rssArticles(source: source, sort: nil, page: page, url: nil)
     }
 
     /// Loads the articles of one sort of an RSS source — upstream
     /// `Rss.getArticles(sortName, sortUrl, rssSource, page)`.
-    public func rssArticles(source: RssSource, sort: RssSort, page: Int = 1) async throws -> [RssArticle] {
-        let result = try await Rss.articles(
-            sortName: sort.name,
-            sortUrl: sort.url,
+    public func rssArticles(source: RssSource, sort: RssSort, page: Int = 1) async throws -> RssArticlePage {
+        try await rssArticles(source: source, sort: sort, page: page, url: nil)
+    }
+
+    /// Loads one page of the articles of an RSS source.
+    ///
+    /// - Parameters:
+    ///   - sort: the sort the articles belong to — `nil` uses the source.
+    ///   - page: the page number (upstream `RssArticlesViewModel.page`).
+    ///   - url: the URL of the page; the "load more" button passes the URL
+    ///     the previous page returned (upstream
+    ///     `RssArticlesViewModel.loadMore`).
+    public func rssArticles(
+        source: RssSource,
+        sort: RssSort?,
+        page: Int,
+        url: String?
+    ) async throws -> RssArticlePage {
+        let sortName = sort?.name ?? source.sourceName
+        let sortUrl = url ?? sort?.url ?? source.sortUrl ?? source.sourceUrl
+        return try await Rss.articles(
+            sortName: sortName,
+            sortUrl: sortUrl,
             rssSource: source,
             page: page,
             dependencies: dependencies(),
             scriptEngine: scriptEngine
         )
-        return result.articles
     }
 
     /// Loads the full text of an article (upstream `Rss.content`).
@@ -305,6 +393,57 @@ public final class AppEnvironment {
         )
     }
 
+    /// Imports the RSS sources of a JSON document — upstream
+    /// `ImportRssSourceViewModel.importSourceAwait`.
+    ///
+    /// - Returns: the number of imported sources.
+    @discardableResult
+    public func importRssSources(json: String) throws -> Int {
+        let sources = try RssSourceImport.sources(json: json)
+        for source in sources {
+            try store.insert(source)
+        }
+        return sources.count
+    }
+
+    /// Imports the RSS sources of a URL — upstream
+    /// `ImportRssSourceViewModel.importSourceUrl`.
+    ///
+    /// A document with a `sourceUrls` member is followed: every URL is
+    /// downloaded and imported.
+    @discardableResult
+    public func importRssSources(url: String) async throws -> Int {
+        let body = try await download(url: url)
+        let urls = (try? RssSourceImport.sourceURLs(json: body)) ?? []
+        if !urls.isEmpty {
+            var count = 0
+            for sourceURL in urls {
+                count += try await importRssSources(url: sourceURL)
+            }
+            return count
+        }
+        return try importRssSources(json: body)
+    }
+
+    /// Exports the RSS sources as a JSON array — upstream
+    /// `RssSourceViewModel.saveToFile`.
+    public func exportRssSources(onlyEnabled: Bool = false) throws -> String {
+        var sources = try store.allRssSources()
+        if onlyEnabled {
+            sources = sources.filter { $0.enabled }
+        }
+        return JSONValue.array(sources.map { RssSourceJSONBridge.encode($0) }).jsonString
+    }
+
+    /// Downloads a text document.
+    private func download(url: String) async throws -> String {
+        let response = try await httpClient.send(HttpRequest(url: url))
+        guard let body = response.body, !body.isEmpty else {
+            throw AppEnvironmentError.emptyResponse
+        }
+        return body
+    }
+
     // MARK: - Errors
 }
 
@@ -314,6 +453,7 @@ public enum AppEnvironmentError: Error, Equatable {
     case noValidSource
     case bookNotFound(String)
     case sourceNotFound(String)
+    case emptyResponse
 }
 
 // MARK: - JSON bridge for the book sources

@@ -2,16 +2,24 @@
 //  SourceManagerView.swift
 //  LegadoUI
 //
-//  The book source manager — upstream `ui/book/source/SourceManageActivity`.
+//  The book source manager — upstream
+//  `ui/book/source/manage/BookSourceActivity.kt`.
 //
-//  It lists the sources, enables and disables them, deletes them and imports
-//  or exports them as JSON.
+//  It lists the sources with their groups, searches them, sorts them, filters
+//  them, imports or exports them as JSON and edits them in bulk (the enable /
+//  delete / move to a group / export / check).
 //
 //  See `AppModel.swift` for the state.
 //
 
 #if canImport(SwiftUI)
 import SwiftUI
+#else
+import LegadoUIShim
+#endif
+
+#if canImport(UniformTypeIdentifiers)
+import UniformTypeIdentifiers
 #else
 import LegadoUIShim
 #endif
@@ -24,9 +32,25 @@ public struct SourceManagerView: View {
 
     @ObservedObject var model: LegadoAppModel
 
-    @State private var importText: String = ""
+    // The search and the sorting — upstream `BookSourceActivity`.
+    @State private var searchText: String = ""
+    @State private var sort: BookSourceSort = .custom
+    @State private var isSortAscending = true
+    @State private var isGroupedByDomain = false
+
+    // The selection — upstream `BookSourceAdapter.selected`.
+    @State private var isManaging = false
+    @State private var selection: Set<String> = []
+
+    // The sheets.
     @State private var isImportPresented = false
+    @State private var importText: String = ""
+    @State private var isFileImporterPresented = false
+    @State private var isQRScannerPresented = false
+    @State private var qrResult: String?
     @State private var isCheckPresented = false
+    @State private var checkTargets: [BookSource] = []
+    @State private var isCheckConfigPresented = false
     @State private var loginSource: BookSource?
     @State private var isLoginPresented = false
     @State private var isSharePresented = false
@@ -35,8 +59,11 @@ public struct SourceManagerView: View {
     @State private var isEditorPresented = false
     @State private var isGroupPresented = false
     @State private var isDebugPresented = false
-    @State private var isManaging = false
-    @State private var selection: Set<String> = []
+    @State private var isHelpPresented = false
+    @State private var isGroupPromptPresented = false
+    @State private var groupPromptTitle: String = ""
+    @State private var groupPromptAction: GroupPromptAction = .add
+    @State private var message: String?
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -45,87 +72,186 @@ public struct SourceManagerView: View {
     public var body: some View {
         NavigationStack {
             List {
-                Section {
-                    ForEach(model.sources, id: \.bookSourceUrl) { source in
-                        SourceRow(
-                            source: source,
-                            isSelected: selection.contains(source.bookSourceUrl),
-                            onToggle: { enabled in model.setSource(source, enabled: enabled) },
-                            onDelete: { model.deleteSource(source) },
-                            onSelect: {
-                                if isManaging {
-                                    if selection.contains(source.bookSourceUrl) {
-                                        selection.remove(source.bookSourceUrl)
-                                    } else {
-                                        selection.insert(source.bookSourceUrl)
-                                    }
-                                }
-                            },
-                            onLogin: {
-                                loginSource = source
-                                isLoginPresented = true
-                            },
-                            onEdit: {
-                                editingSource = source
-                                isEditorPresented = true
-                            }
-                        )
-                    }
-                }
+                sourceSections
                 if isManaging {
-                    Section {
+                    Section("已选 \(selection.count) 个") {
+                        Menu {
+                            Button("启用所选") {
+                                model.setSources(selectedSources, enabled: true)
+                            }
+                            Button("禁用所选") {
+                                model.setSources(selectedSources, enabled: false)
+                            }
+                            Button("允许发现") {
+                                model.setSourcesExplore(selectedSources, enabled: true)
+                            }
+                            Button("禁用发现") {
+                                model.setSourcesExplore(selectedSources, enabled: false)
+                            }
+                            Button("置顶所选") {
+                                model.topSources(selectedSources)
+                            }
+                            Button("置底所选") {
+                                model.bottomSources(selectedSources)
+                            }
+                            Button("加入分组") {
+                                promptGroup(.add)
+                            }
+                            Button("移出分组") {
+                                promptGroup(.remove)
+                            }
+                            Button("导出所选") {
+                                exportSelection()
+                            }
+                            Button("校验所选") {
+                                checkTargets = selectedSources
+                                isCheckPresented = true
+                            }
+                            Button("删除所选", role: .destructive) {
+                                model.deleteSources(selectedSources)
+                                selection.removeAll()
+                            }
+                        } label: {
+                            Text("批量操作")
+                        }
                         HStack {
                             Button("全选") {
                                 selection = Set(model.sources.map(\.bookSourceUrl))
                             }
-                            Button("取消") {
-                                selection.removeAll()
-                            }
-                            Button("启用") {
-                                model.setSources(selectedSources, enabled: true)
-                            }
-                            Button("禁用") {
-                                model.setSources(selectedSources, enabled: false)
-                            }
-                            Button("删除") {
-                                model.deleteSources(selectedSources)
+                            Button("取消选择") {
                                 selection.removeAll()
                             }
                         }
                         .font(.system(size: 13))
                     }
                 }
+                if let message {
+                    Section {
+                        Text(message)
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                }
             }
             .navigationTitle("书源")
+            .searchable(text: $searchText, prompt: "搜索书源")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button("导入") {
-                        isImportPresented = true
+                    // Upstream `menu_add_book_source`.
+                    Button("新建") {
+                        editingSource = newSource()
+                        isEditorPresented = true
+                    }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        // Upstream `menu_import_local`.
+                        Button("本地导入") {
+                            isFileImporterPresented = true
+                        }
+                        // Upstream `menu_import_onLine`.
+                        Button("网络导入") {
+                            importText = ""
+                            isImportPresented = true
+                        }
+                        // Upstream `menu_import_qr`.
+                        Button("二维码导入") {
+                            isQRScannerPresented = true
+                        }
+                    } label: {
+                        Text("导入")
                     }
                 }
                 ToolbarItem(placement: .secondaryAction) {
-                    Button("校验") {
-                        isCheckPresented = true
+                    Menu {
+                        // Upstream `menu_check_source`.
+                        Button("校验全部") {
+                            checkTargets = []
+                            isCheckPresented = true
+                        }
+                        Button("校验所选") {
+                            checkTargets = selectedSources
+                            isCheckPresented = true
+                        }
+                        // Upstream `R.string.check_source_config`.
+                        Button("校验设置") {
+                            isCheckConfigPresented = true
+                        }
+                    } label: {
+                        Text("校验")
                     }
                 }
                 ToolbarItem(placement: .secondaryAction) {
-                    Button("分享") {
-                        isSharePresented = true
+                    Menu {
+                        ForEach(BookSourceSort.allCases) { item in
+                            Button(item.title) {
+                                sort = item
+                            }
+                        }
+                        Divider()
+                        // Upstream `menu_sort_desc` toggles the direction.
+                        Button(isSortAscending ? "降序排列" : "升序排列") {
+                            isSortAscending.toggle()
+                        }
+                    } label: {
+                        Text("排序")
                     }
                 }
                 ToolbarItem(placement: .secondaryAction) {
-                    Button("二维码") {
-                        isQRCodePresented = true
+                    Menu {
+                        // Upstream `menu_enabled_group` and its friends.
+                        ForEach(BookSourceSearch.filters, id: \.self) { filter in
+                            Button(filter) {
+                                searchText = filter
+                            }
+                        }
+                        Divider()
+                        // Upstream `menu_group_sources_by_domain`.
+                        Button(isGroupedByDomain ? "取消按域名分组" : "按域名分组") {
+                            isGroupedByDomain.toggle()
+                        }
+                        Button("清除筛选") {
+                            searchText = ""
+                        }
+                    } label: {
+                        Text("筛选")
                     }
                 }
                 ToolbarItem(placement: .secondaryAction) {
-                    Button("分组") {
-                        isGroupPresented = true
+                    Menu {
+                        // Upstream `upGroupMenu` (L579-584).
+                        ForEach(model.sourceGroups(), id: \.self) { group in
+                            Button(group) {
+                                searchText = BookSourceSearch.groupKey(group)
+                            }
+                        }
+                        Divider()
+                        // Upstream `menu_group_manage`.
+                        Button("分组管理") {
+                            isGroupPresented = true
+                        }
+                    } label: {
+                        Text("分组")
                     }
                 }
                 ToolbarItem(placement: .secondaryAction) {
-                    Button("调试") {
-                        isDebugPresented = true
+                    Menu {
+                        // Upstream `menu_share_source`.
+                        Button("分享") {
+                            isSharePresented = true
+                        }
+                        Button("二维码") {
+                            isQRCodePresented = true
+                        }
+                        Button("调试") {
+                            isDebugPresented = true
+                        }
+                        // Upstream `menu_help`.
+                        Button("书源帮助") {
+                            isHelpPresented = true
+                        }
+                    } label: {
+                        Text("更多")
                     }
                 }
                 ToolbarItem(placement: .secondaryAction) {
@@ -144,12 +270,15 @@ public struct SourceManagerView: View {
                 }
             }
             .sheet(isPresented: $isImportPresented) {
-                ImportSourceView(model: model, text: $importText)
+                ImportDocumentView(model: model, kind: .bookSource, text: $importText)
             }
             .sheet(isPresented: $isCheckPresented) {
                 NavigationStack {
-                    SourceCheckView(model: model)
+                    SourceCheckView(model: model, sources: checkTargets)
                 }
+            }
+            .sheet(isPresented: $isCheckConfigPresented) {
+                SourceCheckConfigView(model: model)
             }
             .sheet(isPresented: $isLoginPresented) {
                 if let loginSource {
@@ -159,11 +288,16 @@ public struct SourceManagerView: View {
                 }
             }
             .sheet(isPresented: $isSharePresented) {
-                ShareSheet(items: [model.exportedSources()])
+                ShareSheet(items: [sharedText])
             }
             .sheet(isPresented: $isQRCodePresented) {
                 NavigationStack {
-                    QRCodeView(text: model.exportedSources())
+                    QRCodeView(text: sharedText)
+                }
+            }
+            .sheet(isPresented: $isQRScannerPresented) {
+                NavigationStack {
+                    QRScannerView(result: $qrResult)
                 }
             }
             .sheet(isPresented: $isEditorPresented) {
@@ -173,16 +307,223 @@ public struct SourceManagerView: View {
                     }
                 }
             }
+            .sheet(isPresented: $isHelpPresented) {
+                NavigationStack {
+                    SourceHelpView()
+                }
+            }
+            .sheet(isPresented: $isGroupPromptPresented) {
+                TextPromptView(title: groupPromptTitle, placeholder: "分组名称") { name in
+                    applyGroupPrompt(name)
+                }
+            }
+            .fileImporter(
+                isPresented: $isFileImporterPresented,
+                allowedContentTypes: SourceManagerView.contentTypes,
+                onCompletion: { result in
+                    importFile(result)
+                }
+            )
+            .onChange(of: qrResult) { _, value in
+                guard let value, !value.isEmpty else { return }
+                qrResult = nil
+                Task {
+                    message = await DocumentImporter.importText(value, kind: .bookSource, model: model)
+                }
+            }
             .onAppear {
                 model.reloadSources()
             }
         }
     }
 
+    // MARK: - The list
+
+    /// The sections of the list — upstream `BookSourceAdapter.showSourceHost`
+    /// shows a header with the domain of the sources.
+    @ViewBuilder
+    private var sourceSections: some View {
+        if isGroupedByDomain {
+            ForEach(sections) { section in
+                Section(section.title) {
+                    rows(section.sources)
+                }
+            }
+        } else {
+            Section {
+                rows(visibleSources)
+            }
+        }
+    }
+
+    /// The rows of a section.
+    @ViewBuilder
+    private func rows(_ sources: [BookSource]) -> some View {
+        ForEach(sources, id: \.bookSourceUrl) { source in
+            SourceRow(
+                source: source,
+                isSelected: selection.contains(source.bookSourceUrl),
+                onToggle: { enabled in model.setSource(source, enabled: enabled) },
+                onDelete: { model.deleteSource(source) },
+                onSelect: {
+                    if isManaging {
+                        if selection.contains(source.bookSourceUrl) {
+                            selection.remove(source.bookSourceUrl)
+                        } else {
+                            selection.insert(source.bookSourceUrl)
+                        }
+                    }
+                },
+                onLogin: {
+                    loginSource = source
+                    isLoginPresented = true
+                },
+                onEdit: {
+                    editingSource = source
+                    isEditorPresented = true
+                },
+                onTop: {
+                    model.topSources([source])
+                },
+                onBottom: {
+                    model.bottomSources([source])
+                },
+                onToggleExplore: {
+                    model.setSourcesExplore([source], enabled: !source.enabledExplore)
+                },
+                onDebug: {
+                    isDebugPresented = true
+                }
+            )
+        }
+    }
+
+    /// The sources of the list — upstream `BookSourceActivity.upBookSource`
+    /// (L293-393): the search key, the sort and the grouping by domain.
+    private var visibleSources: [BookSource] {
+        let filtered = BookSourceSearch.filter(model.sources, key: searchText)
+        guard !isGroupedByDomain else {
+            // The upstream groups the sources by their domain and sorts them
+            // by the time of the last update.
+            return filtered.sorted { lhs, rhs in
+                let left = SourceHost.domain(of: lhs.bookSourceUrl)
+                let right = SourceHost.domain(of: rhs.bookSourceUrl)
+                if left != right {
+                    if left == "#" { return false }
+                    if right == "#" { return true }
+                    return left < right
+                }
+                return lhs.lastUpdateTime > rhs.lastUpdateTime
+            }
+        }
+        return BookSourceSorter.sort(filtered, by: sort, ascending: isSortAscending)
+    }
+
+    /// The sections of the list — the sources of a domain.
+    private var sections: [SourceSection] {
+        let sources = visibleSources
+        guard isGroupedByDomain else {
+            return [SourceSection(id: 0, title: "", sources: sources)]
+        }
+        var result: [SourceSection] = []
+        for source in sources {
+            let host = SourceHost.domain(of: source.bookSourceUrl)
+            if var last = result.last, last.title == host {
+                result.removeLast()
+                last.sources.append(source)
+                result.append(last)
+            } else {
+                result.append(SourceSection(id: result.count, title: host, sources: [source]))
+            }
+        }
+        return result
+    }
+
     /// The sources of the multi-selection.
     private var selectedSources: [BookSource] {
         model.sources.filter { selection.contains($0.bookSourceUrl) }
     }
+
+    /// The shared document — upstream `BookSourceViewModel.saveToFile`
+    /// (L126-165) shares the selection when it is small enough.
+    private var sharedText: String {
+        if selection.isEmpty {
+            return model.exportedSources(model.sources)
+        }
+        return model.exportedSources(selectedSources)
+    }
+
+    // MARK: - The actions
+
+    /// The accepted file types — upstream `AppPattern` accepts `txt` and
+    /// `json` for the sources.
+    public static var contentTypes: [UTType] {
+        var types: [UTType] = [.data]
+        for ext in ["txt", "json"] {
+            if let type = UTType(filenameExtension: ext) {
+                types.append(type)
+            }
+        }
+        return types
+    }
+
+    /// A new source — upstream `menu_add_book_source` opens the editor of a
+    /// new source.
+    private func newSource() -> BookSource {
+        var source = BookSource(bookSourceUrl: "")
+        source.bookSourceName = "新建书源"
+        return source
+    }
+
+    /// Imports a local file — upstream `menu_import_local`.
+    private func importFile(_ result: Result<URL, Error>) {
+        guard case .success(let url) = result else { return }
+        Task {
+            guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+                message = DocumentImporter.failureMessage
+                return
+            }
+            message = await DocumentImporter.importText(text, kind: .bookSource, model: model)
+        }
+    }
+
+    /// Exports the selection — upstream `menu_export_selection`.
+    private func exportSelection() {
+        UIPasteboardShim.copy(model.exportedSources(selectedSources))
+        message = "已导出 \(selectedSources.count) 个书源"
+    }
+
+    /// Asks for the name of a group — upstream
+    /// `BookSourceActivity.selectionAddToGroups` (L539-577).
+    private func promptGroup(_ action: GroupPromptAction) {
+        groupPromptAction = action
+        groupPromptTitle = action == .add ? "加入分组" : "移出分组"
+        isGroupPromptPresented = true
+    }
+
+    /// Applies the group of the prompt.
+    private func applyGroupPrompt(_ name: String) {
+        switch groupPromptAction {
+        case .add:
+            model.addSourcesToGroup(selectedSources, group: name)
+        case .remove:
+            model.removeSourcesFromGroup(selectedSources, group: name)
+        }
+    }
+}
+
+/// The action of the prompt of a group.
+enum GroupPromptAction {
+    case add
+    case remove
+}
+
+/// A section of the list of the sources — upstream
+/// `BookSourceAdapter.getHeaderText` (L295-305).
+struct SourceSection: Identifiable {
+    let id: Int
+    let title: String
+    var sources: [BookSource]
 }
 
 /// One source of the manager.
@@ -195,12 +536,26 @@ struct SourceRow: View {
     var onSelect: (() -> Void)?
     var onLogin: (() -> Void)?
     var onEdit: (() -> Void)?
+    var onTop: (() -> Void)?
+    var onBottom: (() -> Void)?
+    var onToggleExplore: (() -> Void)?
+    var onDebug: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(source.bookSourceName)
-                    .font(.system(size: 16))
+                HStack(spacing: 4) {
+                    // Upstream `BookSourceAdapter.upShowExplore` (L208-226):
+                    // a green dot when the discovery is on, a red one when the
+                    // source has a discovery but it is off.
+                    if source.exploreUrl != nil || source.ruleExplore != nil {
+                        Text(source.enabledExplore ? "●" : "●")
+                            .font(.system(size: 10))
+                            .foregroundColor(source.enabledExplore ? .green : .red)
+                    }
+                    Text(source.bookSourceName)
+                        .font(.system(size: 16))
+                }
                 Text(source.bookSourceUrl)
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
@@ -217,52 +572,35 @@ struct SourceRow: View {
                 Button(isSelected ? "已选" : "选择", action: { onSelect?() })
                     .font(.system(size: 12))
             }
-            if let onLogin, source.loginUrl != nil || source.loginUi != nil {
-                Button("登录", action: onLogin)
-                    .font(.system(size: 12))
-            }
             if let onEdit {
                 Button("编辑", action: onEdit)
                     .font(.system(size: 12))
             }
             Toggle("启用", isOn: Binding(get: { source.enabled }, set: onToggle))
                 .labelsHidden()
-            Button("删除", action: onDelete)
-                .font(.system(size: 12))
-                .foregroundColor(.red)
+            // Upstream `BookSourceAdapter.showMenu` (L164-206).
+            Menu {
+                if let onTop {
+                    Button("置顶", action: onTop)
+                }
+                if let onBottom {
+                    Button("置底", action: onBottom)
+                }
+                if let onToggleExplore {
+                    Button(source.enabledExplore ? "禁用发现" : "允许发现", action: onToggleExplore)
+                }
+                if let onLogin, source.loginUrl != nil || source.loginUi != nil {
+                    Button("登录", action: onLogin)
+                }
+                if let onDebug {
+                    Button("调试", action: onDebug)
+                }
+                Button("删除", role: .destructive, action: onDelete)
+            } label: {
+                Text("更多")
+                    .font(.system(size: 12))
+            }
         }
         .padding(.vertical, 4)
-    }
-}
-
-/// The import sheet — upstream `SourceManageActivity.importBookSource`.
-struct ImportSourceView: View {
-
-    @ObservedObject var model: LegadoAppModel
-    @Binding var text: String
-
-    public init(model: LegadoAppModel, text: Binding<String>) {
-        self.model = model
-        self._text = text
-    }
-
-    public var body: some View {
-        NavigationStack {
-            VStack(spacing: 12) {
-                Text("粘贴书源 JSON")
-                    .font(.system(size: 14))
-                    .foregroundColor(.secondary)
-                TextEditor(text: $text)
-                    .font(.system(size: 13))
-                    .frame(minHeight: 240)
-                    .border(Color.gray.opacity(0.3))
-                Button("导入") {
-                    model.importSources(json: text)
-                }
-                Spacer()
-            }
-            .padding(16)
-            .navigationTitle("导入书源")
-        }
     }
 }

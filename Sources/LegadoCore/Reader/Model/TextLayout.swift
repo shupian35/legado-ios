@@ -232,6 +232,50 @@ public final class TextPage {
         textLines.indices.contains(index) ? textLines[index] : textLines.last
     }
 
+    /// The offset of the first character of every line inside `text`.
+    ///
+    /// The page text is the concatenation of the line texts and a paragraph
+    /// end adds a newline (`TextChapterLayout.append`), so the offsets are the
+    /// positions of the lines in `text`.
+    public var lineOffsets: [Int] {
+        var result: [Int] = []
+        var offset = 0
+        for line in textLines {
+            result.append(offset)
+            offset += line.text.count
+            if line.isParagraphEnd { offset += 1 }
+        }
+        return result
+    }
+
+    /// The offset of the first character of the line at `index` inside `text`.
+    public func characterOffset(ofLineAt index: Int) -> Int {
+        let offsets = lineOffsets
+        guard offsets.indices.contains(index) else { return offsets.last ?? 0 }
+        return offsets[index]
+    }
+
+    /// The index of the line at the given vertical position.
+    ///
+    /// The port's hit test for the long press — the upstream uses the exact
+    /// glyph bounds (`ContentTextView`), the port uses the line boxes.
+    public func lineIndex(atY y: Double) -> Int? {
+        for (index, line) in textLines.enumerated() {
+            if y >= line.lineTop && y <= line.lineBottom { return index }
+        }
+        // Fall back to the closest line.
+        var best: Int?
+        var bestDistance = Double.greatestFiniteMagnitude
+        for (index, line) in textLines.enumerated() {
+            let distance = abs(line.lineTop - y)
+            if distance < bestDistance {
+                bestDistance = distance
+                best = index
+            }
+        }
+        return best
+    }
+
     /// The paragraphs of the page — upstream `paragraphsInternal`.
     public var paragraphs: [TextParagraph] {
         var result: [TextParagraph] = []

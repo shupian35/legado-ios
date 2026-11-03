@@ -67,9 +67,17 @@ open class WKWebsiteDataStore: NSObject {
 
 // MARK: - The web view
 
+/// `WebKit.WKPreferences`.
+open class WKPreferences: NSObject {
+    open var javaScriptEnabled: Bool = true
+    open var javaScriptCanOpenWindowsAutomatically: Bool = false
+    public override init() { super.init() }
+}
+
 /// `WebKit.WKWebViewConfiguration`.
 open class WKWebViewConfiguration: NSObject {
     open var websiteDataStore: WKWebsiteDataStore = WKWebsiteDataStore()
+    open var preferences: WKPreferences = WKPreferences()
     open var allowsInlineMediaPlayback: Bool = false
     open var javaScriptCanOpenWindowsAutomatically: Bool = false
     public override init() { super.init() }
@@ -89,6 +97,8 @@ open class WKWebView: NSObject {
 
     @discardableResult
     open func load(_ request: URLRequest) -> WKNavigation? { WKNavigation() }
+    @discardableResult
+    open func loadHTMLString(_ htmlString: String, baseURL: URL?) -> WKNavigation? { WKNavigation() }
     open func reload() {}
     open func stopLoading() {}
     open func evaluateJavaScript(_ script: String, completionHandler: ((Any?, Error?) -> Void)? = nil) {}

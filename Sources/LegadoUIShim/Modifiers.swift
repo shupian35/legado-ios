@@ -54,6 +54,7 @@ extension View {
     public func opacity(_ opacity: Double) -> some View { ModifiedView(self) }
     public func hidden() -> some View { ModifiedView(self) }
     public func cornerRadius(_ radius: Double) -> some View { ModifiedView(self) }
+    public func clipped() -> some View { ModifiedView(self) }
     public func border<S: ShapeStyle>(_ style: S, width: Double = 1) -> some View { ModifiedView(self) }
     public func border(_ color: Color, width: Double = 1) -> some View { ModifiedView(self) }
     public func clipShape<S: Shape>(_ shape: S) -> some View { ModifiedView(self) }
@@ -78,7 +79,9 @@ extension View {
     public func contentShape<S: Shape>(_ shape: S) -> some View { ModifiedView(self) }
     public func labelsHidden() -> some View { ModifiedView(self) }
     public func onDelete(perform action: @escaping (IndexSet) -> Void) -> some View { ModifiedView(self) }
-    public func onMove(perform action: @escaping (IndexSet, IndexSet) -> Void) -> some View { ModifiedView(self) }
+    /// `onMove(perform:)` — the destination is the index the row is moved to,
+    /// the way the real `SwiftUI` reports it (`(IndexSet, Int) -> Void`).
+    public func onMove(perform action: @escaping (IndexSet, Int) -> Void) -> some View { ModifiedView(self) }
     public func onInsert(perform action: @escaping (IndexSet) -> Void) -> some View { ModifiedView(self) }
 
     // MARK: - Interaction
@@ -141,10 +144,14 @@ extension View {
     public func sheet<V: View>(isPresented: Binding<Bool>, onDismiss: (() -> Void)? = nil, @ViewBuilder content: @escaping () -> V) -> some View { ModifiedView(self) }
     public func sheet<Item, V: View>(item: Binding<Item?>, onDismiss: (() -> Void)? = nil, @ViewBuilder content: @escaping (Item) -> V) -> some View { ModifiedView(self) }
     public func popover<V: View>(isPresented: Binding<Bool>, attachmentAnchor: PopoverAttachmentAnchor = .rectangle, arrowEdge: Edge = .top, @ViewBuilder content: @escaping () -> V) -> some View { ModifiedView(self) }
-    public func alert<Item, A: View, M: View>(_ title: String, isPresented: Binding<Bool>, presenting: Item? = nil, actions: @escaping (Item) -> A, message: @escaping (Item) -> M) -> some View { ModifiedView(self) }
-    public func alert<A: View, M: View>(_ title: String, isPresented: Binding<Bool>, actions: @escaping () -> A, message: @escaping () -> M) -> some View { ModifiedView(self) }
-    public func confirmationDialog<Item, A: View, M: View>(_ title: String, isPresented: Binding<Bool>, presenting: Item? = nil, actions: @escaping (Item) -> A, message: @escaping (Item) -> M) -> some View { ModifiedView(self) }
-    public func confirmationDialog<A: View, M: View>(_ title: String, isPresented: Binding<Bool>, titleVisibility: Visibility = .automatic, actions: @escaping () -> A, message: @escaping () -> M) -> some View { ModifiedView(self) }
+    public func alert<Item, A: View, M: View>(_ title: String, isPresented: Binding<Bool>, presenting: Item? = nil, @ViewBuilder actions: @escaping (Item) -> A, @ViewBuilder message: @escaping (Item) -> M) -> some View { ModifiedView(self) }
+    public func alert<A: View, M: View>(_ title: String, isPresented: Binding<Bool>, @ViewBuilder actions: @escaping () -> A, @ViewBuilder message: @escaping () -> M) -> some View { ModifiedView(self) }
+    /// The alert without a message — the real SwiftUI allows it.
+    public func alert<A: View>(_ title: String, isPresented: Binding<Bool>, @ViewBuilder actions: @escaping () -> A) -> some View { ModifiedView(self) }
+    public func confirmationDialog<Item, A: View, M: View>(_ title: String, isPresented: Binding<Bool>, presenting: Item? = nil, @ViewBuilder actions: @escaping (Item) -> A, @ViewBuilder message: @escaping (Item) -> M) -> some View { ModifiedView(self) }
+    public func confirmationDialog<A: View, M: View>(_ title: String, isPresented: Binding<Bool>, titleVisibility: Visibility = .automatic, @ViewBuilder actions: @escaping () -> A, @ViewBuilder message: @escaping () -> M) -> some View { ModifiedView(self) }
+    /// The confirmation dialog without a message — the real SwiftUI allows it.
+    public func confirmationDialog<A: View>(_ title: String, isPresented: Binding<Bool>, titleVisibility: Visibility = .automatic, @ViewBuilder actions: @escaping () -> A) -> some View { ModifiedView(self) }
 
     // MARK: - Lists and forms
 
@@ -289,6 +296,15 @@ public struct SegmentedPickerStyle: PickerStyle { public init() {} }
 public struct MenuPickerStyle: PickerStyle { public init() {} }
 public struct WheelPickerStyle: PickerStyle { public init() {} }
 public struct InlinePickerStyle: PickerStyle { public init() {} }
+
+/// The static members of the picker styles — the real SwiftUI offers them
+/// since iOS 14 (`.pickerStyle(.segmented)`).
+public extension PickerStyle {
+    static var segmented: SegmentedPickerStyle { SegmentedPickerStyle() }
+    static var menu: MenuPickerStyle { MenuPickerStyle() }
+    static var wheel: WheelPickerStyle { WheelPickerStyle() }
+    static var inline: InlinePickerStyle { InlinePickerStyle() }
+}
 
 /// `SwiftUI.TextFieldStyle`.
 public protocol TextFieldStyle {}

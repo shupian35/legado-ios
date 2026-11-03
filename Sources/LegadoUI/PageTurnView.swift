@@ -27,6 +27,8 @@ public struct PageTurnView: View {
     public var style: PageTurnStyle
     /// The direction of the current turn.
     public var direction: PageTurnDirection
+    /// The colour of the text — upstream `ReadBookConfig.curTextColor`.
+    public var textColor: Color
     /// The fraction of the drag that has been travelled (0…1).
     public var progress: Double
 
@@ -36,6 +38,7 @@ public struct PageTurnView: View {
         bodyFont: Font = .system(size: 17),
         style: PageTurnStyle = .slide,
         direction: PageTurnDirection = .next,
+        textColor: Color = .primary,
         progress: Double = 0
     ) {
         self.lines = lines
@@ -43,6 +46,7 @@ public struct PageTurnView: View {
         self.bodyFont = bodyFont
         self.style = style
         self.direction = direction
+        self.textColor = textColor
         self.progress = progress
     }
 
@@ -71,7 +75,8 @@ public struct PageTurnView: View {
         PagedContentView(
             lines: lines,
             titleFont: titleFont,
-            bodyFont: bodyFont
+            bodyFont: bodyFont,
+            textColor: textColor
         )
     }
 
@@ -112,6 +117,13 @@ public struct PageTurnContainer<Content: View>: View {
     public var viewWidth: Double
     /// The action run when the page turns.
     public var onTurn: (PageTurnDirection) -> Void
+    /// The action run while the page is dragged — the fraction of the turn
+    /// that has been travelled (0…1).
+    ///
+    /// The upstream binds the drag progress to the page delegate
+    /// (`PageDelegate.startScroll` → the canvas is redrawn with the offset);
+    /// without it the page only swaps at the end of the drag.
+    public var onProgress: (Double) -> Void
     /// The content.
     public var content: Content
 
@@ -121,11 +133,13 @@ public struct PageTurnContainer<Content: View>: View {
         style: PageTurnStyle = .slide,
         viewWidth: Double = 400,
         onTurn: @escaping (PageTurnDirection) -> Void = { _ in },
+        onProgress: @escaping (Double) -> Void = { _ in },
         @ViewBuilder content: () -> Content
     ) {
         self.style = style
         self.viewWidth = viewWidth
         self.onTurn = onTurn
+        self.onProgress = onProgress
         self.content = content()
     }
 
@@ -145,8 +159,10 @@ public struct PageTurnContainer<Content: View>: View {
                     pointers: [CGPointLike(x: Double(value.location.x), y: Double(value.location.y))],
                     viewWidth: viewWidth
                 )
+                onProgress(session.progress(viewWidth: viewWidth))
             }
             .onEnded { _ in
+                onProgress(0)
                 if case let .turn(direction) = session.end() {
                     onTurn(direction)
                 }

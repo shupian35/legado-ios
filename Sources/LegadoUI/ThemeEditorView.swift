@@ -2,11 +2,13 @@
 //  ThemeEditorView.swift
 //  LegadoUI
 //
-//  The theme editor — upstream `res/xml/pref_config_theme.xml`.
+//  The theme editor — upstream `res/xml/pref_config_theme.xml` and
+//  `ui/config/ThemeConfigFragment.kt`.
 //
 //  The upstream lets the user edit the four colour keys (the primary, the
 //  accent, the background and the bottom background) of the day and the night
-//  theme, pick a background image and import / export the theme JSON.
+//  theme, pick a background image and import / export the theme JSON. The
+//  list of the themes lives in `ThemeListDialog.kt` (`ThemeListView.swift`).
 //
 
 #if canImport(SwiftUI)
@@ -38,7 +40,14 @@ public struct ThemeEditorView: View {
 
     public var body: some View {
         Form {
+            // Upstream `ThemeConfigFragment.onPreferenceTreeClick` — the
+            // "themeList" preference opens the list of the themes.
             Section("主题") {
+                NavigationLink("主题列表") {
+                    ThemeListView(model: model)
+                }
+            }
+            Section("名称") {
                 TextField("名称", text: $themeName)
                 Toggle("夜间主题", isOn: $isNightTheme)
             }
@@ -87,8 +96,9 @@ public struct ThemeEditorView: View {
         isNightTheme = theme.isNightTheme
     }
 
-    private func save() {
-        let theme = AppTheme(
+    /// The theme of the form.
+    private var theme: AppTheme {
+        AppTheme(
             themeName: themeName.isEmpty ? "自定义" : themeName,
             isNightTheme: isNightTheme,
             primaryColor: primaryColor,
@@ -96,20 +106,20 @@ public struct ThemeEditorView: View {
             backgroundColor: backgroundColor,
             bottomBackground: bottomBackground
         )
-        model.themeManager.add(theme)
+    }
+
+    /// Saves the theme — upstream `ThemeConfig.addConfig` (L119-142): a theme
+    /// with the same name replaces the old one.
+    private func save() {
+        guard model.addTheme(theme) else {
+            message = "格式不对,添加失败"
+            return
+        }
         model.selectTheme(index: model.themeManager.themes.count - 1)
         message = "已保存"
     }
 
     private func exportTheme() {
-        let theme = AppTheme(
-            themeName: themeName.isEmpty ? "自定义" : themeName,
-            isNightTheme: isNightTheme,
-            primaryColor: primaryColor,
-            accentColor: accentColor,
-            backgroundColor: backgroundColor,
-            bottomBackground: bottomBackground
-        )
         importText = ThemeManager.exportJSON(theme)
         UIPasteboardShim.copy(importText)
         message = "已导出到剪贴板"
@@ -117,10 +127,13 @@ public struct ThemeEditorView: View {
 
     private func importTheme() {
         guard let theme = ThemeManager.importJSON(importText) else {
-            message = "格式不对"
+            message = "格式不对,添加失败"
             return
         }
-        model.themeManager.add(theme)
+        guard model.addTheme(theme) else {
+            message = "格式不对,添加失败"
+            return
+        }
         model.selectTheme(index: model.themeManager.themes.count - 1)
         load()
         message = "已导入"

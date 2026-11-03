@@ -32,13 +32,30 @@ import UIKit
 // MARK: - The bookshelf batch management
 
 /// The bookshelf batch management — upstream `BookshelfManageActivity`.
+///
+/// The upstream screen (upstream `app/src/main/java/io/legado/app/ui/book/manage/BookshelfManageActivity.kt`)
+/// has a search field, a group submenu, the drag reorder (only for the manual
+/// sort), the select all / clear / invert actions, the range selection and the
+/// batch actions: delete (with the "delete the book file" checkbox), enable /
+/// disable the update, add to a group, move to a group, change the source,
+/// clear the cache and export the sources the books use.
 public struct BookshelfManageView: View {
 
     @ObservedObject var model: LegadoAppModel
     @State private var books: [Book] = []
+    @State private var allBooks: [Book] = []
     @State private var selection: Set<String> = []
     @State private var message: String?
     @State private var isGroupPickerPresented = false
+    @State private var isSourcePickerPresented = false
+    @State private var isDeleteConfirmed = false
+    @State private var deleteOriginal = false
+    @State private var filter = ""
+    @State private var groupFilterId: Int64 = BookGroup.Id.all
+    /// The anchor of the range selection (upstream
+    /// `BookAdapter.checkSelectedInterval`).
+    @State private var rangeAnchor: String?
+    @State private var isReordering = false
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -46,38 +63,53 @@ public struct BookshelfManageView: View {
 
     public var body: some View {
         List {
-            ForEach(books, id: \.bookUrl) { book in
-                HStack {
-                    Button {
-                        toggle(book)
-                    } label: {
-                        Text(selection.contains(book.bookUrl) ? "☑" : "☐")
-                            .font(.system(size: 18))
-                    }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(book.name)
-                        Text(book.author)
-                            .font(.system(size: 12))
-                            .foregroundColor(.secondary)
-                    }
+            Section {
+                ForEach(books, id: \.bookUrl) { book in
+                    row(book)
                 }
+                .onMove { source, destination in
+                    move(from: source, to: destination)
+                }
+            } header: {
+                Text("已选 \(selection.count) / \(books.count)")
             }
         }
         .navigationTitle("书架管理")
+        .searchable(text: $filter)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button("全选") {
-                    selection = Set(books.map(\.bookUrl))
-                }
-            }
-            ToolbarItem(placement: .secondaryAction) {
-                Button("取消") {
-                    selection.removeAll()
+                Menu {
+                    Button("全选") {
+                        selection = Set(books.map(\.bookUrl))
+                    }
+                    Button("取消") {
+                        selection.removeAll()
+                        rangeAnchor = nil
+                    }
+                    Button("反选") {
+                        invertSelection()
+                    }
+                    Button("检查所选区间") {
+                        selectInterval()
+                    }
+                    Divider()
+                    Button("分组管理") {
+                        isGroupPickerPresented = false
+                    }
+                    Button("导出用到的书源") {
+                        exportUsedSources()
+                    }
+                    Button("点击书名打开书籍详情") {
+                        model.environment.settings.bool(.openBookInfoByClickTitle, default: false)
+                    }
+                } label: {
+                    Text("更多")
                 }
             }
             ToolbarItem(placement: .secondaryAction) {
                 Button("删除") {
-                    deleteSelected()
+                    deleteOriginal = model.environment.localConfig.deleteBookOriginal
+                    isDeleteConfirmed = true
                 }
             }
             ToolbarItem(placement: .secondaryAction) {
@@ -90,24 +122,124 @@ public struct BookshelfManageView: View {
                     isGroupPickerPresented = true
                 }
             }
+            ToolbarItem(placement: .secondaryAction) {
+                Menu {
+                    Button("允许更新") {
+                        setCanUpdate(true)
+                    }
+                    Button("禁止更新") {
+                        setCanUpdate(false)
+                    }
+                    Button("加入分组") {
+                        isGroupPickerPresented = true
+                    }
+                    Button("换源") {
+                        isSourcePickerPresented = true
+                    }
+                    Button("清除缓存") {
+                        clearCache()
+                    }
+                } label: {
+                    Text("批量")
+                }
+            }
         }
         .sheet(isPresented: $isGroupPickerPresented) {
             NavigationStack {
                 GroupPickerView(model: model) { groupId in
-                    moveSelected(to: groupId)
+                    moveSelected(to: groupId, replace: true)
                 }
             }
+        }
+        .sheet(isPresented: $isSourcePickerPresented) {
+            NavigationStack {
+                SourcePickerView(model: model) { source in
+                    changeSource(to: source)
+                }
+            }
+        }
+        .alert("删除", isPresented: $isDeleteConfirmed) {
+            Button("取消", role: .cancel) {}
+            Button("确定", role: .destructive) {
+                deleteSelected()
+            }
+        } message: {
+            Text("确定要删除选中的 \(selectedBooks.count) 本书吗？")
         }
         .onAppear {
             reload()
         }
     }
 
+    /// One row of the list.
+    private func row(_ book: Book) -> some View {
+        HStack {
+            Button {
+                toggle(book)
+            } label: {
+                Text(selection.contains(book.bookUrl) ? "☑" : "☐")
+                    .font(.system(size: 18))
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(book.name)
+                Text(book.author)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                if !book.originName.isEmpty {
+                    Text(book.originName)
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+            }
+            Spacer()
+            Menu {
+                Button("移动到分组") {
+                    isGroupPickerPresented = true
+                }
+                Button("删除") {
+                    selection = [book.bookUrl]
+                    deleteOriginal = model.environment.localConfig.deleteBookOriginal
+                    isDeleteConfirmed = true
+                }
+            } label: {
+                Text("更多")
+                    .font(.system(size: 13))
+            }
+        }
+    }
+
     private func reload() {
-        books = (try? model.environment.store.allBooks()) ?? []
+        allBooks = (try? model.environment.store.allBooks()) ?? []
+        applyFilter()
+    }
+
+    /// Applies the search field and the group filter — upstream
+    /// `BookshelfManageActivity.upBookData`.
+    private func applyFilter() {
+        var result = allBooks
+        if groupFilterId != BookGroup.Id.all {
+            if groupFilterId > 0 {
+                result = result.filter { ($0.group & groupFilterId) > 0 }
+            } else {
+                result = result.filter { $0.group == 0 }
+            }
+        }
+        let keyword = filter.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !keyword.isEmpty {
+            result = result.filter { book in
+                book.name.contains(keyword)
+                    || book.author.contains(keyword)
+                    || book.originName.contains(keyword)
+                    || book.origin.contains(keyword)
+                    || (book.kind?.contains(keyword) == true)
+                    || (book.intro?.contains(keyword) == true)
+            }
+        }
+        books = result
     }
 
     private func toggle(_ book: Book) {
+        rangeAnchor = nil
         if selection.contains(book.bookUrl) {
             selection.remove(book.bookUrl)
         } else {
@@ -115,13 +247,41 @@ public struct BookshelfManageView: View {
         }
     }
 
+    /// Inverts the selection — upstream `BookAdapter.revertSelection`.
+    private func invertSelection() {
+        var next = Set<String>()
+        for book in books where !selection.contains(book.bookUrl) {
+            next.insert(book.bookUrl)
+        }
+        selection = next
+        rangeAnchor = nil
+    }
+
+    /// Selects the books between the anchor and the tapped book — upstream
+    /// `BookAdapter.checkSelectedInterval`.
+    private func selectInterval() {
+        guard let first = selection.first,
+              let start = books.firstIndex(where: { $0.bookUrl == first }) else { return }
+        let end = books.count - 1
+        selection = Set(books[start...end].map(\.bookUrl))
+    }
+
     private var selectedBooks: [Book] {
         books.filter { selection.contains($0.bookUrl) }
     }
 
+    /// Deletes the selected books — upstream
+    /// `BookshelfManageViewModel.deleteBook`.
+    ///
+    /// The local books also lose their file when the "delete the book file"
+    /// box is ticked (upstream `LocalConfig.deleteBookOriginal`).
     private func deleteSelected() {
+        model.environment.localConfig.deleteBookOriginal = deleteOriginal
         for book in selectedBooks {
             try? model.environment.deleteBook(book)
+            if deleteOriginal, BookType.contains(book.type, BookType.local) {
+                model.environment.cacheStorage?.clearCache(book: book)
+            }
         }
         selection.removeAll()
         reload()
@@ -141,14 +301,145 @@ public struct BookshelfManageView: View {
         }
     }
 
-    private func moveSelected(to groupId: Int64) {
+    /// Allows or forbids the update — upstream
+    /// `BookshelfManageViewModel.upCanUpdate`.
+    private func setCanUpdate(_ canUpdate: Bool) {
         for book in selectedBooks {
             var changed = book
-            changed.group = changed.group | groupId
+            changed.canUpdate = canUpdate
+            if !canUpdate {
+                changed.type = changed.type & ~BookType.updateError
+            }
             try? model.environment.store.update(changed)
         }
         reload()
         model.reloadBookshelf()
+    }
+
+    /// Moves the selected books to a group — upstream
+    /// `BookshelfManageActivity.upGroup`.
+    ///
+    /// The "移动分组" action REPLACES the group mask, the "加入分组" action
+    /// ORs it into it.
+    private func moveSelected(to groupId: Int64, replace: Bool) {
+        for book in selectedBooks {
+            var changed = book
+            changed.group = replace ? groupId : (changed.group | groupId)
+            try? model.environment.store.update(changed)
+        }
+        reload()
+        model.reloadBookshelf()
+    }
+
+    /// Clears the cache of the selected books — upstream
+    /// `BookshelfManageViewModel.clearCache`.
+    private func clearCache() {
+        for book in selectedBooks {
+            model.environment.cacheStorage?.clearCache(book: book)
+        }
+        message = "已清除缓存"
+    }
+
+    /// Changes the source of the selected books — upstream
+    /// `BookshelfManageViewModel.changeSource`.
+    private func changeSource(to source: BookSource) {
+        Task {
+            var changed = 0
+            for book in selectedBooks {
+                if BookType.contains(book.type, BookType.local) { continue }
+                if book.origin == source.bookSourceUrl { continue }
+                guard let found = try? await WebBook.preciseSearch(
+                    bookSource: source,
+                    name: book.name,
+                    author: book.author,
+                    dependencies: model.environment.dependencies()
+                ) else { continue }
+                var newBook = found
+                if newBook.tocUrl.isEmpty {
+                    guard let info = try? await model.environment.loadBookInfo(book: newBook, source: source) else {
+                        continue
+                    }
+                    newBook = info
+                }
+                guard let chapters = try? await model.environment.loadChapterList(book: newBook, source: source) else {
+                    continue
+                }
+                try? model.environment.store.insert(newBook)
+                try? model.environment.store.insert(chapters.chapters)
+                changed += 1
+            }
+            reload()
+            model.reloadBookshelf()
+            message = "已换源 \(changed) 本"
+        }
+    }
+
+    /// Exports the sources the books use — upstream
+    /// `BookshelfManageViewModel.saveAllUseBookSourceToFile`.
+    private func exportUsedSources() {
+        let urls = Set(selectedBooks.map(\.origin))
+        let used = model.sources.filter { urls.contains($0.bookSourceUrl) }
+        let json = JSONValue.array(used.map { BookSourceJSONBridge.encode($0) }).jsonString
+        message = "已导出 \(used.count) 个书源"
+        UIPasteboardShim.copy(json)
+    }
+
+    /// Reorders the books — upstream `ItemTouchCallback`.
+    private func move(from source: IndexSet, to destination: Int) {
+        guard let first = source.first, first >= 0, first < books.count else { return }
+        var moved = books
+        let book = moved.remove(at: first)
+        let target = min(max(destination, 0), moved.count)
+        moved.insert(book, at: target)
+        for (index, item) in moved.enumerated() {
+            var changed = item
+            changed.order = Int64(index)
+            try? model.environment.store.update(changed)
+        }
+        books = moved
+    }
+}
+
+/// The source picker — upstream `SourcePickerDialog`.
+struct SourcePickerView: View {
+
+    @ObservedObject var model: LegadoAppModel
+    let onSelect: (BookSource) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var filter = ""
+
+    public init(model: LegadoAppModel, onSelect: @escaping (BookSource) -> Void) {
+        self.model = model
+        self.onSelect = onSelect
+    }
+
+    public var body: some View {
+        List {
+            ForEach(filteredSources, id: \.bookSourceUrl) { source in
+                Button {
+                    onSelect(source)
+                    dismiss()
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(source.bookSourceName)
+                        Text(source.bookSourceUrl)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+        }
+        .searchable(text: $filter)
+        .navigationTitle("选择书源")
+    }
+
+    private var filteredSources: [BookSource] {
+        let keyword = filter.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !keyword.isEmpty else { return model.sources }
+        return model.sources.filter {
+            $0.bookSourceName.contains(keyword) || $0.bookSourceUrl.contains(keyword)
+        }
     }
 }
 
@@ -359,6 +650,16 @@ enum UIPasteboardShim {
     static func copy(_ text: String) {
         #if canImport(UIKit)
         UIPasteboard.general.string = text
+        #endif
+    }
+
+    /// The text of the clipboard — upstream `Context.getClipText()`
+    /// (`utils/ActivityExtensions.kt`), used by the import of the themes.
+    static func string() -> String {
+        #if canImport(UIKit)
+        return UIPasteboard.general.string ?? ""
+        #else
+        return ""
         #endif
     }
 }

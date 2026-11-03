@@ -34,6 +34,9 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
 
     /// The laid-out lines of the current page — upstream `TextPage.textLines`.
     @Published public var pageLines: [TextLine] = []
+    /// The offset of every line inside the page text — upstream
+    /// `TextPage.getTextStartOffset` (the long press finds the line).
+    @Published public var pageLineOffsets: [Int] = []
     /// The title of the current chapter.
     @Published public var chapterTitle: String = ""
     /// The index of the current page inside the chapter.
@@ -50,13 +53,50 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     /// The chapter the reader opens at.
     public var startChapterIndex: Int?
 
+    /// The character position the reader opens at — upstream
+    /// `ReadBookActivity` restores the position of a bookmark.
+    public var startChapterPos: Int?
+
     /// Whether the system is in dark mode — it decides the night colours of
     /// the reader background (upstream `AppConfig.isNightTheme`).
     public var systemNightMode = false
 
-    /// The background preset of the reader (upstream `ReadBookConfig`).
+    /// The background presets of the reader — upstream
+    /// `ReadBookConfig.configList` (the styles of the reader).
+    public var backgroundPresets: [ReaderBackgroundPreset] {
+        environment.backgroundManager.presets
+    }
+
+    /// The index of the selected background preset — upstream
+    /// `ReadBookConfig.styleSelect` (`PreferKey.readStyleSelect`).
+    @Published public var backgroundStyleIndex: Int = 0
+
+    /// The background preset of the reader (upstream `ReadBookConfig.durConfig`).
+    ///
+    /// The colours belong to the configuration — the upstream keeps them in
+    /// the style (`Config.bgStr`, `Config.textColor`, `Config.bgAlpha`), so
+    /// they are taken from the configuration and the preset is only the
+    /// template of the style.
     public var backgroundPreset: ReaderBackgroundPreset {
-        environment.backgroundManager.current
+        var preset = selectedBackgroundPreset
+        preset.bgStr = config.backgroundColor
+        preset.bgStrNight = config.backgroundColorNight
+        preset.bgStrEInk = config.backgroundColorEInk
+        preset.textColor = config.textColor
+        preset.textColorNight = config.textColorNight
+        preset.textColorEInk = config.textColorEInk
+        preset.bgAlpha = config.backgroundAlpha
+        return preset
+    }
+
+    /// The selected background preset — upstream
+    /// `ReadBookConfig.getConfig(styleSelect)`.
+    private var selectedBackgroundPreset: ReaderBackgroundPreset {
+        let presets = environment.backgroundManager.presets
+        guard presets.indices.contains(backgroundStyleIndex) else {
+            return environment.backgroundManager.current
+        }
+        return presets[backgroundStyleIndex]
     }
 
     /// The display mode of the reader (upstream `AppConfig.isEInkMode`).
@@ -77,6 +117,10 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     private let measurer: TextMeasuring
     private let contentProvider: AppChapterContentProvider
 
+    /// The application model — the reader shows the table of contents of the
+    /// running reader (upstream `ReadMenu` opens the chapter list).
+    public weak var model: LegadoAppModel?
+
     /// The read aloud of the reader (upstream `TTSReadAloudService`).
     public let readAloud: ReadAloudService
 
@@ -96,11 +140,62 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     /// Whether the reader menu is shown.
     @Published public var isMenuPresented = false
 
+    /// The selection of the text — upstream `ContentTextView`.
+    public let selection = ReaderSelectionController()
+
+    /// Whether the in-reader search is shown — upstream `SearchMenu`.
+    @Published public var isSearchPresented = false
+
+    /// Whether the table of contents is shown inside the reader — upstream
+    /// `ReadMenu` opens the chapter list of the running reader.
+    @Published public var isTocPresented = false
+
+    /// The result of the dictionary lookup — upstream `DictDialog`.
+    @Published public var dictResult: DictLookupResult?
+
+    /// Whether the dictionary dialog is shown.
+    @Published public var isDictPresented = false
+
+    /// The binding of the dictionary dialog — the sheet is shown while the
+    /// result exists.
+    public var dictBinding: Binding<Bool> {
+        Binding(
+            get: { self.isDictPresented && self.dictResult != nil },
+            set: { if !$0 { self.dictResult = nil } }
+        )
+    }
+
+    /// The pattern of the replace rule of the selection — upstream
+    /// `ReplaceEditActivity.startIntent`.
+    @Published public var replacePattern: String = ""
+    /// The replacement of the replace rule.
+    @Published public var replaceReplacement: String = ""
+    /// Whether the replace rule sheet is shown.
+    @Published public var isReplacePresented = false
+    /// The keyword of the in-reader search.
+    @Published public var searchKeyword: String = ""
+    /// The address of the in-app browser.
+    @Published public var browserURL: String = ""
+    /// Whether the in-app browser is shown.
+    @Published public var isBrowserPresented = false
+    /// The shared text.
+    @Published public var sharedText: String = ""
+    /// Whether the share sheet is shown.
+    @Published public var isSharePresented = false
+
     /// The task that drives the auto pager.
     private var autoPageTask: Task<Void, Never>?
 
     /// The reader configuration (upstream `ReadBookConfig`).
-    public var config: ReaderConfig
+    @Published public var config: ReaderConfig
+
+    /// The store of the reader configuration — upstream `ReadBookConfig`
+    /// (the preferences of the app).
+    ///
+    /// The configuration is loaded when the reader opens and saved whenever it
+    /// changes, so that the preferences of the reader survive a restart of
+    /// the app.
+    public let configStore: ReaderConfigStore
 
     /// The configuration box the state machine reads its configuration from —
     /// the reader settings (the font size, the spacing) change it at runtime.
@@ -161,9 +256,33 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
         #endif
         self.measurer = measurer
         self.contentProvider = AppChapterContentProvider(environment: environment)
-        let config = ReaderConfig()
+        // The configuration of the reader is a preference of the app (the
+        // upstream `ReadBookConfig`) — it is loaded from the settings, so the
+        // reader opens with the preferences of the user.
+        let store = ReaderConfigStore(settings: environment.settings)
+        self.configStore = store
+        var config = store.load()
+        // The colours of the style are the default of the configuration — the
+        // upstream keeps them in the style (`ReadBookConfig.durConfig`).
+        let preset = environment.backgroundManager.current
+        if !store.hasValue(for: .bgStr) {
+            config.backgroundColor = preset.bgStr
+            config.backgroundColorNight = preset.bgStrNight
+            config.backgroundColorEInk = preset.bgStrEInk
+        }
+        if !store.hasValue(for: .textColor) {
+            config.textColor = preset.textColor
+            config.textColorNight = preset.textColorNight
+            config.textColorEInk = preset.textColorEInk
+        }
         self.config = config
         configBox.config = config
+        // The selected style of the reader — upstream
+        // `ReadBookConfig.styleSelect` (`PreferKey.readStyleSelect`).
+        if environment.backgroundManager.presets.indices.contains(config.styleIndex) {
+            environment.backgroundManager.select(index: config.styleIndex)
+        }
+        self.backgroundStyleIndex = environment.backgroundManager.selectedIndex
         let layout = ReaderLayout(
             config: config,
             size: CGSizeLike(width: 400, height: 700),
@@ -196,7 +315,7 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     public func start() async {
         isLoading = true
         if let index = startChapterIndex, chapters.indices.contains(index) {
-            await readBook.openChapter(index: index)
+            await readBook.openChapter(index: index, position: startChapterPos ?? 0)
         } else {
             await readBook.loadCurrentChapter()
         }
@@ -274,10 +393,57 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     /// Changes the reader configuration and lays the chapter out again —
     /// upstream `ReadBookActivity` re-reads the configuration when the font
     /// size or the spacing changes.
+    ///
+    /// The configuration is saved — the upstream saves the style when the
+    /// dialog is closed (`ReadStyleDialog.kt:66`: `ReadBookConfig.save()`).
     public func updateReaderStyle(_ mutate: (inout ReaderConfig) -> Void) async {
-        mutate(&config)
-        configBox.config = config
+        var updated = config
+        mutate(&updated)
+        config = updated
+        configBox.config = updated
+        configStore.save(updated)
         await readBook.openChapter(index: readBook.durChapterIndex)
+        refreshPage()
+    }
+
+    /// Applies the reader settings — upstream `MoreConfigDialog` and
+    /// `ReadStyleDialog`: the configuration is saved and the page is laid out
+    /// again.
+    public func applyReaderSettings(_ mutate: (inout ReaderConfig) -> Void) async {
+        await updateReaderStyle(mutate)
+    }
+
+    /// Selects a background preset — upstream
+    /// `ReadBookConfig.changeBgTextConfig` (the style of the reader).
+    ///
+    /// The colours of the preset become the colours of the configuration —
+    /// the upstream styles *are* the configurations
+    /// (`ReadBookConfig.Config`).
+    public func selectBackgroundPreset(index: Int) async {
+        guard environment.backgroundManager.presets.indices.contains(index) else { return }
+        environment.backgroundManager.select(index: index)
+        environment.backgroundManager.save()
+        backgroundStyleIndex = index
+        let preset = environment.backgroundManager.presets[index]
+        await updateReaderStyle { config in
+            config.styleIndex = index
+            config.backgroundColor = preset.bgStr
+            config.backgroundColorNight = preset.bgStrNight
+            config.backgroundColorEInk = preset.bgStrEInk
+            config.textColor = preset.textColor
+            config.textColorNight = preset.textColorNight
+            config.textColorEInk = preset.textColorEInk
+            config.backgroundAlpha = preset.bgAlpha
+        }
+    }
+
+    /// Changes the Chinese converter — upstream `ReadStyleDialog.kt:110`:
+    /// the converter is unloaded and the content is laid out again.
+    public func setChineseConverter(_ mode: ChineseConversionMode) async {
+        configStore.chineseConverterType = mode.rawValue
+        environment.settings.chineseConverterType = mode.rawValue
+        readBook.chineseConversionMode = mode
+        await readBook.reloadCurrentChapter()
         refreshPage()
     }
 
@@ -293,6 +459,14 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     public func jump(toChapter index: Int) async {
         guard chapters.indices.contains(index) else { return }
         await readBook.openChapter(index: index)
+        refreshPage()
+    }
+
+    /// Jumps to a character position of a chapter — upstream
+    /// `ReadBookActivity.navigateToSearch` (the in-reader search).
+    public func jump(toChapter index: Int, position: Int) async {
+        guard chapters.indices.contains(index) else { return }
+        await readBook.openChapter(index: index, position: position)
         refreshPage()
     }
 
@@ -342,14 +516,22 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     }
 
     /// The page-turn animation style — upstream `ReadBookConfig.pageAnim`.
-    public var pageTurnStyle: PageTurnStyle = .slide
+    ///
+    /// The upstream stores the animation in the configuration of the reader
+    /// (`ReadBookConfig.kt:548`: `pageAnim = 0`, the cover animation).
+    public var pageTurnStyle: PageTurnStyle {
+        PageTurnStyle(rawValue: config.pageAnim) ?? .cover
+    }
+
+    /// Changes the page-turn animation — upstream `ReadStyleDialog` (the
+    /// "翻页动画" picker writes `ReadBookConfig.pageAnim`).
+    public func setPageTurnStyle(_ style: PageTurnStyle) {
+        Task { await updateReaderStyle { $0.pageAnim = style.rawValue } }
+    }
 
     /// The direction of the last page turn — the reader animates the page
     /// that is being left behind.
     public var pageTurnDirection: PageTurnDirection = .next
-
-    /// The selection overlay state — upstream `ContentTextView`.
-    public let selection = ReaderSelectionController()
 
     /// Starts the read aloud of the current chapter.
     ///
@@ -377,9 +559,11 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
             // The laid-out lines of the page — the upstream draws them on a
             // canvas, the port renders them with SwiftUI.
             pageLines = page.lines
+            pageLineOffsets = page.lineOffsets
         } else {
             pageText = ""
             pageLines = []
+            pageLineOffsets = []
         }
         pageIndex = index
         pageSize = chapter.pageSize
@@ -450,13 +634,13 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
         case .addBookmark:
             Task { await addBookmark() }
         case .editContent:
-            break
+            errorMessage = "暂不支持编辑内容"
         case .toggleReplaceRule:
-            break
+            toggleReplaceRule()
         case .chapterList:
-            isMenuPresented = true
+            isTocPresented = true
         case .searchContent:
-            isMenuPresented = true
+            isSearchPresented = true
         case .syncProgress:
             Task { await readBook.saveRead(pageChanged: false) }
         case .pauseResumeReadAloud:
@@ -469,6 +653,16 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     }
 
     /// Adds a bookmark for the current chapter — upstream `ReadBookActivity`.
+    public func addCurrentBookmark() async {
+        await addBookmark()
+    }
+
+    /// The replace rules that are applied to the current chapter — upstream
+    /// `ReadBookActivity.menu_effectiveReplaceRules`.
+    public var effectiveReplaceRules: [ReplaceRule] {
+        readBook.curTextChapter?.effectiveReplaceRules ?? []
+    }
+
     private func addBookmark() async {
         let chapter = chapters.indices.contains(readBook.durChapterIndex)
             ? chapters[readBook.durChapterIndex]
@@ -485,6 +679,78 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
             content: chapter.url
         )
         try? environment.store.insert(bookmark)
+    }
+
+    /// Adds a bookmark for the selected text — upstream
+    /// `ReadBookActivity.createBookmark` (the selection is the bookmark text).
+    public func addBookmark(selectedText: String) {
+        let chapter = chapters.indices.contains(readBook.durChapterIndex)
+            ? chapters[readBook.durChapterIndex]
+            : nil
+        guard let chapter else { return }
+        let bookmark = Bookmark(
+            time: Int64(Date().timeIntervalSince1970),
+            bookName: book.name,
+            bookAuthor: book.author,
+            chapterIndex: Int64(readBook.durChapterIndex),
+            chapterPos: Int64(readBook.durChapterPos),
+            chapterName: chapter.title,
+            bookText: selectedText.isEmpty ? chapter.title : selectedText,
+            content: selectedText.isEmpty ? chapter.url : selectedText
+        )
+        try? environment.store.insert(bookmark)
+    }
+
+    /// Toggles the replace rules of the book — upstream
+    /// `ReadBookActivity.changeReplaceRuleState` (the "启用替换净化" switch).
+    public func toggleReplaceRule() {
+        var changed = book
+        changed.useReplaceRule = !changed.useReplaceRule
+        try? environment.store.update(changed)
+        Task { await readBook.openChapter(index: readBook.durChapterIndex) }
+        refreshPage()
+    }
+
+    /// Looks a word up in the dictionary rules — upstream `DictDialog`.
+    public func lookupDictionary(_ word: String) {
+        Task {
+            let rules = (try? environment.store.allDictRules()) ?? []
+            guard !rules.isEmpty else {
+                errorMessage = "没有配置词典规则"
+                return
+            }
+            do {
+                let result = try await DictSearcher.search(
+                    word: word,
+                    rules: rules,
+                    dependencies: environment.dependencies()
+                )
+                guard !result.text.isEmpty else {
+                    errorMessage = "没有查到结果"
+                    return
+                }
+                dictResult = DictLookupResult(
+                    word: word,
+                    result: result.text,
+                    ruleName: result.ruleName
+                )
+                isDictPresented = true
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    /// Reads the selected text aloud — upstream `aloudStartSelect` /
+    /// `speak(selectedText)`.
+    public func readAloud(selectedText: String) {
+        guard !selectedText.isEmpty else { return }
+        readAloud.play(
+            paragraphs: [
+                ReadAloudParagraph(index: 0, text: selectedText, start: 0, end: selectedText.count)
+            ],
+            chapterIndex: readBook.durChapterIndex
+        )
     }
 
     // MARK: - ReadBookDelegate
@@ -614,15 +880,31 @@ public struct ReaderView: View {
                                         titleFont: controller.resolvedFonts.title.swiftUIFont,
                                         bodyFont: controller.resolvedFonts.body.swiftUIFont,
                                         style: controller.pageTurnStyle,
-                                        direction: controller.pageTurnDirection
+                                        direction: controller.pageTurnDirection,
+                                        textColor: ColorHex.color(
+                                            controller.backgroundPreset.textColorString(
+                                                for: controller.displayMode
+                                            ),
+                                            fallback: .primary
+                                        )
                                     )
                                     // The nine-zone tap area — upstream `ReadView.onSingleTapUp`.
                                     ReaderTapArea(
                                         configuration: ReaderInteractionConfiguration.configuration(
                                             from: controller.environment.settings
-                                        )
+                                        ),
+                                        lines: controller.pageLines,
+                                        lineOffsets: controller.pageLineOffsets
                                     ) { action in
                                         controller.performClickAction(action)
+                                    } onLongPress: { offset in
+                                        // The long press starts the text
+                                        // selection — upstream
+                                        // `ReadView.onLongPress`.
+                                        controller.selection.selectParagraph(
+                                            around: offset,
+                                            in: controller.pageText
+                                        )
                                     }
                                 }
                             }
@@ -637,7 +919,46 @@ public struct ReaderView: View {
                         }
                     }
                     readAloudBar
-                    ReaderSelectionOverlay(controller: controller.selection)
+                    // The text selection — upstream `TextActionMenu`.
+                    ReaderSelectionOverlay(
+                        controller: controller.selection,
+                        onReplace: { text in
+                            controller.replacePattern = text
+                            controller.isReplacePresented = true
+                        },
+                        onBookmark: { text in
+                            controller.addBookmark(selectedText: text)
+                        },
+                        onReadAloud: { text in
+                            controller.readAloud(selectedText: text)
+                        },
+                        onDictionary: { text in
+                            controller.lookupDictionary(text)
+                        },
+                        onSearchContent: { text in
+                            controller.searchKeyword = text
+                            controller.isSearchPresented = true
+                        },
+                        onBrowser: { text in
+                            controller.browserURL = text
+                            controller.isBrowserPresented = true
+                        },
+                        onShare: { text in
+                            controller.sharedText = text
+                            controller.isSharePresented = true
+                        }
+                    )
+                    // The in-reader search — upstream `SearchMenu`.
+                    if controller.isSearchPresented {
+                        ReaderSearchBar(controller: controller) {
+                            controller.isSearchPresented = false
+                        } onShowResults: { _ in
+                            controller.isSearchPresented = false
+                        } onShowMenu: {
+                            controller.isSearchPresented = false
+                            controller.isMenuPresented = true
+                        }
+                    }
                     footer
                 }
             }
@@ -651,6 +972,45 @@ public struct ReaderView: View {
             .onDisappear {
                 controller.system.deactivate()
                 controller.deactivateMediaCommands()
+            }
+            .sheet(isPresented: $controller.isTocPresented) {
+                if let model = controller.model {
+                    NavigationStack {
+                        TocView(model: model, book: controller.book) { index in
+                            controller.isTocPresented = false
+                            Task { await controller.jump(toChapter: index) }
+                        }
+                    }
+                }
+            }
+            .sheet(isPresented: $controller.isReplacePresented) {
+                if let model = controller.model {
+                    NavigationStack {
+                        ReaderReplaceSheet(
+                            model: model,
+                            book: controller.book,
+                            pattern: $controller.replacePattern,
+                            replacement: $controller.replaceReplacement
+                        )
+                    }
+                }
+            }
+            .sheet(isPresented: $controller.isBrowserPresented) {
+                NavigationStack {
+                    InAppBrowserView(url: controller.browserURL)
+                }
+            }
+            .sheet(isPresented: $controller.isSharePresented) {
+                ShareSheet(items: [controller.sharedText])
+            }
+            .sheet(isPresented: $controller.isDictPresented) {
+                if let result = controller.dictResult {
+                    DictDialogView(
+                        word: result.word,
+                        result: result.result,
+                        ruleName: result.ruleName
+                    )
+                }
             }
         }
     }

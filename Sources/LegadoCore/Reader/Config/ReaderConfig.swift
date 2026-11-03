@@ -16,6 +16,8 @@ import Foundation
 public struct ReaderConfig: Equatable {
     /// The page background colour.
     public var backgroundColor: String = "#FFFFFF"
+    /// The opacity of the background, in percent — upstream `Config.bgAlpha`.
+    public var backgroundAlpha: Int = 100
     /// The night mode background colour.
     public var backgroundColorNight: String = "#000000"
     /// The e-ink mode background colour.
@@ -58,7 +60,8 @@ public struct ReaderConfig: Equatable {
     public var textBottomJustify: Bool = false
     /// Whether the Chinese layout rules are used.
     public var useZhLayout: Bool = false
-    /// Whether the title is centred vertically.
+    /// Whether the title is centred — the upstream derives it from the title
+    /// mode (`ReadBookConfig.kt:310`: `val isMiddleTitle get() = titleMode == 1`).
     public var isMiddleTitle: Bool = false
     /// Whether the text is fully justified.
     public var textFullJustify: Bool = false
@@ -72,6 +75,32 @@ public struct ReaderConfig: Equatable {
     public var showHeader: Bool = false
     /// Whether the footer is shown.
     public var showFooter: Bool = true
+    /// The index of the selected read style — upstream
+    /// `ReadBookConfig.styleSelect` (`PreferKey.readStyleSelect`).
+    public var styleIndex: Int = 0
+    /// The tip of the left header slot — upstream `ReadBookConfig.tipHeaderLeft`
+    /// (`ReadTipConfig.kt:574`).
+    public var tipHeaderLeft: Int = ReaderTipType.time.rawValue
+    /// The tip of the middle header slot — upstream `ReadBookConfig.tipHeaderMiddle`.
+    public var tipHeaderMiddle: Int = ReaderTipType.none.rawValue
+    /// The tip of the right header slot — upstream `ReadBookConfig.tipHeaderRight`.
+    public var tipHeaderRight: Int = ReaderTipType.battery.rawValue
+    /// The tip of the left footer slot — upstream `ReadBookConfig.tipFooterLeft`.
+    public var tipFooterLeft: Int = ReaderTipType.chapterTitle.rawValue
+    /// The tip of the middle footer slot — upstream `ReadBookConfig.tipFooterMiddle`.
+    public var tipFooterMiddle: Int = ReaderTipType.none.rawValue
+    /// The tip of the right footer slot — upstream `ReadBookConfig.tipFooterRight`.
+    public var tipFooterRight: Int = ReaderTipType.pageAndTotal.rawValue
+    /// The colour of the tips — 0 the colour of the content, otherwise a
+    /// colour value — upstream `ReadBookConfig.tipColor`.
+    public var tipColor: Int = 0
+    /// The colour of the dividers — -1 the default — upstream
+    /// `ReadBookConfig.tipDividerColor`.
+    public var tipDividerColor: Int = -1
+    /// The visibility of the header — upstream `ReadBookConfig.headerMode`.
+    public var headerMode: Int = 0
+    /// The visibility of the footer — upstream `ReadBookConfig.footerMode`.
+    public var footerMode: Int = 0
 
     public init() {}
 
@@ -92,6 +121,24 @@ public struct ReaderConfig: Equatable {
             letterSpacing: letterSpacing,
             isBold: true,
             isItalic: false
+        )
+    }
+
+    /// The header and the footer layout — upstream `ReadTipConfig`.
+    public var tipLayout: ReaderTipRenderer.Layout {
+        ReaderTipRenderer.Layout(
+            headerMode: ReaderTipMode(rawValue: headerMode) ?? .automatic,
+            footerMode: ReaderTipMode(rawValue: footerMode) ?? .always,
+            header: ReaderTipRenderer.Row(
+                left: ReaderTipType(rawValue: tipHeaderLeft) ?? .none,
+                middle: ReaderTipType(rawValue: tipHeaderMiddle) ?? .none,
+                right: ReaderTipType(rawValue: tipHeaderRight) ?? .none
+            ),
+            footer: ReaderTipRenderer.Row(
+                left: ReaderTipType(rawValue: tipFooterLeft) ?? .none,
+                middle: ReaderTipType(rawValue: tipFooterMiddle) ?? .none,
+                right: ReaderTipType(rawValue: tipFooterRight) ?? .none
+            )
         )
     }
 }

@@ -33,17 +33,21 @@ public struct PagedContentView: View {
     let titleFont: Font
     let bodyFont: Font
     let textAlignment: TextAlignment
+    /// The colour of the text — upstream `ReadBookConfig.curTextColor`.
+    let textColor: Color
 
     public init(
         lines: [TextLine],
         titleFont: Font,
         bodyFont: Font,
-        textAlignment: TextAlignment = .leading
+        textAlignment: TextAlignment = .leading,
+        textColor: Color = .primary
     ) {
         self.lines = lines
         self.titleFont = titleFont
         self.bodyFont = bodyFont
         self.textAlignment = textAlignment
+        self.textColor = textColor
     }
 
     public var body: some View {
@@ -51,6 +55,7 @@ public struct PagedContentView: View {
             ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                 Text(line.text)
                     .font(line.isTitle ? titleFont : bodyFont)
+                    .foregroundColor(textColor)
                     .multilineTextAlignment(textAlignment)
                     // The line is never wrapped again — the layout engine has
                     // already broken it.
@@ -63,14 +68,33 @@ public struct PagedContentView: View {
 
 /// The nine-zone tap area — upstream `ReadView.setRect9x` +
 /// `onSingleTapUp`.
+///
+/// The area also catches the long press that starts the text selection
+/// (upstream `ReadView.onLongPress` → `ContentTextView.selectText`).
 public struct ReaderTapArea: View {
 
     let configuration: ReaderClickConfiguration
     let onAction: (ClickAction) -> Void
+    /// The laid-out lines of the page — the long press finds the line that
+    /// was touched.
+    var lines: [TextLine] = []
+    /// The offset of the first character of every line inside the page text.
+    var lineOffsets: [Int] = []
+    /// Called with the character offset of the long press.
+    var onLongPress: (Int) -> Void = { _ in }
 
-    public init(configuration: ReaderClickConfiguration, onAction: @escaping (ClickAction) -> Void) {
+    public init(
+        configuration: ReaderClickConfiguration,
+        lines: [TextLine] = [],
+        lineOffsets: [Int] = [],
+        onAction: @escaping (ClickAction) -> Void,
+        onLongPress: @escaping (Int) -> Void = { _ in }
+    ) {
         self.configuration = configuration
+        self.lines = lines
+        self.lineOffsets = lineOffsets
         self.onAction = onAction
+        self.onLongPress = onLongPress
     }
 
     public var body: some View {
@@ -89,7 +113,43 @@ public struct ReaderTapArea: View {
                     guard action != .noAction else { return }
                     onAction(action)
                 }
+                .onLongPressGesture(minimumDuration: 0.35) {
+                    // The upstream selects the paragraph that was touched.
+                    guard !lines.isEmpty else { return }
+                    let y = touchY
+                    guard let index = lineIndex(atY: y) else { return }
+                    let offset = index < lineOffsets.count ? lineOffsets[index] : 0
+                    onLongPress(offset)
+                }
+                // The long press does not report the position, so the finger
+                // position is tracked with a drag gesture.
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            touchY = Double(value.location.y)
+                        }
+                )
         }
+    }
+
+    /// The vertical position of the last long press — the shim does not
+    /// report the position of the long press, so the port uses the last
+    /// known touch point.
+    @State private var touchY: Double = 0
+
+    /// The index of the line at the given vertical position.
+    private func lineIndex(atY y: Double) -> Int? {
+        var best: Int?
+        var bestDistance = Double.greatestFiniteMagnitude
+        for (index, line) in lines.enumerated() {
+            if y >= line.lineTop && y <= line.lineBottom { return index }
+            let distance = abs(line.lineTop - y)
+            if distance < bestDistance {
+                bestDistance = distance
+                best = index
+            }
+        }
+        return best
     }
 }
 

@@ -9,6 +9,13 @@
 //  split of the long chapters, the reverse, the use of the replace rules,
 //  the word count, the bookmark export (JSON / Markdown) and the log.
 //
+//  The chapter rows open the reader at that chapter (upstream
+//  `ChapterListFragment.onChapterClick`), the bookmark rows open it at the
+//  bookmark position (upstream `BookmarkFragment.onClick`), the current
+//  chapter is highlighted (upstream `ChapterListAdapter.convert`) and the
+//  title replace rules are applied to the chapter titles (upstream
+//  `ChapterListAdapter.upDisplayTitles`).
+//
 
 #if canImport(SwiftUI)
 import SwiftUI
@@ -24,6 +31,10 @@ public struct TocView: View {
 
     @ObservedObject var model: LegadoAppModel
     let book: Book
+    /// Called instead of opening a new reader when the table of contents is
+    /// shown inside the reader (upstream `ReadMenu` opens the chapter list of
+    /// the running reader).
+    var onSelectChapter: ((Int) -> Void)?
 
     @State private var chapters: [BookChapter] = []
     @State private var bookmarks: [Bookmark] = []
@@ -36,43 +47,86 @@ public struct TocView: View {
     @State private var ruleText = ""
     /// Whether the word count is shown — upstream `AppConfig.tocCountWords`.
     @State private var showsWordCount = false
+    /// The display titles of the chapters (the replace rules are applied).
+    @State private var displayTitles: [String: String] = [:]
+    /// Whether the global "use the replace rules in the TOC" is on — upstream
+    /// `AppConfig.tocUiUseReplace`.
+    @State private var usesGlobalReplace = false
 
-    public init(model: LegadoAppModel, book: Book) {
+    public init(model: LegadoAppModel, book: Book, onSelectChapter: ((Int) -> Void)? = nil) {
         self.model = model
         self.book = book
+        self.onSelectChapter = onSelectChapter
     }
 
     public var body: some View {
         List {
             if showsBookmarks {
                 Section("书签") {
-                    ForEach(bookmarks, id: \.time) { bookmark in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(bookmark.chapterName)
-                            Text("位置 \(bookmark.chapterPos)")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-            } else {
-                Section {
-                    ForEach(TocOperations.filter(chapters: chapters, keyword: keyword), id: \.url) { chapter in
-                        HStack {
-                            Text(chapter.title)
-                                .font(.system(size: 14))
-                            Spacer()
-                            if showsWordCount, let wordCount = chapter.wordCount, !wordCount.isEmpty {
-                                Text(wordCount)
+                    ForEach(filteredBookmarks, id: \.time) { bookmark in
+                        Button {
+                            openBookmark(bookmark)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(bookmark.chapterName)
+                                    .font(.system(size: 14))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Text("位置 \(bookmark.chapterPos)")
                                     .font(.system(size: 11))
                                     .foregroundColor(.secondary)
                             }
-                            if chapter.isVolume {
-                                Text("卷")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+            } else {
+                if !chapters.isEmpty {
+                    Section {
+                        HStack {
+                            Text("当前章节 \(currentChapterNumber)/\(chapters.count)")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Button("顶部") {
+                                openChapter(index: 0)
+                            }
+                            .font(.system(size: 12))
+                            Button("底部") {
+                                openChapter(index: chapters.count - 1)
+                            }
+                            .font(.system(size: 12))
+                        }
+                    }
+                }
+                Section {
+                    ForEach(filteredChapters, id: \.url) { chapter in
+                        Button {
+                            openChapter(index: Int(chapter.index))
+                        } label: {
+                            HStack {
+                                Text(displayTitle(for: chapter))
+                                    .font(.system(size: 14))
+                                    .foregroundColor(chapter.index == book.durChapterIndex ? .accentColor : .primary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                if showsWordCount, let wordCount = chapter.wordCount, !wordCount.isEmpty {
+                                    Text(wordCount)
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.secondary)
+                                }
+                                if chapter.isVolume {
+                                    Text("卷")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.secondary)
+                                }
+                                if hasCachedContent(chapter) {
+                                    // Upstream `ChapterListAdapter.upHasCache`.
+                                    Text("已缓存")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.secondary)
+                                }
                             }
                         }
+                        .buttonStyle(PlainButtonStyle())
                     }
                 }
             }
@@ -85,7 +139,7 @@ public struct TocView: View {
             }
         }
         .navigationTitle("目录")
-        .searchable(text: $keyword, prompt: "搜索目录")
+        .searchable(text: $keyword, prompt: showsBookmarks ? "搜索书签" : "搜索目录")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button(showsBookmarks ? "章节" : "书签") {
@@ -139,6 +193,67 @@ public struct TocView: View {
         }
     }
 
+    // MARK: - The data
+
+    private var filteredChapters: [BookChapter] {
+        TocOperations.filter(chapters: chapters, keyword: keyword)
+    }
+
+    private var filteredBookmarks: [Bookmark] {
+        let keyword = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !keyword.isEmpty else { return bookmarks }
+        return bookmarks.filter {
+            $0.chapterName.localizedCaseInsensitiveContains(keyword)
+                || $0.content.localizedCaseInsensitiveContains(keyword)
+        }
+    }
+
+    private var currentChapterNumber: Int {
+        let index = Int(book.durChapterIndex) + 1
+        return max(1, min(index, max(1, chapters.count)))
+    }
+
+    /// The display title of a chapter — the title replace rules are applied
+    /// when the book uses them (upstream `ChapterListAdapter.upDisplayTitles`).
+    private func displayTitle(for chapter: BookChapter) -> String {
+        if let title = displayTitles[chapter.title] {
+            return title
+        }
+        return chapter.title
+    }
+
+    /// Whether the content of a chapter is cached — upstream
+    /// `ChapterListAdapter.upHasCache`.
+    private func hasCachedContent(_ chapter: BookChapter) -> Bool {
+        model.environment.cacheStorage?.hasContent(book: book, chapter: chapter) ?? false
+    }
+
+    // MARK: - The actions
+
+    /// Opens the reader at a chapter — upstream
+    /// `ChapterListFragment.onChapterClick`.
+    private func openChapter(index: Int) {
+        guard index >= 0 else { return }
+        if let onSelectChapter {
+            onSelectChapter(index)
+            return
+        }
+        Task {
+            await model.openReader(for: book, chapterIndex: index)
+        }
+    }
+
+    /// Opens the reader at a bookmark — upstream `BookmarkFragment.onClick`.
+    private func openBookmark(_ bookmark: Bookmark) {
+        Task {
+            await model.openReader(
+                for: book,
+                chapterIndex: Int(bookmark.chapterIndex),
+                chapterPos: Int(bookmark.chapterPos)
+            )
+        }
+    }
+
     /// Applies a new TOC rule — upstream `TocViewModel.upBookTocRule`.
     private func applyRule(_ rule: String) {
         guard let fileURL = model.localImporter?.fileURL(for: book) else {
@@ -183,6 +298,30 @@ public struct TocView: View {
         bookmarks = model.bookmarks.filter {
             $0.bookName == book.name && $0.bookAuthor == book.author
         }
+        usesGlobalReplace = model.environment.settings.bool(.tocUiUseReplace, default: false)
+        reloadDisplayTitles()
+    }
+
+    /// Computes the display titles of the chapters — upstream
+    /// `ChapterListAdapter.upDisplayTitles`.
+    private func reloadDisplayTitles() {
+        displayTitles = [:]
+        guard book.useReplaceRule else { return }
+        let rules = (try? model.environment.store.replaceRulesForTitle(
+            name: book.name,
+            origin: book.origin
+        )) ?? []
+        guard !rules.isEmpty else { return }
+        for chapter in chapters {
+            if let title = try? ReplaceRuleEngine.displayTitle(
+                chapter,
+                replaceRules: rules,
+                useReplace: true,
+                chineseConvert: false
+            ) {
+                displayTitles[chapter.title] = title
+            }
+        }
     }
 
     /// Upstream `TocViewModel.reverseToc` — the flag is flipped, the
@@ -202,15 +341,31 @@ public struct TocView: View {
         var changed = book
         changed.useReplaceRule.toggle()
         try? model.environment.store.update(changed)
+        usesGlobalReplace.toggle()
+        reloadDisplayTitles()
         message = changed.useReplaceRule ? "已使用替换规则" : "已关闭替换规则"
     }
 
+    /// Exports the bookmarks — upstream `TocViewModel.saveBookmark`.
+    ///
+    /// The upstream writes a file into the download directory; the port writes
+    /// it into the cache directory and copies the text to the pasteboard.
     private func exportBookmarks(asMarkdown: Bool) {
         let text = asMarkdown
             ? TocOperations.bookmarkMarkdown(book: book, bookmarks: bookmarks)
             : TocOperations.bookmarkJSON(book: book, bookmarks: bookmarks)
         let name = TocOperations.bookmarkFileName(book: book, fileExtension: asMarkdown ? "md" : "json")
-        message = "已导出 \(name)（\(text.count) 字符）"
+        if let directory = model.environment.cacheStorage?.layout.root {
+            let url = directory.appendingPathComponent(name)
+            do {
+                try text.write(to: url, atomically: true, encoding: .utf8)
+                message = "已导出 \(name)"
+            } catch {
+                message = "导出失败：\(error.localizedDescription)"
+            }
+        } else {
+            message = "已导出 \(name)（\(text.count) 字符）"
+        }
         UIPasteboardShim.copy(text)
     }
 }

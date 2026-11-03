@@ -2,11 +2,11 @@
 //  BookDetailView.swift
 //  LegadoUI
 //
-//  The detail page of a book — upstream `ui/book/info/`.
+//  The detail page of a book — upstream `ui/book/info/BookInfoActivity.kt`.
 //
-//  It shows the cover, the title, the author, the introduction and the table
-//  of contents, and it can refresh the information and the chapter list from
-//  the book source.
+//  It shows the cover, the title, the author, the source, the introduction
+//  and the table of contents, and it can refresh the information and the
+//  chapter list from the book source.
 //
 //  See `AppModel.swift` for the state.
 //
@@ -17,6 +17,7 @@ import SwiftUI
 import LegadoUIShim
 #endif
 
+import Foundation
 import LegadoCore
 
 /// The detail page of a book.
@@ -32,6 +33,14 @@ public struct BookDetailView: View {
     @State private var isContentSearchPresented = false
     @State private var isBookInfoPresented = false
     @State private var isTocPresented = false
+    @State private var isGroupPickerPresented = false
+    @State private var isSharePresented = false
+    /// Whether the book is on the shelf.
+    @State private var isOnShelf = false
+    /// The groups the book is in.
+    @State private var groupMask: Int64 = 0
+    /// The book that is displayed — the store can update it.
+    @State private var current: Book
 
     /// Whether the book is being cached (upstream `CacheBook`).
     private var isCaching: Bool {
@@ -42,18 +51,18 @@ public struct BookDetailView: View {
     public init(model: LegadoAppModel, book: Book) {
         self.model = model
         self.book = book
+        self._current = State(initialValue: book)
     }
 
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header
-                if let intro = book.customIntro ?? book.intro, !intro.isEmpty {
-                    Section {
-                        Text(intro)
-                            .font(.system(size: 14))
-                            .foregroundColor(.secondary)
-                    }
+                info
+                if let intro = current.customIntro ?? current.intro, !intro.isEmpty {
+                    Text(intro)
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
                 }
                 chapterList
                 if let progress = model.cacheProgress[book.bookUrl], progress.succeeded > 0 {
@@ -64,7 +73,10 @@ public struct BookDetailView: View {
             }
             .padding(16)
         }
-        .navigationTitle(book.name)
+        .navigationTitle(current.name)
+        .refreshable {
+            await refresh()
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("阅读") {
@@ -77,6 +89,25 @@ public struct BookDetailView: View {
                     // menu (the metadata, the share, the pin, the delete).
                     Button("书籍信息") {
                         isBookInfoPresented = true
+                    }
+                    // Upstream `BookInfoActivity.menu_refresh` — the book
+                    // information is loaded again from the source.
+                    Button("刷新") {
+                        Task { await refresh() }
+                    }
+                    // Upstream `BookInfoActivity.menu_login` — the login of
+                    // the source of the book.
+                    if let source = source {
+                        Button("登录") {
+                            model.presentLogin(for: source)
+                        }
+                    }
+                    Button(isOnShelf ? "移出书架" : "加入书架") {
+                        toggleShelf()
+                    }
+                    // Upstream `BookInfoActivity.menu_change_group`.
+                    Button("换分组") {
+                        isGroupPickerPresented = true
                     }
                     Button("换源") {
                         isChangeSourcePresented = true
@@ -93,15 +124,35 @@ public struct BookDetailView: View {
                     // whole book.
                     Button(isCaching ? "停止缓存" : "缓存本书") {
                         if isCaching {
-                            Task { await model.stopCaching(book: book) }
+                            Task { await model.stopCaching(book: current) }
                         } else {
-                            Task { await model.startCaching(book: book) }
+                            Task { await model.startCaching(book: current) }
                         }
                     }
                     // Upstream `MainViewModel.updateToc` — the button is
                     // called 更新目录 (检查更新 is the app-version check).
                     Button("更新目录") {
-                        Task { await model.updateBook(book) }
+                        Task { await model.updateBook(current) }
+                    }
+                    // Upstream `BookInfoActivity.menu_copy_toc_url` — the
+                    // address of the table of contents.
+                    Button("复制目录链接") {
+                        UIPasteboardShim.copy(current.bookUrl)
+                    }
+                    // Upstream `BookInfoActivity.menu_clear_cache`.
+                    Button("清除缓存") {
+                        model.environment.cacheStorage?.clearCache(book: current)
+                        model.reloadBookshelf()
+                    }
+                    // Upstream `BookInfoActivity.menu_can_update` — the book
+                    // may be updated automatically.
+                    Button(current.canUpdate ? "禁止更新" : "允许更新") {
+                        toggleCanUpdate()
+                    }
+                    // Upstream `BookInfoActivity.menu_share` — the upstream
+                    // shares `${bookUrl}#$bookJson`.
+                    Button("分享") {
+                        isSharePresented = true
                     }
                 } label: {
                     Label("更多", systemImage: "ellipsis.circle")
@@ -110,23 +161,33 @@ public struct BookDetailView: View {
         }
         .sheet(isPresented: $isChangeSourcePresented) {
             NavigationStack {
-                ChangeSourceView(model: model, book: book)
+                ChangeSourceView(model: model, book: current)
             }
         }
         .sheet(isPresented: $isContentSearchPresented) {
             NavigationStack {
-                ContentSearchView(model: model, book: book)
+                ContentSearchView(model: model, book: current)
             }
         }
         .sheet(isPresented: $isBookInfoPresented) {
             NavigationStack {
-                BookInfoMenuView(model: model, book: book)
+                BookInfoMenuView(model: model, book: current)
             }
         }
         .sheet(isPresented: $isTocPresented) {
             NavigationStack {
-                TocView(model: model, book: book)
+                TocView(model: model, book: current)
             }
+        }
+        .sheet(isPresented: $isGroupPickerPresented) {
+            NavigationStack {
+                GroupPickerSheet(groups: model.groups, selected: groupMask) { groupId in
+                    moveToGroup(groupId)
+                }
+            }
+        }
+        .sheet(isPresented: $isSharePresented) {
+            ShareSheet(items: [shareText])
         }
         .sheet(isPresented: $model.isReaderPresented) {
             if let reader = model.reader {
@@ -150,21 +211,55 @@ public struct BookDetailView: View {
     // MARK: - Parts
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(book.name)
-                .font(.system(size: 20))
-            Text(book.author)
-                .font(.system(size: 14))
-                .foregroundColor(.secondary)
-            if let kind = book.kind, !kind.isEmpty {
-                Text(kind)
-                    .font(.system(size: 13))
+        HStack(alignment: .top, spacing: 12) {
+            BookCoverView(book: current, width: 84, height: 114)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(current.name)
+                    .font(.system(size: 20))
+                Text(current.author)
+                    .font(.system(size: 14))
                     .foregroundColor(.secondary)
+                if let kind = current.kind, !kind.isEmpty {
+                    Text(kind)
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                }
+                if let wordCount = current.wordCount, !wordCount.isEmpty {
+                    Text(wordCount)
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                }
+                // Upstream `BookInfoActivity.tvOrigin` — the name of the
+                // source; tapping it opens the source.
+                if !sourceName.isEmpty {
+                    Button(sourceName) {
+                        if let source {
+                            model.presentLogin(for: source)
+                        }
+                    }
+                    .font(.system(size: 12))
+                    .buttonStyle(PlainButtonStyle())
+                }
             }
-            if let wordCount = book.wordCount, !wordCount.isEmpty {
-                Text(wordCount)
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// The information block — upstream `BookInfoActivity` shows the latest
+    /// chapter, the group and the chapter count.
+    private var info: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let latest = current.latestChapterTitle, !latest.isEmpty {
+                // Upstream `BookInfoActivity.tvLasted` — 最新章节.
+                LabeledRow(title: "最新章节", value: latest)
+            }
+            let names = BookGroups.names(for: current, groups: model.groups)
+            if !names.isEmpty {
+                // Upstream `BookInfoViewModel.getGroupName` — the group.
+                LabeledRow(title: "分组", value: names.joined(separator: ","))
+            }
+            if current.totalChapterNum > 0 {
+                LabeledRow(title: "章节", value: "\(current.totalChapterNum)")
             }
         }
     }
@@ -195,6 +290,27 @@ public struct BookDetailView: View {
         }
     }
 
+    // MARK: - The data
+
+    /// The source of the book.
+    private var source: BookSource? {
+        try? model.environment.source(for: current)
+    }
+
+    /// The name of the source — upstream `Book.originName`.
+    private var sourceName: String {
+        if !current.originName.isEmpty {
+            return current.originName
+        }
+        return source?.bookSourceName ?? ""
+    }
+
+    /// The text the upstream shares — `${bookUrl}#$bookJson`.
+    private var shareText: String {
+        let json = (try? LegadoBackup.encodeRows([current.row])) ?? "{}"
+        return "\(current.bookUrl)#\(json)"
+    }
+
     // MARK: - Actions
 
     private func load() {
@@ -202,21 +318,82 @@ public struct BookDetailView: View {
         isLoading = true
         Task {
             do {
-                if let source = try model.environment.source(for: book) {
-                    let result = try await model.environment.loadChapterList(book: book, source: source)
+                if let source = try model.environment.source(for: current) {
+                    let result = try await model.environment.loadChapterList(book: current, source: source)
                     chapters = result.chapters
                     // The upstream writes the chapter-count fields back into the
                     // book; the port keeps them in the store.
                     try? model.environment.store.update(result.book)
+                    current = result.book
                 } else {
-                    chapters = try model.environment.chapters(of: book)
+                    chapters = try model.environment.chapters(of: current)
                 }
             } catch {
                 errorMessage = error.localizedDescription
-                chapters = (try? model.environment.chapters(of: book)) ?? []
+                chapters = (try? model.environment.chapters(of: current)) ?? []
             }
             isLoading = false
+            loadShelfState()
         }
+    }
+
+    /// Reads whether the book is on the shelf and in which groups.
+    private func loadShelfState() {
+        let all = (try? model.environment.store.allBooks()) ?? []
+        let stored = all.first { $0.bookUrl == current.bookUrl }
+        isOnShelf = stored != nil
+        groupMask = stored?.group ?? current.group
+    }
+
+    /// Reloads the book information from the source — upstream
+    /// `BookInfoViewModel.refreshBook`.
+    private func refresh() async {
+        guard let source else {
+            loadShelfState()
+            return
+        }
+        do {
+            let updated = try await model.environment.loadBookInfo(book: current, source: source)
+            try? model.environment.store.update(updated)
+            current = updated
+            chapters = try model.environment.chapters(of: updated)
+            model.reloadBookshelf()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Adds the book to the shelf or removes it — upstream
+    /// `BookInfoActivity.menuAddOrRemove`.
+    private func toggleShelf() {
+        if isOnShelf {
+            model.removeFromShelf(current)
+            isOnShelf = false
+        } else {
+            model.addToShelf(current, groupId: groupMask)
+            isOnShelf = true
+        }
+        model.reloadBookshelf()
+    }
+
+    /// Moves the book to a group — upstream `BookInfoActivity.menu_change_group`.
+    private func moveToGroup(_ groupId: Int64) {
+        var updated = current
+        updated.group = groupId
+        groupMask = groupId
+        try? model.environment.store.update(updated)
+        current = updated
+        model.reloadBookshelf()
+    }
+
+    /// Toggles whether the book may be updated automatically — upstream
+    /// `BookInfoActivity.menu_can_update`.
+    private func toggleCanUpdate() {
+        var updated = current
+        updated.canUpdate.toggle()
+        try? model.environment.store.update(updated)
+        current = updated
+        model.reloadBookshelf()
     }
 
     private func openReader(chapterIndex: Int64? = nil) {
@@ -224,7 +401,7 @@ public struct BookDetailView: View {
         // opens it as a sheet so the navigation stays simple.
         // An image book opens the manga reader (upstream `ContextExtensions`).
         Task {
-            await model.openReader(for: book, chapterIndex: chapterIndex.map(Int.init))
+            await model.openReader(for: current, chapterIndex: chapterIndex.map(Int.init))
         }
     }
 }

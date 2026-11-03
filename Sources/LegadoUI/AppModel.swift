@@ -458,24 +458,6 @@ public final class LegadoAppModel: ObservableObject {
 
     // MARK: - The book groups
 
-    /// Adds a user group — upstream `BookGroupDao.insert`.
-    public func addGroup(name: String) {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        do {
-            let id = try environment.store.unusedGroupId()
-            let group = BookGroup(
-                groupId: id,
-                groupName: trimmed,
-                order: Int64(groups.count)
-            )
-            try environment.store.insert(group)
-            reloadBookshelf()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
     /// Deletes a user group — upstream `BookGroupDao.delete`.
     public func deleteGroup(_ group: BookGroup) {
         guard group.groupId > 0 else { return }
@@ -550,6 +532,233 @@ public final class LegadoAppModel: ObservableObject {
             $0.name.localizedCaseInsensitiveContains(keyword)
                 || $0.author.localizedCaseInsensitiveContains(keyword)
         }
+    }
+
+    /// The groups the user created — upstream `BookGroupDao.all` without the
+    /// well known groups (`BookGroup.Id.allIds`).
+    public var userGroups: [BookGroup] {
+        groups.filter { !BookGroup.Id.allIds.contains($0.groupId) }
+    }
+
+    /// The number of the books of a group whose update failed — upstream
+    /// `MainViewModel.postUpBooksLiveData` shows the number of the books that
+    /// wait for an update on the bottom navigation.
+    public func waitingUpdateCount(inGroup groupId: Int64) -> Int {
+        books.filter { book in
+            guard BookType.contains(book.type, BookType.updateError) else { return false }
+            if groupId == BookGroup.Id.all || groupId == BookGroup.Id.root { return true }
+            if groupId == BookGroup.Id.updateError { return true }
+            guard groupId > 0 else { return false }
+            return (book.group & groupId) > 0
+        }.count
+    }
+
+    /// Adds a group — upstream `BookGroupDialog` (the name must be unique).
+    public func addGroup(name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        do {
+            guard try environment.store.canAddGroup() else {
+                errorMessage = "分组数量已达上限"
+                return
+            }
+            let groupId = try environment.store.unusedGroupId()
+            let order = (try environment.store.allGroups().last?.order ?? 0) + 1
+            let group = BookGroup(
+                groupId: groupId,
+                groupName: trimmed,
+                cover: nil,
+                order: order,
+                enableRefresh: false,
+                show: true,
+                bookSort: 0
+            )
+            try environment.store.insert(group)
+            reloadBookshelf()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Renames a group — upstream `BookGroupDialog`.
+    public func renameGroup(_ group: BookGroup, name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        var updated = group
+        updated.groupName = trimmed
+        do {
+            try environment.store.insert(updated)
+            reloadBookshelf()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Shows or hides a group — upstream `BookGroupDao.updateShow`.
+    public func setGroup(_ group: BookGroup, show: Bool) {
+        var updated = group
+        updated.show = show
+        do {
+            try environment.store.insert(updated)
+            reloadBookshelf()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Turns the automatic update of a group on or off — upstream
+    /// `BookGroupDao.updateEnableRefresh`.
+    public func setGroup(_ group: BookGroup, enableRefresh: Bool) {
+        var updated = group
+        updated.enableRefresh = enableRefresh
+        do {
+            try environment.store.insert(updated)
+            reloadBookshelf()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Reorders the groups — upstream `BookGroupDao.updateOrder`.
+    public func moveGroups(from source: IndexSet, to destination: Int) {
+        var all = groups
+        guard let first = source.first, first >= 0, first < all.count else { return }
+        let moved = all.remove(at: first)
+        let target = min(max(destination, 0), all.count)
+        all.insert(moved, at: target)
+        for (index, group) in all.enumerated() {
+            var updated = group
+            updated.order = Int64(index)
+            try? environment.store.insert(updated)
+        }
+        reloadBookshelf()
+    }
+
+    /// Adds the books of the addresses — upstream
+    /// `BookshelfViewModel.addBookByUrl`.
+    ///
+    /// The address is matched against the sources that have a `bookUrlPattern`;
+    /// the book is fetched, its chapters are loaded and it is put on the shelf.
+    public func addBooksByUrl(_ text: String) async -> String {
+        let urls = text
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !urls.isEmpty else { return "地址为空" }
+        var added = 0
+        for url in urls {
+            if (try? environment.store.book(url: url)) != nil {
+                added += 1
+                continue
+            }
+            guard let source = sourceForBookUrl(url) else { continue }
+            var book = Book(bookUrl: url, origin: source.bookSourceUrl, originName: source.bookSourceName)
+            do {
+                book = try await environment.loadBookInfo(book: book, source: source)
+                let chapters = try await environment.loadChapterList(book: book, source: source)
+                try environment.store.insert(book)
+                try environment.store.insert(chapters.chapters)
+                added += 1
+            } catch {
+                continue
+            }
+        }
+        reloadBookshelf()
+        return added > 0 ? "成功添加 \(added) 本书" : "添加网址失败"
+    }
+
+    /// The source that can open the address of a book — upstream
+    /// `BookSourceDao.getBookSourceAddBook` and `hasBookUrlPattern`.
+    private func sourceForBookUrl(_ url: String) -> BookSource? {
+        let all = (try? environment.sources()) ?? []
+        if let host = NetworkUtils.baseUrl(url), let exact = all.first(where: {
+            NetworkUtils.baseUrl($0.bookSourceUrl) == host
+        }) {
+            return exact
+        }
+        return all.first { source in
+            guard let pattern = source.bookUrlPattern, !pattern.isEmpty else { return false }
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { return false }
+            let range = NSRange(url.startIndex..<url.endIndex, in: url)
+            return regex.firstMatch(in: url, options: [], range: range) != nil
+        }
+    }
+
+    /// Imports a shelf — upstream `BookshelfViewModel.importBookshelf`.
+    ///
+    /// The text is either an absolute address (the document is fetched) or a
+    /// JSON array of `{name, author, intro}` objects; the books that are
+    /// already on the shelf are skipped.
+    public func importBookshelf(_ text: String) async -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "内容为空" }
+        var json = trimmed
+        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
+            do {
+                let response = try await environment.httpClient.send(HttpRequest(url: trimmed))
+                json = response.body ?? ""
+            } catch {
+                return "下载失败：\(error.localizedDescription)"
+            }
+        }
+        let rows = BookshelfExport.parse(json)
+        guard !rows.isEmpty else { return "格式不对" }
+        var added = 0
+        for row in rows {
+            if bookExists(name: row.name, author: row.author) { continue }
+            guard let source = matchingSource(name: row.name, author: row.author) else { continue }
+            var book = Book(
+                bookUrl: "\(source.bookSourceUrl)#\(row.name)#\(row.author)",
+                origin: source.bookSourceUrl,
+                originName: source.bookSourceName
+            )
+            book.name = row.name
+            book.author = row.author
+            book.intro = row.intro
+            do {
+                book = try await environment.loadBookInfo(book: book, source: source)
+                let chapters = try await environment.loadChapterList(book: book, source: source)
+                try environment.store.insert(book)
+                try environment.store.insert(chapters.chapters)
+                added += 1
+            } catch {
+                continue
+            }
+        }
+        reloadBookshelf()
+        return added > 0 ? "成功导入 \(added) 本书" : "没有导入任何书籍"
+    }
+
+    /// Whether a book with that name and author is already on the shelf.
+    private func bookExists(name: String, author: String) -> Bool {
+        books.contains { $0.name == name && $0.author == author }
+    }
+
+    /// The source that knows a book — upstream `BookshelfViewModel` looks the
+    /// book up with the search of every source.
+    private func matchingSource(name: String, author: String) -> BookSource? {
+        let all = (try? environment.sources()) ?? []
+        for source in all {
+            guard source.enabled else { continue }
+            guard let results = try? awaitSearch(source: source, keyword: name) else { continue }
+            if results.contains(where: { $0.name == name && $0.author == author }) {
+                return source
+            }
+        }
+        return nil
+    }
+
+    /// Searches a source and swallows the errors — the helper of
+    /// `matchingSource(name:author:)`.
+    private func awaitSearch(source: BookSource, keyword: String) -> [SearchBook] {
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: [SearchBook] = []
+        Task {
+            result = (try? await environment.search(source: source, keyword: keyword)) ?? []
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return result
     }
 
     /// Removes a book from the shelf.
@@ -731,7 +940,7 @@ public final class LegadoAppModel: ObservableObject {
     ///
     /// An image book (a comic) opens the manga reader when the pref
     /// `showMangaUi` is on — upstream `ContextExtensions.kt:64-78`.
-    public func openReader(for book: Book, chapterIndex: Int? = nil) async {
+    public func openReader(for book: Book, chapterIndex: Int? = nil, chapterPos: Int? = nil) async {
         do {
             var chapters = try environment.chapters(of: book)
             if chapters.isEmpty, let source = try environment.source(for: book) {
@@ -756,7 +965,9 @@ public final class LegadoAppModel: ObservableObject {
                 book: book,
                 chapters: chapters
             )
+            controller.model = self
             controller.startChapterIndex = chapterIndex
+            controller.startChapterPos = chapterPos
             reader = controller
             isReaderPresented = true
         } catch {

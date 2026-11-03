@@ -131,3 +131,24 @@ public enum RssLibrary {
         return articles.filter { !read.contains($0.link) }
     }
 }
+
+public extension RssStar {
+    /// The article of a favourite — upstream `RssStar.toRssArticle()`.
+    ///
+    /// The favourites are read with the article screen, so they are turned
+    /// back into articles.
+    func toRssArticle() -> RssArticle {
+        RssArticle(
+            origin: origin,
+            sort: sort,
+            title: title,
+            link: link,
+            pubDate: pubDate,
+            description: description,
+            content: content,
+            image: image,
+            group: group,
+            variable: variable
+        )
+    }
+}

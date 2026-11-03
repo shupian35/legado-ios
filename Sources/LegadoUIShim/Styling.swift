@@ -130,9 +130,21 @@ public struct Font: Hashable, Sendable {
 // MARK: - Shapes
 
 /// `SwiftUI.Shape`.
-public protocol Shape {
+///
+/// In SwiftUI a shape is a view; the shim keeps the same relation so that
+/// `Shape.fill(_:)` and `Shape.stroke(_:lineWidth:)` can return a view.
+public protocol Shape: View {
     associatedtype Body: View
     @ViewBuilder var body: Body { get }
+}
+
+public extension Shape {
+    /// `SwiftUI.Shape.fill(_:)` — the shape filled with a colour.
+    func fill(_ color: Color) -> some View { ModifiedView(self) }
+    /// `SwiftUI.Shape.fill(_:)` — the shape filled with a shape style.
+    func fill<S: ShapeStyle>(_ style: S) -> some View { ModifiedView(self) }
+    /// `SwiftUI.Shape.stroke(_:lineWidth:)`.
+    func stroke<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> some View { ModifiedView(self) }
 }
 
 /// `SwiftUI.Rectangle`.

@@ -29,6 +29,12 @@ public struct ReaderMenuView: View {
 
     /// Whether the chapter list is shown.
     @State private var isChapterListPresented = false
+    /// Whether the effective replace rules are shown — upstream
+    /// `ReadBookActivity.menu_effectiveReplaceRules`.
+    @State private var isEffectiveRulesPresented = false
+    /// Whether the change source screen is shown — upstream
+    /// `ReadBookActivity.menu_changeSource`.
+    @State private var isChangeSourcePresented = false
     /// The brightness of the screen, 0…1.
     @State private var brightness: Double = 0.5
 
@@ -46,7 +52,9 @@ public struct ReaderMenuView: View {
                 progressSection
                 chapterSection
                 styleSection
+                backgroundSection
                 aloudSection
+                moreSection
                 brightnessSection
             }
             .navigationTitle(controller.book.name)
@@ -55,6 +63,16 @@ public struct ReaderMenuView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("关闭") {
                         dismissAction()
+                    }
+                }
+            }
+            .sheet(isPresented: $isEffectiveRulesPresented) {
+                effectiveRules
+            }
+            .sheet(isPresented: $isChangeSourcePresented) {
+                if let model = controller.model {
+                    NavigationStack {
+                        ChangeSourceView(model: model, book: controller.book)
                     }
                 }
             }
@@ -174,7 +192,7 @@ public struct ReaderMenuView: View {
                 selection: Binding(
                     get: { controller.pageTurnStyle.rawValue },
                     set: { value in
-                        controller.pageTurnStyle = PageTurnStyle(rawValue: value) ?? .slide
+                        controller.setPageTurnStyle(PageTurnStyle(rawValue: value) ?? .slide)
                     }
                 )
             ) {
@@ -198,6 +216,55 @@ public struct ReaderMenuView: View {
                     set: { _ in controller.toggleAutoPage() }
                 )
             )
+        }
+    }
+
+    /// The background — upstream `ReadStyleDialog` (the style list, the
+    /// background colour, the text colour and the opacity) and
+    /// `ReadBookConfig.changeBgTextConfig`.
+    private var backgroundSection: some View {
+        Section("背景") {
+            if !controller.backgroundPresets.isEmpty {
+                Picker(
+                    "样式",
+                    selection: Binding(
+                        get: { controller.backgroundStyleIndex },
+                        set: { value in
+                            Task { await controller.selectBackgroundPreset(index: value) }
+                        }
+                    )
+                ) {
+                    ForEach(Array(controller.backgroundPresets.enumerated()), id: \.offset) { index, preset in
+                        Text(preset.name.isEmpty ? "样式 \(index + 1)" : preset.name)
+                            .tag(index)
+                    }
+                }
+            }
+            ReaderColorRows(
+                config: Binding(
+                    get: { controller.config },
+                    set: { value in
+                        Task { await controller.updateReaderStyle { $0 = value } }
+                    }
+                )
+            )
+            Picker(
+                "繁简转换",
+                selection: Binding(
+                    get: { controller.configStore.chineseConverterType },
+                    set: { value in
+                        Task {
+                            await controller.setChineseConverter(
+                                ChineseConversionMode(rawValue: value) ?? .off
+                            )
+                        }
+                    }
+                )
+            ) {
+                ForEach(ChineseConversionMode.allCases, id: \.rawValue) { mode in
+                    Text(ReaderConverterRow.name(of: mode)).tag(mode.rawValue)
+                }
+            }
         }
     }
 
@@ -227,6 +294,96 @@ public struct ReaderMenuView: View {
     private var brightnessSection: some View {
         Section("亮度") {
             Slider(value: $brightness, in: 0...1)
+        }
+    }
+
+    // MARK: - The upstream top bar options
+
+    /// The options of the upstream's `res/menu/book_read.xml` that the port
+    /// can offer.
+    private var moreSection: some View {
+        Section("更多") {
+            // Upstream `ReadMenu.menu_search_content` — the search of the
+            // content of the book.
+            Button("搜索正文") {
+                controller.isSearchPresented = true
+                dismissAction()
+            }
+            // Upstream `ReadBookActivity.menu_updateToc`.
+            Button("更新目录") {
+                Task { await controller.checkForNewChapters() }
+            }
+            // Upstream `ReadBookActivity.menu_replaceRuleState` — the
+            // "启用替换净化" switch.
+            Toggle(
+                "启用替换净化",
+                isOn: Binding(
+                    get: { controller.book.useReplaceRule },
+                    set: { _ in controller.toggleReplaceRule() }
+                )
+            )
+            // Upstream `ReadBookActivity.menu_effectiveReplaceRules`.
+            Button("有效替换规则") {
+                isEffectiveRulesPresented = true
+            }
+            // Upstream `ReadBookActivity.menu_changeSource`.
+            Button("换源") {
+                isChangeSourcePresented = true
+            }
+            // Upstream `ReadBookActivity.menu_addBookmark`.
+            Button("添加书签") {
+                Task { await controller.addCurrentBookmark() }
+            }
+            // Upstream `ReadMenu.menu_nightMode` — the night palette of the
+            // reader.
+            Toggle(
+                "夜间模式",
+                isOn: Binding(
+                    get: { controller.systemNightMode },
+                    set: { controller.systemNightMode = $0 }
+                )
+            )
+            // Upstream `AutoReadDialog` — the seconds per page.
+            Stepper(
+                value: Binding(
+                    get: { Double(controller.autoPager.configuration.speed) },
+                    set: { value in
+                        var configuration = controller.autoPager.configuration
+                        configuration.speed = Int(value)
+                        controller.autoPager.configuration = configuration
+                    }
+                ),
+                in: 1.0...60.0,
+                step: 1
+            ) {
+                Text("自动翻页间隔 \(controller.autoPager.configuration.speed) 秒")
+            }
+        }
+    }
+
+    /// The replace rules that are applied to the current chapter — upstream
+    /// `ReadBookActivity.menu_effectiveReplaceRules`.
+    private var effectiveRules: some View {
+        NavigationStack {
+            List {
+                let rules = controller.effectiveReplaceRules
+                if rules.isEmpty {
+                    Text("没有生效的替换规则")
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(rules, id: \.id) { rule in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(rule.name)
+                                .font(.system(size: 14))
+                            Text("\(rule.pattern) → \(rule.replacement)")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("有效替换规则")
         }
     }
 }

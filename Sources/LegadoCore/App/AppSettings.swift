@@ -246,6 +246,50 @@ public protocol SettingsStore: AnyObject {
     func removeValue(forKey key: String)
 }
 
+public extension SettingsStore {
+    /// Stores a floating point preference.
+    ///
+    /// The upstream's `SharedPreferences` has no floating point type — the
+    /// reader stores its sizes and spacings as their textual form
+    /// (`ReadBookConfig.kt`), so the port does the same.
+    func set(_ value: Double, forKey key: String) {
+        set(String(value), forKey: key)
+    }
+}
+
+/// Reads a boolean the way the upstream's `SharedPreferences` does.
+///
+/// The upstream stores a boolean preference as a boolean; the port's advanced
+/// settings screen writes the raw text of a preference, so a boolean can also
+/// be stored as "true" / "false" / "1" / "0" / "yes" / "no". Both forms have
+/// to read back the same way — otherwise a switch that was turned on would
+/// read back as off.
+func settingsBool(from object: Any?) -> Bool? {
+    guard let object else { return nil }
+    if let flag = object as? Bool { return flag }
+    if let text = object as? String {
+        switch text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "true", "1", "yes", "y", "on": return true
+        case "false", "0", "no", "n", "off", "": return false
+        default: return nil
+        }
+    }
+    if let number = object as? NSNumber { return number.boolValue }
+    return nil
+}
+
+/// Reads an integer, also from its textual form.
+func settingsInt(from object: Any?) -> Int? {
+    guard let object else { return nil }
+    if let number = object as? Int { return number }
+    if let flag = object as? Bool { return flag ? 1 : 0 }
+    if let text = object as? String {
+        return Int(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+    if let number = object as? NSNumber { return number.intValue }
+    return nil
+}
+
 /// An in-memory settings store.
 ///
 /// Used by the tests and as the cache of the `UserDefaults` store.
@@ -266,19 +310,13 @@ public final class InMemorySettingsStore: SettingsStore {
     public func bool(forKey key: String) -> Bool? {
         lock.lock()
         defer { lock.unlock() }
-        if let value = values[key] as? Bool { return value }
-        if let number = values[key] as? NSNumber { return number.boolValue }
-        if let text = values[key] as? String { return (text as NSString).boolValue }
-        return nil
+        return settingsBool(from: values[key])
     }
 
     public func int(forKey key: String) -> Int? {
         lock.lock()
         defer { lock.unlock() }
-        if let value = values[key] as? Int { return value }
-        if let number = values[key] as? NSNumber { return number.intValue }
-        if let text = values[key] as? String { return Int(text) }
-        return nil
+        return settingsInt(from: values[key])
     }
 
     public func set(_ value: String?, forKey key: String) {
@@ -341,13 +379,13 @@ public final class UserDefaultsSettingsStore: SettingsStore {
     }
 
     public func bool(forKey key: String) -> Bool? {
-        guard defaults.object(forKey: key) != nil else { return nil }
-        return defaults.bool(forKey: key)
+        guard let object = defaults.object(forKey: key) else { return nil }
+        return settingsBool(from: object)
     }
 
     public func int(forKey key: String) -> Int? {
-        guard defaults.object(forKey: key) != nil else { return nil }
-        return defaults.integer(forKey: key)
+        guard let object = defaults.object(forKey: key) else { return nil }
+        return settingsInt(from: object)
     }
 
     public func set(_ value: String?, forKey key: String) {

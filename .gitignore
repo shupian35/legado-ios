@@ -10,6 +10,7 @@ xcuserdata/
 
 # The logs of the helper script.
 *.log
+.build-log.txt
 
 # macOS.
 .DS_Store

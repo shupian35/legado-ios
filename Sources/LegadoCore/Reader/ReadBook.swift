@@ -84,7 +84,13 @@ public final class ReadBook {
     private let contentRules: [ReplaceRule]
     private let configProvider: () -> ReaderConfig
     private let layoutProvider: () -> ReaderLayout
-    private let chineseConversionMode: ChineseConversionMode
+    /// The Chinese converter of the content.
+    ///
+    /// The upstream reloads the converter when the user picks another one
+    /// (`ReadStyleDialog.kt:110`: `ChineseUtils.unLoad` +
+    /// `EventBus.postEvent(EventBus.UP_CONFIG, arrayListOf(5))`), so the mode
+    /// can be changed while the reader is open.
+    public var chineseConversionMode: ChineseConversionMode
     private let preDownloadCount: Int
 
     /// Guards the layout work so a fast page turn cannot interleave two
