@@ -143,6 +143,13 @@ public struct ContentSearchView: View {
     @State private var results: [ContentSearchResult] = []
     @State private var isLoading = false
     @State private var didSearch = false
+    /// Upstream `SearchContentViewModel.replaceEnabled` — the menu toggle
+    /// `menu_enable_replace`.
+    @State private var useReplaceRule = false
+    /// The task of the running search — the stop button cancels it.
+    @State private var searchTask: Task<Void, Never>?
+    /// The index of the result the user jumped to.
+    @State private var currentIndex: Int?
 
     public init(model: LegadoAppModel, book: Book) {
         self.model = model
@@ -156,6 +163,27 @@ public struct ContentSearchView: View {
                 Button("搜索") {
                     search()
                 }
+                if isLoading {
+                    // Upstream `binding.fbStop` — it cancels the search job.
+                    Button("停止") {
+                        stop()
+                    }
+                }
+            }
+            // Upstream `binding.tvCurrentSearchInfo` — "搜索结果: N".
+            HStack {
+                Text("搜索结果: \(results.count)")
+                    .font(.system(size: 13))
+                Spacer()
+                // Upstream `ivSearchContentTop` / `ivSearchContentBottom`.
+                Button("顶部") {
+                    currentIndex = results.isEmpty ? nil : 0
+                }
+                Button("底部") {
+                    currentIndex = results.isEmpty ? nil : results.count - 1
+                }
+                // Upstream `menu_enable_replace` — the purification toggle.
+                Toggle("净化", isOn: $useReplaceRule)
             }
             if isLoading {
                 ProgressView("正在搜索…")
@@ -166,12 +194,17 @@ public struct ContentSearchView: View {
                 EmptyState(text: "搜索内容为空，请检查净化或简繁设置")
             }
             List(results, id: \.resultCount) { result in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(result.chapterTitle)
-                        .font(.system(size: 13, weight: .medium))
-                    Text(result.resultText)
-                        .font(.system(size: 13))
+                Button {
+                    open(result)
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(result.chapterTitle)
+                            .font(.system(size: 13, weight: .medium))
+                        Text(result.resultText)
+                            .font(.system(size: 13))
+                    }
                 }
+                .buttonStyle(PlainButtonStyle())
             }
             .listStyle(PlainListStyle())
         }
@@ -179,10 +212,28 @@ public struct ContentSearchView: View {
         .navigationTitle("搜索正文")
     }
 
+    /// Opens the chapter of the result — upstream
+    /// `SearchContentActivity.openSearchResult`.
+    private func open(_ result: ContentSearchResult) {
+        Task {
+            await model.openReader(for: book, chapterIndex: result.chapterIndex, chapterPos: result.queryIndexInChapter)
+        }
+    }
+
+    /// Stops the running search — upstream `binding.fbStop`.
+    private func stop() {
+        searchTask?.cancel()
+        searchTask = nil
+        isLoading = false
+    }
+
     private func search() {
+        stop()
         isLoading = true
         didSearch = true
-        Task {
+        let query = self.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let useReplace = useReplaceRule
+        searchTask = Task {
             do {
                 guard let storage = model.environment.cacheStorage else {
                     results = []
@@ -199,12 +250,12 @@ public struct ContentSearchView: View {
                     origin: book.origin
                 )
                 let options = ContentSearchOptions(
-                    useReplaceRule: book.useReplaceRule,
+                    useReplaceRule: useReplace,
                     chineseConversionMode: ChineseConversionMode(
                         rawValue: model.environment.settings.chineseConverterType
                     ) ?? .off
                 )
-                results = ContentSearcher.search(
+                let found = ContentSearcher.search(
                     book: book,
                     chapters: chapters,
                     query: query,
@@ -214,6 +265,8 @@ public struct ContentSearchView: View {
                     options: options,
                     scriptEngine: model.environment.scriptEngine
                 )
+                if Task.isCancelled { return }
+                results = found
             } catch {
                 results = []
             }

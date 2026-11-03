@@ -23,9 +23,9 @@ import LegadoCore
 public final class ReaderController: NSObject, ObservableObject, ReadBookDelegate {
 
     /// The book being read.
-    public let book: Book
+    @Published public var book: Book
     /// The chapter list.
-    public let chapters: [BookChapter]
+    @Published public var chapters: [BookChapter]
     /// The state machine.
     public private(set) var readBook: ReadBook
 
@@ -850,6 +850,134 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
         }
     }
 
+    // MARK: - The reading progress of the WebDAV server
+
+    /// The message of the last progress sync — upstream the toast
+    /// ("已同步最新阅读进度") and the log entry.
+    @Published public var progressMessage: String?
+
+    /// The progress of the server that is older than the local one — the
+    /// upstream asks the user whether the local progress should be
+    /// overwritten (`ReadBookActivity.sureSyncProgress`).
+    @Published public var pendingRemoteProgress: BookProgress?
+
+    /// Fetches the reading progress from the WebDAV server — upstream
+    /// `ReadBookViewModel.syncBookProgress`.
+    public func fetchRemoteProgress() async {
+        guard let service = webDavService() else {
+            progressMessage = "未配置 WebDAV"
+            return
+        }
+        do {
+            let remote = try await service.downloadProgress(
+                fileName: BookProgress(book: book).fileName
+            )
+            let outcome = BookProgressSync.resolve(
+                remote: remote,
+                local: BookProgress(book: book),
+                totalChapters: Int(book.simulatedTotalChapterNum())
+            )
+            switch outcome {
+            case .same:
+                progressMessage = "进度相同"
+            case .remoteNewer(let progress):
+                await applyRemoteProgress(progress)
+                progressMessage = "已同步最新阅读进度"
+            case .remoteOlder(let progress):
+                // The upstream asks the user before the local progress is
+                // overwritten with the older remote one.
+                pendingRemoteProgress = progress
+                progressMessage = "远端进度较旧"
+            case .beyondTheBook:
+                progressMessage = "远端进度超出章节范围"
+            }
+        } catch {
+            progressMessage = "拉取阅读进度失败"
+        }
+    }
+
+    /// Applies the progress of the server — upstream `ReadBook.setProgress`.
+    public func applyRemoteProgress(_ progress: BookProgress) async {
+        var changed = book
+        changed.durChapterIndex = Int64(progress.durChapterIndex)
+        changed.durChapterPos = Int64(progress.durChapterPos)
+        changed.durChapterTitle = progress.durChapterTitle
+        changed.durChapterTime = progress.durChapterTime
+        book = changed
+        try? environment.store.update(changed)
+        await readBook.openChapter(
+            index: progress.durChapterIndex,
+            position: progress.durChapterPos
+        )
+        refreshPage()
+    }
+
+    /// Uploads the reading progress to the WebDAV server — upstream
+    /// `ReadBook.uploadProgress(true)`.
+    public func uploadProgress() async {
+        guard let service = webDavService() else {
+            progressMessage = "未配置 WebDAV"
+            return
+        }
+        do {
+            try await service.uploadProgress(BookProgress(book: book))
+            progressMessage = "上传成功"
+        } catch {
+            progressMessage = "上传阅读进度失败"
+        }
+    }
+
+    /// The WebDAV service of the reader — upstream `AppWebDav`.
+    private func webDavService() -> WebDavService? {
+        guard let credentials = try? environment.store.webDavCredentials(),
+              credentials.isConfigured else { return nil }
+        return WebDavService(
+            configuration: credentials.serviceConfiguration(),
+            httpClient: environment.httpClient
+        )
+    }
+
+    // MARK: - The content editor
+
+    /// Whether the content editor is shown — upstream `ContentEditDialog`.
+    @Published public var isContentEditPresented = false
+
+    /// The content of the chapter that is edited — upstream
+    /// `ContentEditViewModel.initContent`.
+    public var currentChapterContent: String {
+        let index = readBook.durChapterIndex
+        guard chapters.indices.contains(index) else { return "" }
+        guard let storage = environment.cacheStorage else { return "" }
+        return storage.content(book: book, chapter: chapters[index]) ?? ""
+    }
+
+    /// The title of the chapter that is edited.
+    public var currentChapterTitle: String {
+        let index = readBook.durChapterIndex
+        guard chapters.indices.contains(index) else { return "" }
+        return chapters[index].title
+    }
+
+    /// Saves the edited content — upstream `ContentEditDialog.saveContent`.
+    public func saveEditedContent(title: String, content: String) {
+        let index = readBook.durChapterIndex
+        guard chapters.indices.contains(index) else { return }
+        let chapter = chapters[index]
+        if let storage = environment.cacheStorage {
+            try? storage.saveText(book: book, chapter: chapter, content: content)
+        }
+        if !title.isEmpty, title != chapter.title {
+            var changed = chapter
+            changed.title = title
+            try? environment.store.update(changed)
+            if let position = chapters.firstIndex(where: { $0.url == chapter.url }) {
+                chapters[position] = changed
+            }
+        }
+        isContentEditPresented = false
+        reloadContent()
+    }
+
     /// Looks a word up in the dictionary rules — upstream `DictDialog`.
     public func lookupDictionary(_ word: String) {
         Task {
@@ -1163,6 +1291,37 @@ public struct ReaderView: View {
                         ruleName: result.ruleName
                     )
                 }
+            }
+            .sheet(isPresented: $controller.isContentEditPresented) {
+                NavigationStack {
+                    ContentEditView(
+                        book: controller.book,
+                        chapterIndex: controller.chapterIndex,
+                        chapterTitle: controller.currentChapterTitle,
+                        content: controller.currentChapterContent
+                    ) { title, content in
+                        controller.saveEditedContent(title: title, content: content)
+                    }
+                }
+            }
+            // Upstream `ReadBookActivity.sureSyncProgress` — the remote
+            // progress is older, the user decides whether to overwrite the
+            // local one.
+            .alert("远端进度较旧", isPresented: Binding(
+                get: { controller.pendingRemoteProgress != nil },
+                set: { if !$0 { controller.pendingRemoteProgress = nil } }
+            )) {
+                Button("覆盖本地进度") {
+                    if let progress = controller.pendingRemoteProgress {
+                        controller.pendingRemoteProgress = nil
+                        Task { await controller.applyRemoteProgress(progress) }
+                    }
+                }
+                Button("取消") {
+                    controller.pendingRemoteProgress = nil
+                }
+            } message: {
+                Text("是否使用远端的阅读进度覆盖本地进度？")
             }
         }
     }

@@ -284,6 +284,16 @@ public final class LegadoStore {
         try tables.insert(chapters.map { $0.row }, into: "chapters")
     }
 
+    /// Updates a chapter — upstream `BookChapterDao.update` (the content
+    /// editor changes the title of a chapter).
+    public func update(_ chapter: BookChapter) throws {
+        try tables.update(
+            "chapters",
+            set: ["title": .text(chapter.title)],
+            where: .equals(column: "url", value: .text(chapter.url))
+        )
+    }
+
     /// Deletes the chapters of a book.
     public func deleteChapters(bookUrl: String) throws {
         try tables.delete(from: "chapters", where: .equals(column: "bookUrl", value: .text(bookUrl)))
@@ -745,6 +755,38 @@ public final class LegadoStore {
     /// Inserts or replaces a synchronisation server.
     public func insert(_ server: Server) throws {
         try tables.insert(server.row, into: "servers")
+    }
+
+    /// The WebDAV server of the app — upstream `AppWebDav`'s default server.
+    ///
+    /// The first row of the kind `webDav` is the one the upstream uses.
+    public func webDavServer() throws -> Server? {
+        try allServers().first { $0.type == Server.Kind.webDav }
+    }
+
+    /// The credentials of the WebDAV server — upstream
+    /// `Server.getWebDavConfig`.
+    public func webDavCredentials() throws -> WebDavCredentials? {
+        guard let server = try webDavServer() else { return nil }
+        return WebDavCredentials.parse(server.config)
+    }
+
+    /// Stores the credentials of the WebDAV server — upstream
+    /// `AppWebDav.putConfig` / the server manager.
+    public func saveWebDavCredentials(_ credentials: WebDavCredentials) throws {
+        if var server = try webDavServer() {
+            server.config = credentials.json
+            try insert(server)
+        } else {
+            try insert(
+                Server(
+                    id: 0,
+                    name: "WebDAV",
+                    type: Server.Kind.webDav,
+                    config: credentials.json
+                )
+            )
+        }
     }
 
     /// Every rule subscription.

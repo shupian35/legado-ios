@@ -498,6 +498,22 @@ public struct ReaderMenuView: View {
                     Text(style.displayName).tag(style.rawValue)
                 }
             }
+            // Upstream `ReadBookActivity.menu_edit_content` — the content
+            // editor of the current chapter.
+            Button("编辑内容") {
+                controller.isContentEditPresented = true
+                dismissAction()
+            }
+            // Upstream `ReadBookActivity.menu_get_progress` — the reading
+            // progress is fetched from the WebDAV server.
+            Button("获取进度") {
+                Task { await controller.fetchRemoteProgress() }
+            }
+            // Upstream `ReadBookActivity.menu_cover_progress` — the local
+            // progress overwrites the one of the WebDAV server.
+            Button("覆盖进度") {
+                Task { await controller.uploadProgress() }
+            }
         }
     }
 
