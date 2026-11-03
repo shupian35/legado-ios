@@ -243,6 +243,19 @@ public final class ReadBook {
         return chapters.count
     }
 
+    /// Replaces the chapter list and lays the current chapter out again —
+    /// upstream `ReadBookActivity.onTocRegexDialogResult` → `loadChapterList`.
+    public func replaceChapterList(_ chapters: [BookChapter]) async {
+        chapterList = chapters
+        book.totalChapterNum = Int64(chapters.count)
+        loadedChapters.removeAll()
+        curTextChapter = nil
+        prevTextChapter = nil
+        nextTextChapter = nil
+        loadingLock = false
+        await loadCurrentChapter()
+    }
+
     // MARK: - Navigation
 
     /// Opens the chapter at `index` (upstream `ReadBook.openChapter`).

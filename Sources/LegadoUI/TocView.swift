@@ -41,10 +41,8 @@ public struct TocView: View {
     @State private var keyword = ""
     @State private var showsBookmarks = false
     @State private var message: String?
-    /// The TOC rule editor — upstream `TxtTocRuleDialog`.
-    @State private var isRuleEditorPresented = false
-    /// The rule that is being edited.
-    @State private var ruleText = ""
+    /// The TOC rule picker — upstream `TxtTocRuleDialog`.
+    @State private var isRulePickerPresented = false
     /// Whether the word count is shown — upstream `AppConfig.tocCountWords`.
     @State private var showsWordCount = false
     /// The display titles of the chapters (the replace rules are applied).
@@ -156,10 +154,10 @@ public struct TocView: View {
                         toggleReplaceRule()
                     }
                     if book.isLocalTxt {
-                        // Upstream `TocActivity.menu_toc_regex`.
+                        // Upstream `TocActivity.menu_toc_regex` — the managed
+                        // list of the TXT table of contents rules.
                         Button("目录正则") {
-                            ruleText = book.tocUrl
-                            isRuleEditorPresented = true
+                            isRulePickerPresented = true
                         }
                         // Upstream `TocActivity.menu_split_long_chapter`.
                         Button(book.readConfigBox.splitLongChapter ? "取消分割长章节" : "分割长章节") {
@@ -184,11 +182,9 @@ public struct TocView: View {
         .onAppear {
             reload()
         }
-        .sheet(isPresented: $isRuleEditorPresented) {
-            NavigationStack {
-                TocRuleEditorView(rule: ruleText) { rule in
-                    applyRule(rule)
-                }
+        .sheet(isPresented: $isRulePickerPresented) {
+            TocRegexPickerView(model: model) { rule in
+                applyRule(rule)
             }
         }
     }
@@ -367,46 +363,5 @@ public struct TocView: View {
             message = "已导出 \(name)（\(text.count) 字符）"
         }
         UIPasteboardShim.copy(text)
-    }
-}
-
-/// The TOC rule editor — upstream `ui/book/toc/rule/TxtTocRuleDialog.kt`.
-///
-/// The rule is a regular expression with the named groups `chapterName` and
-/// `chapterUrl`; the port uses the same form.
-struct TocRuleEditorView: View {
-
-    @Environment(\.dismiss) private var dismiss
-
-    @State var rule: String
-    let onSave: (String) -> Void
-
-    init(rule: String, onSave: @escaping (String) -> Void) {
-        self._rule = State(initialValue: rule)
-        self.onSave = onSave
-    }
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Text("目录规则是一个正则，需要包含 chapterName 和 chapterUrl 两个命名分组。")
-                .font(.system(size: 12))
-                .foregroundColor(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            TextEditor(text: $rule)
-                .font(.system(size: 13))
-                .frame(minHeight: 120)
-                .border(Color.gray.opacity(0.3))
-            Spacer()
-        }
-        .padding(16)
-        .navigationTitle("目录正则")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button("保存") {
-                    onSave(rule)
-                    dismiss()
-                }
-            }
-        }
     }
 }

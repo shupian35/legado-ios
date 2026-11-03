@@ -81,6 +81,18 @@ public struct TxtTocRuleView: View {
     private func reload() {
         rules = (try? model.environment.store.allTxtTocRules()) ?? []
     }
+
+    /// The accepted file types — upstream `AppPattern` accepts `txt` and
+    /// `json` for the table of contents rules.
+    public static var contentTypes: [UTType] {
+        var types: [UTType] = [.data]
+        for ext in ["txt", "json"] {
+            if let type = UTType(filenameExtension: ext) {
+                types.append(type)
+            }
+        }
+        return types
+    }
 }
 
 /// The editor of a TXT table of contents rule.

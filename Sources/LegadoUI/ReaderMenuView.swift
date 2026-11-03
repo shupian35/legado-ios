@@ -41,6 +41,9 @@ public struct ReaderMenuView: View {
     /// Whether the simulated reading is shown — upstream
     /// `ReadBookActivity.menu_simulated_reading`.
     @State private var isSimulatedReadingPresented = false
+    /// Whether the table of contents rule picker is shown — upstream
+    /// `ReadBookActivity.menu_toc_regex`.
+    @State private var isTocRegexPresented = false
     /// Whether the character set is shown — upstream
     /// `ReadBookActivity.menu_set_charset`.
     @State private var isCharsetPresented = false
@@ -100,6 +103,14 @@ public struct ReaderMenuView: View {
             .sheet(isPresented: $isCharsetPresented) {
                 NavigationStack {
                     charsetSheet
+                }
+            }
+            .sheet(isPresented: $isTocRegexPresented) {
+                if let model = controller.model {
+                    TocRegexPickerView(model: model) { rule in
+                        isTocRegexPresented = false
+                        Task { await controller.applyTocRegex(rule) }
+                    }
                 }
             }
         }
@@ -438,6 +449,13 @@ public struct ReaderMenuView: View {
             // Upstream `ReadBookActivity.menu_simulated_reading`.
             Button("模拟阅读") {
                 isSimulatedReadingPresented = true
+            }
+            // Upstream `ReadBookActivity.menu_toc_regex` — the managed list of
+            // the TXT table of contents rules.
+            if controller.book.isLocalTxt {
+                Button("目录正则") {
+                    isTocRegexPresented = true
+                }
             }
             // Upstream `ReadBookActivity.menu_set_charset` — the character
             // set of a local book.

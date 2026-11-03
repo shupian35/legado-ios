@@ -92,11 +92,19 @@ extension View {
     public func onTapGesture(count: Int = 1, perform action: @escaping () -> Void) -> some View { ModifiedView(self) }
     public func onSubmit(_ action: @escaping () -> Void) -> some View { ModifiedView(self) }
     public func onSubmit(of triggers: SubmitLabel, _ action: @escaping () -> Void) -> some View { ModifiedView(self) }
+    /// The file importer — the real SwiftUI has two overloads: the single
+    /// file one returns `Result<URL, Error>` and the multiple selection one
+    /// returns `Result<[URL], Error>`.
     public func fileImporter(
         isPresented: Binding<Bool>,
         allowedContentTypes: [UTType],
-        allowsMultipleSelection: Bool = false,
         onCompletion: @escaping (Result<URL, Error>) -> Void
+    ) -> some View { ModifiedView(self) }
+    public func fileImporter(
+        isPresented: Binding<Bool>,
+        allowedContentTypes: [UTType],
+        allowsMultipleSelection: Bool,
+        onCompletion: @escaping (Result<[URL], Error>) -> Void
     ) -> some View { ModifiedView(self) }
     public func onTapGesture(count: Int = 1, coordinateSpace: CoordinateSpace = .global, perform action: @escaping (CGPoint) -> Void) -> some View { ModifiedView(self) }
     public func onLongPressGesture(minimumDuration: Double = 0.5, perform action: @escaping () -> Void) -> some View { ModifiedView(self) }
@@ -336,6 +344,25 @@ public protocol ButtonStyle {}
 public struct DefaultButtonStyle: ButtonStyle { public init() {} }
 public struct PlainButtonStyle: ButtonStyle { public init() {} }
 public struct BorderlessButtonStyle: ButtonStyle { public init() {} }
+public struct BorderedButtonStyle: ButtonStyle { public init() {} }
+public struct BorderedProminentButtonStyle: ButtonStyle { public init() {} }
+
+extension ButtonStyle where Self == DefaultButtonStyle {
+    public static var `default`: DefaultButtonStyle { DefaultButtonStyle() }
+    public static var automatic: DefaultButtonStyle { DefaultButtonStyle() }
+}
+extension ButtonStyle where Self == PlainButtonStyle {
+    public static var plain: PlainButtonStyle { PlainButtonStyle() }
+}
+extension ButtonStyle where Self == BorderlessButtonStyle {
+    public static var borderless: BorderlessButtonStyle { BorderlessButtonStyle() }
+}
+extension ButtonStyle where Self == BorderedButtonStyle {
+    public static var bordered: BorderedButtonStyle { BorderedButtonStyle() }
+}
+extension ButtonStyle where Self == BorderedProminentButtonStyle {
+    public static var borderedProminent: BorderedProminentButtonStyle { BorderedProminentButtonStyle() }
+}
 
 /// `SwiftUI.LabelStyle`.
 public protocol LabelStyle {}

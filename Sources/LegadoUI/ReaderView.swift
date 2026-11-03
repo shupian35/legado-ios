@@ -358,8 +358,7 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     }
 
     /// Checks whether the book has new chapters — upstream `ReadBook.upToc()`.
-    public func checkForNewChapters() async {
-        let environment = self.environment
+    public func checkForNewChapters() async {        let environment = self.environment
         let refreshed = await readBook.checkForNewChapters { book in
             guard let source = try? environment.source(for: book) else { return [] }
             let result = try await WebBook.getChapterList(
@@ -371,6 +370,35 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
         }
         if let refreshed, refreshed > chapters.count {
             refreshPage()
+        }
+    }
+
+    /// Applies a new table of contents rule — upstream
+    /// `ReadBookActivity.onTocRegexDialogResult` (`it.tocUrl = tocRegex` +
+    /// `loadChapterList(it)`).
+    public func applyTocRegex(_ rule: String) async {
+        var changed = book
+        changed.tocUrl = rule
+        try? environment.store.update(changed)
+        book = changed
+        guard let fileURL = model?.localImporter?.fileURL(for: book) else {
+            errorMessage = "找不到本地文件"
+            return
+        }
+        do {
+            let result = try TocOperations.reparse(
+                book: book,
+                rule: rule,
+                fileURL: fileURL,
+                splitLongChapter: book.readConfigBox.splitLongChapter
+            )
+            try? environment.store.deleteChapters(bookUrl: book.bookUrl)
+            try? environment.store.insert(result.chapters)
+            chapters = result.chapters
+            await readBook.replaceChapterList(result.chapters)
+            refreshPage()
+        } catch {
+            errorMessage = "目录规则无效"
         }
     }
 

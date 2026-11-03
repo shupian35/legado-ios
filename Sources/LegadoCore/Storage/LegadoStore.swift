@@ -698,6 +698,66 @@ public final class LegadoStore {
         try tables.delete(from: "txtTocRules", where: .lessThan(column: "id", value: 0))
     }
 
+    /// Deletes a TXT table of contents rule — upstream `TxtTocRuleDao.delete`.
+    public func deleteTxtTocRule(_ rule: TxtTocRule) throws {
+        try tables.delete(from: "txtTocRules", where: .equals(column: "id", value: .integer(rule.id)))
+    }
+
+    /// Imports the TXT table of contents rules of a JSON document — upstream
+    /// `TxtTocRuleActivity.importTxtTocRule` (the online / local / QR import).
+    ///
+    /// The document is either an array of rules or a single rule.
+    @discardableResult
+    public func importTxtTocRules(json: String) throws -> Int {
+        let value: JSONValue
+        do {
+            value = try JSONValue.parse(json)
+        } catch {
+            throw DeepLinkError.invalidData(.txtRule)
+        }
+        var rules: [TxtTocRule] = []
+        switch value {
+        case .array(let items):
+            rules = items.compactMap { TxtTocRuleJSONBridge.decode($0) }
+        case .object:
+            if let rule = TxtTocRuleJSONBridge.decode(value) {
+                rules = [rule]
+            }
+        default:
+            break
+        }
+        guard !rules.isEmpty else { throw DeepLinkError.invalidData(.txtRule) }
+        for rule in rules {
+            try insert(rule)
+        }
+        return rules.count
+    }
+
+    /// Moves the rules to the top or to the bottom — upstream
+    /// `TxtTocRuleViewModel.toTop` / `toBottom`.
+    public func moveTxtTocRules(_ rules: [TxtTocRule], toTop: Bool) throws {
+        guard !rules.isEmpty else { return }
+        let all = try allTxtTocRules()
+        let orders = all.map { $0.serialNumber }
+        let minOrder = (orders.min() ?? 0) - 1
+        let maxOrder = (orders.max() ?? 0) + 1
+        for (index, rule) in rules.enumerated() {
+            var changed = rule
+            changed.serialNumber = toTop ? minOrder - Int64(index) : maxOrder + Int64(index)
+            try tables.insert(changed.row, into: "txtTocRules")
+        }
+    }
+
+    /// Renumbers the rules after a drag — upstream `TxtTocRuleViewModel.upOrder`.
+    public func updateTxtTocRuleOrder() throws {
+        let all = try allTxtTocRules()
+        for (index, rule) in all.enumerated() {
+            var changed = rule
+            changed.serialNumber = Int64(index + 1)
+            try tables.insert(changed.row, into: "txtTocRules")
+        }
+    }
+
     /// Every HTTP TTS engine — upstream `HttpTTSDao.all`.
     public func allHttpTTS() throws -> [HttpTTS] {
         try tables.allRows(in: "httpTTS").map { HttpTTS(row: $0) }
