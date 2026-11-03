@@ -83,6 +83,39 @@ public final class MangaReaderController: ObservableObject {
         system.brightnessPercent
     }
 
+    // MARK: - The display settings
+
+    /// The colour filter — upstream `AppConfig.mangaColorFilter`.
+    @Published public var colorFilter = MangaColorFilter()
+    /// Whether the pages are shown in grey — upstream
+    /// `AppConfig.enableMangaGray` (`GrayscaleTransformation`).
+    @Published public var isGray = false
+    /// Whether the pages are shown as on an e-ink screen — upstream
+    /// `AppConfig.enableMangaEInk` (`EpaperTransformation`).
+    @Published public var isEInk = false
+    /// The threshold of the e-ink mode — upstream
+    /// `AppConfig.mangaEInkThreshold` (150).
+    @Published public var eInkThreshold = 150
+    /// Whether the chapter title is hidden — upstream
+    /// `AppConfig.hideMangaTitle`.
+    @Published public var hideTitle = false
+
+    /// Reads the display settings — upstream `ReadMangaActivity.onCreate`
+    /// (`AppConfig.mangaColorFilter` / `enableMangaGray` / `enableMangaEInk`).
+    public func refreshDisplay() {
+        colorFilter = MangaSettings.colorFilter(environment.settings)
+        isGray = environment.settings.bool(.enableMangaGray, default: false)
+        isEInk = environment.settings.bool(.enableMangaEInk, default: false)
+        eInkThreshold = environment.settings.int(.mangaEInkThreshold, default: 150)
+        hideTitle = environment.settings.bool(.hideMangaTitle, default: false)
+    }
+
+    /// Reloads the current chapter — upstream
+    /// `ReadMangaActivity.viewModel.refreshContentDur`.
+    public func reloadChapter() async {
+        await loadChapter(at: currentChapterIndex)
+    }
+
     /// Changes the screen brightness.
     public func setBrightness(percent: Int) {
         Task { @MainActor in system.setBrightness(percent: percent) }
@@ -122,16 +155,32 @@ public final class MangaReaderController: ObservableObject {
     }
 
     /// The footer text — upstream `ReadMangaActivity.upInfoBar`.
+    ///
+    /// The parts that the footer configuration hides are left out — upstream
+    /// `MangaFooterConfig`.
     public func footerText(pageIndex: Int) -> String {
         guard let chapter, chapter.imageCount > 0 else { return "" }
-        return MangaAssembler.footerText(
-            chapterTitle: chapter.title,
-            chapterIndex: currentChapterIndex,
-            chapterSize: chapters.count,
-            chapterPos: pageIndex,
-            imageCount: chapter.imageCount,
-            isLastItem: currentChapterIndex == chapters.count - 1
-        )
+        let config = MangaSettings.footerConfig(environment.settings)
+        if config.hideFooter { return "" }
+        var parts: [String] = []
+        if !config.hideChapter, !config.hideChapterName {
+            parts.append(chapter.title)
+        }
+        if !config.hidePageNumber {
+            parts.append("\(pageIndex + 1)/\(chapter.imageCount)")
+        }
+        parts.append("\(currentChapterIndex + 1)/\(chapters.count)")
+        if !config.hideProgressRatio {
+            parts.append(MangaAssembler.footerText(
+                chapterTitle: chapter.title,
+                chapterIndex: currentChapterIndex,
+                chapterSize: chapters.count,
+                chapterPos: pageIndex,
+                imageCount: chapter.imageCount,
+                isLastItem: currentChapterIndex == chapters.count - 1
+            ).split(separator: " ").last.map(String.init) ?? "")
+        }
+        return parts.joined(separator: "  ")
     }
 
     /// Handles a tap — upstream `WebtoonFrame`:
@@ -173,7 +222,14 @@ public struct MangaReaderView: View {
                 GeometryReader { proxy in
                     ScrollView {
                         ForEach(Array(chapter.pages.enumerated()), id: \.offset) { index, page in
-                            MangaPageView(page: page, zoom: controller.zoom)
+                            MangaPageView(
+                                page: page,
+                                zoom: controller.zoom,
+                                colorFilter: controller.colorFilter,
+                                isGray: controller.isGray,
+                                isEInk: controller.isEInk,
+                                eInkThreshold: controller.eInkThreshold
+                            )
                                 .id(index)
                         }
                     }
@@ -221,6 +277,7 @@ public struct MangaReaderView: View {
             }
         }
         .onAppear {
+            controller.refreshDisplay()
             Task {
                 await controller.loadChapter(at: controller.currentChapterIndex)
             }
@@ -254,13 +311,22 @@ struct MangaPageView: View {
 
     let page: MangaPage
     let zoom: Double
+    /// The colour filter — upstream `MangaAdapter.setImageColorFilter`.
+    var colorFilter = MangaColorFilter()
+    /// Whether the page is grey — upstream `GrayscaleTransformation`.
+    var isGray = false
+    /// Whether the page is shown as on an e-ink screen — upstream
+    /// `EpaperTransformation`.
+    var isEInk = false
+    /// The threshold of the e-ink mode.
+    var eInkThreshold = 128
 
     var body: some View {
         Group {
             if let url = page.imageURL, let remote = URL(string: url) {
                 AsyncImage(url: remote) { phase in
                     if case let .success(image) = phase {
-                        return AnyView(image.resizable().aspectRatio(contentMode: .fit))
+                        return AnyView(filtered(image))
                     } else {
                         return AnyView(
                             Text("加载中")
@@ -276,6 +342,49 @@ struct MangaPageView: View {
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// The page with the filters of the manga reader.
+    @ViewBuilder
+    private func filtered(_ image: Image) -> some View {
+        if isEInk {
+            // The upstream binarises the pixels (below the threshold → black);
+            // the SwiftUI contrast with the pivot at the mid grey is the
+            // closest equivalent.
+            image
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .grayscale(1)
+                .contrast(Self.contrast(threshold: eInkThreshold))
+        } else if isGray {
+            image
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .grayscale(1)
+        } else if !colorFilter.isIdentity {
+            let multipliers = colorFilter.multipliers
+            image
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .colorMultiply(
+                    Color(
+                        red: multipliers.red,
+                        green: multipliers.green,
+                        blue: multipliers.blue
+                    )
+                )
+        } else {
+            image
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+        }
+    }
+
+    /// The contrast that approximates the binarisation at the threshold.
+    static func contrast(threshold: Int) -> Double {
+        let normalized = Double(threshold) / 255.0
+        let distance = abs(normalized - 0.5)
+        return max(1, min(12, 0.5 / max(distance, 0.04)))
     }
 
     private var title: String {

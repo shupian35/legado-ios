@@ -277,6 +277,53 @@ public struct MangaColorFilter: Equatable, Sendable {
             0, 0, 0, (255 - Double(a)) * scale, Double(a)
         ]
     }
+
+    /// The multipliers of the channels — `(255 - x) / 255`.
+    public var multipliers: (red: Double, green: Double, blue: Double, alpha: Double) {
+        (
+            Double(255 - r) / 255.0,
+            Double(255 - g) / 255.0,
+            Double(255 - b) / 255.0,
+            Double(255 - a) / 255.0
+        )
+    }
+
+    /// The JSON of the configuration — upstream `MangaColorFilterConfig.toJson()`
+    /// (an empty string when the filter does nothing).
+    public func jsonString() -> String {
+        if isIdentity { return "" }
+        let object: [String: JSONValue] = [
+            "r": .number(Double(r)),
+            "g": .number(Double(g)),
+            "b": .number(Double(b)),
+            "a": .number(Double(a)),
+            "l": .number(Double(l))
+        ]
+        return JSONValue.object(object).jsonString
+    }
+
+    /// Reads the configuration — upstream `GSON.fromJsonObject`.
+    public static func parse(_ text: String?) -> MangaColorFilter {
+        guard let text, !text.isEmpty else { return MangaColorFilter() }
+        guard let value = try? JSONValue.parse(text), let object = value.objectValue else {
+            return MangaColorFilter()
+        }
+        func number(_ key: String) -> Int {
+            guard let raw = object[key] else { return 0 }
+            switch raw {
+            case let .number(value): return Int(value)
+            case let .string(value): return Int(value) ?? 0
+            default: return 0
+            }
+        }
+        return MangaColorFilter(
+            r: number("r"),
+            g: number("g"),
+            b: number("b"),
+            a: number("a"),
+            l: number("l")
+        )
+    }
 }
 
 /// The e-ink filter of the manga reader — upstream

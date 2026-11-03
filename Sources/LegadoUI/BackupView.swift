@@ -32,6 +32,8 @@ public struct BackupView: View {
     @State private var webDavUrl: String = ""
     @State private var webDavAccount: String = ""
     @State private var webDavPassword: String = ""
+    /// Whether the folder picker is open — upstream `selectBackupPath`.
+    @State private var isSelectingDirectory = false
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -43,6 +45,12 @@ public struct BackupView: View {
                 Button("立即备份") {
                     backup()
                 }
+                Button("选择备份目录") {
+                    isSelectingDirectory = true
+                }
+                Text(backupDirectory.path)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
                 if !localBackups.isEmpty {
                     ForEach(localBackups, id: \.path) { url in
                         HStack {
@@ -96,16 +104,42 @@ public struct BackupView: View {
             webDavPassword = model.environment.settings.webDavPassword ?? ""
             loadLocalBackups()
         }
+        .fileImporter(
+            isPresented: $isSelectingDirectory,
+            allowedContentTypes: [.folder]
+        ) { result in
+            if case let .success(url) = result {
+                selectDirectory(url)
+            }
+        }
     }
 
     // MARK: - The backup directory
 
-    /// The directory the local backups live in (`<documents>/backup`).
+    /// The directory the local backups live in.
+    ///
+    /// The upstream keeps the folder in `PreferKey.backupPath`
+    /// (`backupUri`) and lets the user pick it with the system folder picker
+    /// (`BackupConfigFragment.selectBackupPath`); the default is
+    /// `<documents>/backup`.
     private var backupDirectory: URL {
+        if let path = model.environment.settings.backupPath, !path.isEmpty {
+            let url = URL(fileURLWithPath: path, isDirectory: true)
+            if FileManager.default.fileExists(atPath: url.path) {
+                return url
+            }
+        }
         let base = FileManager.default
             .urls(for: .documentDirectory, in: .userDomainMask)
             .first ?? FileManager.default.temporaryDirectory
         return base.appendingPathComponent("backup", isDirectory: true)
+    }
+
+    /// Stores the picked folder — upstream `PreferKey.backupPath`.
+    private func selectDirectory(_ url: URL) {
+        model.environment.settings.backupPath = url.path
+        loadLocalBackups()
+        status = "备份目录：\(url.lastPathComponent)"
     }
 
     private func loadLocalBackups() {
@@ -133,7 +167,10 @@ public struct BackupView: View {
             let directory = backupDirectory
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let url = directory.appendingPathComponent(archive.fileName)
-            try data.write(to: url)
+            // A folder the user picked needs the security scope.
+            try withSecurityScope(url) {
+                try data.write(to: url)
+            }
             loadLocalBackups()
             status = "备份完成：\(archive.fileName)"
         } catch {
@@ -270,4 +307,16 @@ public struct BackupView: View {
             httpClient: model.environment.httpClient
         )
     }
+}
+
+/// Runs the body with the security scope of a URL the user picked.
+///
+/// The API only exists on the Apple platforms — on Linux the body runs
+/// directly.
+private func withSecurityScope<T>(_ url: URL, _ body: () throws -> T) rethrows -> T {
+    #if os(iOS) || os(macOS)
+    let scoped = url.startAccessingSecurityScopedResource()
+    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+    #endif
+    return try body()
 }

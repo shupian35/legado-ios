@@ -67,6 +67,12 @@ extension View {
     public func redacted(reason: RedactionReasons = .placeholder) -> some View { ModifiedView(self) }
     public func blur(radius: Double) -> some View { ModifiedView(self) }
     public func saturation(_ amount: Double) -> some View { ModifiedView(self) }
+    /// `SwiftUI.grayscale` — the manga reader's grey mode.
+    public func grayscale(_ amount: Double) -> some View { ModifiedView(self) }
+    /// `SwiftUI.colorMultiply` — the manga reader's colour filter.
+    public func colorMultiply(_ color: Color) -> some View { ModifiedView(self) }
+    /// `SwiftUI.contrast` — the manga reader's e-ink mode.
+    public func contrast(_ amount: Double) -> some View { ModifiedView(self) }
     public func scaleEffect(_ scale: Double, anchor: UnitPoint = .center) -> some View { ModifiedView(self) }
     public func rotationEffect(_ angle: Angle, anchor: UnitPoint = .center) -> some View { ModifiedView(self) }
     public func offset(x: Double = 0, y: Double = 0) -> some View { ModifiedView(self) }

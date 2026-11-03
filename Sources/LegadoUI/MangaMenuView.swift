@@ -47,6 +47,7 @@ public struct MangaMenuView: View {
             pageSlider
             chapterButtons
             brightnessSlider
+            settingsSection
         }
         .padding(16)
         .background(Color.black.opacity(0.85))
@@ -57,10 +58,36 @@ public struct MangaMenuView: View {
                 InAppBrowserView(url: controller.chapterURL)
             }
         }
+        .sheet(isPresented: $showsColorFilter) {
+            MangaColorFilterSheet(controller: controller)
+        }
+        .sheet(isPresented: $showsFooterConfig) {
+            MangaFooterConfigSheet(controller: controller)
+        }
+        .sheet(isPresented: $showsToc) {
+            if let model = controller.model {
+                NavigationStack {
+                    TocView(model: model, book: controller.book) { index in
+                        showsToc = false
+                        Task { await controller.loadChapter(at: index) }
+                    }
+                }
+            }
+        }
     }
 
     /// Whether the in-app browser is shown.
     @State private var showsBrowser = false
+    /// Whether the colour filter dialog is shown — upstream
+    /// `MangaColorFilterDialog`.
+    @State private var showsColorFilter = false
+    /// Whether the footer configuration is shown — upstream
+    /// `MangaFooterSettingDialog`.
+    @State private var showsFooterConfig = false
+    /// The pre-download count — upstream `AppConfig.mangaPreDownloadNum` (10).
+    @State private var preDownloadNum: Int = 10
+    /// The auto page speed — upstream `AppConfig.mangaAutoPageSpeed` (3 s).
+    @State private var autoPageSpeed: Int = 3
 
     /// The toolbar row — upstream `MangaMenu.bindEvent`:
     /// the toolbar opens the book info, the chapter name and the address open
@@ -132,5 +159,75 @@ public struct MangaMenuView: View {
                 in: 0...100
             )
         }
+    }
+
+    // MARK: - The manga settings
+
+    /// The settings of the manga reader — upstream `res/menu/book_manga`
+    /// (`ReadMangaActivity.onCompatOptionsItemSelected`).
+    private var settingsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("设置")
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+            HStack {
+                Button("换源") {
+                    onShowBookInfo()
+                    onClose()
+                }
+                Button("刷新") {
+                    Task { await controller.reloadChapter() }
+                }
+                Button("目录") {
+                    showsToc = true
+                    onClose()
+                }
+            }
+            Toggle("禁用缩放", isOn: settingBinding(.disableMangaScale))
+            Toggle("禁用点击滚动", isOn: settingBinding(.disableClickScroll))
+            Toggle("自动翻页", isOn: $isAutoPage)
+            Toggle("自动滚动", isOn: $isAutoScroll)
+            Toggle("横向滚动", isOn: settingBinding(.enableMangaHorizontalScroll))
+            Toggle("禁用翻页动画", isOn: settingBinding(.disableMangaPageAnim))
+            Toggle("隐藏标题", isOn: settingBinding(.hideMangaTitle))
+            Toggle("电子墨水", isOn: settingBinding(.enableMangaEInk))
+            Toggle("灰度", isOn: settingBinding(.enableMangaGray))
+            Stepper("预下载数：\(preDownloadNum)", value: $preDownloadNum, in: 0...99)
+            Stepper("自动翻页速度：\(autoPageSpeed)", value: $autoPageSpeed, in: 1...60)
+            Button("页脚设置") {
+                showsFooterConfig = true
+            }
+            Button("颜色滤镜") {
+                showsColorFilter = true
+            }
+        }
+        .onAppear {
+            preDownloadNum = controller.environment.settings.int(.mangaPreDownloadNum, default: 10)
+            autoPageSpeed = controller.environment.settings.int(.mangaAutoPageSpeed, default: 3)
+        }
+        .onChange(of: preDownloadNum) { _, value in
+            controller.environment.settings.set(value, for: .mangaPreDownloadNum)
+        }
+        .onChange(of: autoPageSpeed) { _, value in
+            controller.environment.settings.set(value, for: .mangaAutoPageSpeed)
+        }
+    }
+
+    /// Whether the auto page is on — upstream `enableAutoScrollPage`.
+    @State private var isAutoPage = false
+    /// Whether the auto scroll is on — upstream `enableAutoScroll`.
+    @State private var isAutoScroll = false
+    /// Whether the chapter list is shown — upstream `menu_catalog`.
+    @State private var showsToc = false
+
+    /// A binding that reads and writes a boolean preference.
+    private func settingBinding(_ key: SettingsKey) -> Binding<Bool> {
+        Binding(
+            get: { controller.environment.settings.bool(key, default: false) },
+            set: { newValue in
+                controller.environment.settings.set(newValue, for: key)
+                controller.refreshDisplay()
+            }
+        )
     }
 }
