@@ -25,14 +25,11 @@ public enum FontLoader {
         #if canImport(CoreText)
         let url = URL(fileURLWithPath: fontPath) as CFURL
         var error: Unmanaged<CFError>?
-        guard CTFontManagerRegisterFontsForURL(url, .process, &error) else {
-            // The font may already be registered — that is not an error.
-            if let error = error?.takeRetainedValue() {
-                let code = CFErrorGetCode(error)
-                if code != 105 { return nil }
-            } else {
-                return nil
-            }
+        if !CTFontManagerRegisterFontsForURL(url, .process, &error) {
+            // The font may already be registered — that is not an error
+            // (`kCTFontManagerErrorAlreadyRegistered` is 105).
+            guard let failure = error?.takeRetainedValue() else { return nil }
+            if CFErrorGetCode(failure) != 105 { return nil }
         }
         guard let descriptors = CTFontManagerCreateFontDescriptorsFromURL(url) as? [CTFontDescriptor],
               let descriptor = descriptors.first else { return nil }

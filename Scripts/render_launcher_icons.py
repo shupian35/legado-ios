@@ -500,20 +500,22 @@ def overlay_with_mask(overlay, mask, alpha):
     return result
 
 
-def render(android_repo, output_dir, name, foreground, background, background_color=None):
+def render(android_repo, output_dir, name, foreground, background, background_color=None, sizes=None):
     """Render one icon and write the sizes the iOS app needs."""
     source = os.path.join(android_repo, "app", "src", "main", "res", "drawable")
     layers = []
     if background:
         layers.append(os.path.join(source, background))
     layers.append(os.path.join(source, foreground))
-    # The sizes: (the file suffix, the pixel size).
-    sizes = [
-        ("", 76),        # the iPad @1x
-        ("@2x", 120),    # the iPhone @2x
-        ("@2x", 152),    # the iPad @2x
-        ("@3x", 180),    # the iPhone @3x
-    ]
+    # The sizes: (the file suffix, the pixel size). The loose icon files that
+    # `CFBundleIconFiles` names are picked up by their point size, so the file
+    # name carries the size — the @2x of the 60pt icon is 120 pixels.
+    if sizes is None:
+        sizes = [
+            ("", 76),        # the base (the iPad @1x)
+            ("@2x", 120),    # the iPhone @2x
+            ("@3x", 180),    # the iPhone @3x
+        ]
     for suffix, size in sizes:
         canvas = int(size * SUPERSAMPLE)
         image = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
@@ -559,6 +561,18 @@ def main():
     for name, foreground, background, color in icons:
         print("rendering", name)
         render(android_repo, output_dir, name, foreground, background, color)
+    # The iPad uses a 76pt icon, so the primary icon needs the @2x of that
+    # size as well (`CFBundleIconFiles` names both).
+    print("rendering AppIcon76x76")
+    render(
+        android_repo,
+        output_dir,
+        "AppIcon76x76",
+        "ic_launcher1.xml",
+        "ic_launcher1_b.xml",
+        None,
+        sizes=[("@2x", 152)],
+    )
     return 0
 
 

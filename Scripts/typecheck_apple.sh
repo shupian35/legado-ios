@@ -115,7 +115,8 @@ fi
 echo "== LegadoUI (with the Apple branches enabled) =="
 UI_SOURCES=$(find "$REPO/Sources/LegadoUI" -name '*.swift' | sort)
 # shellcheck disable=SC2086
-if ! swiftc -typecheck -module-name LegadoUI -swift-version 5 $SEARCH $UI_SOURCES ; then
+if ! swiftc -emit-module -emit-module-path "$OUT/LegadoUI.swiftmodule" \
+    -module-name LegadoUI -swift-version 5 $SEARCH $UI_SOURCES ; then
     FAILED=1
 fi
 
@@ -123,6 +124,15 @@ echo "== LegadoApp (with the Apple branches enabled) =="
 APP_SOURCES=$(find "$REPO/Sources/LegadoApp" -name '*.swift' | sort)
 # shellcheck disable=SC2086
 if ! swiftc -typecheck -module-name LegadoApp -swift-version 5 $SEARCH $APP_SOURCES ; then
+    FAILED=1
+fi
+
+# The iOS entry point — it only exists in the Xcode project, so the Linux
+# build never compiles it. It is the file that must not break.
+echo "== LegadoAppUI (the iOS entry point) =="
+APPUI_SOURCES=$(find "$REPO/Sources/LegadoAppUI" -name '*.swift' | sort)
+# shellcheck disable=SC2086
+if ! swiftc -typecheck -parse-as-library -module-name LegadoAppUI -swift-version 5 $SEARCH $APPUI_SOURCES ; then
     FAILED=1
 fi
 

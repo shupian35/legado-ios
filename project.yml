@@ -56,8 +56,14 @@ targets:
         LSRequiresIPhoneOS: true
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
-        UILaunchScreen:
-          UIColorName: ""
+        UILaunchScreen: {}
+        # The read-aloud keeps playing with the screen off, like the upstream
+        # `BaseReadAloudService` (which uses a foreground service).
+        UIBackgroundModes:
+          - audio
+        # The QR scanner (`LegadoUI/QRScannerView.swift`) needs the camera;
+        # without this the app is killed the first time the scanner opens.
+        NSCameraUsageDescription: 扫描二维码导入书源或规则
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
@@ -104,6 +110,7 @@ targets:
           CFBundlePrimaryIcon:
             CFBundleIconFiles:
               - AppIcon60x60
+              - AppIcon76x76
           CFBundleAlternateIcons:
             Icon1:
               CFBundleIconFiles:

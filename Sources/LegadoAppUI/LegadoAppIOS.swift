@@ -13,7 +13,13 @@
 //  deep links are handled by `io.legado.app.ui.association.*`.
 //
 
+#if canImport(SwiftUI)
 import SwiftUI
+#else
+// On Linux there is no SwiftUI — the shim has the same shape so that the
+// entry point is type-checked by `Scripts/typecheck_apple.sh`.
+import LegadoUIShim
+#endif
 import LegadoCore
 import LegadoUI
 
