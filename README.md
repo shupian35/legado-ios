@@ -18,7 +18,7 @@ upstream feature is listed with its upstream file, the Swift implementation and
 its state (`[x]` done, `[~]` partial, `[ ]` not started), followed by the
 deliberate deviations.
 
-The port is ~43,950 lines of Swift in 182 files, with ~10,870 lines of tests
+The port is ~44,200 lines of Swift in 183 files, with ~11,090 lines of tests
 (898 unit tests: 818 in `LegadoCoreTests`, 80 in `LegadoServerTests`) next to them.
 
 ## What is in here
