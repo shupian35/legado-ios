@@ -195,11 +195,13 @@ public final class AppEnvironment {
     /// - Parameters:
     ///   - precision: only the books whose name or author contain the
     ///     keyword are kept (upstream `PreferKey.precisionSearch`).
+    ///   - page: the page of the search (upstream `SearchModel.searchPage`).
     ///   - threadCount: how many sources are searched at the same time.
     public func search(
         sources: [BookSource],
         keyword: String,
         precision: Bool = false,
+        page: Int = 1,
         threadCount: Int = 4
     ) async -> [SearchBook] {
         guard !sources.isEmpty, !keyword.isEmpty else { return [] }
@@ -215,6 +217,7 @@ public final class AppEnvironment {
                         source: source,
                         keyword: keyword,
                         precision: precision,
+                        page: page,
                         dependencies: dependencies
                     )
                 }
@@ -227,6 +230,7 @@ public final class AppEnvironment {
                             source: source,
                             keyword: keyword,
                             precision: precision,
+                            page: page,
                             dependencies: dependencies
                         )
                     }
@@ -242,12 +246,14 @@ public final class AppEnvironment {
         source: BookSource,
         keyword: String,
         precision: Bool,
+        page: Int = 1,
         dependencies: AnalyzeUrlDependencies
     ) async -> [SearchBook] {
         do {
             return try await WebBook.searchBook(
                 bookSource: source,
                 key: keyword,
+                page: page,
                 filter: { name, author in
                     !precision || name.contains(keyword) || author.contains(keyword)
                 },
@@ -261,10 +267,14 @@ public final class AppEnvironment {
     }
 
     /// Lists the categories of a source (upstream `WebBook.exploreBook`).
-    public func explore(source: BookSource, url: String) async throws -> [SearchBook] {
+    ///
+    /// The page is the upstream `ExploreShowViewModel.page` — it is put into
+    /// the address by `AnalyzeUrl` (the `<page>` placeholder).
+    public func explore(source: BookSource, url: String, page: Int = 1) async throws -> [SearchBook] {
         try await WebBook.exploreBook(
             bookSource: source,
             url: url,
+            page: page,
             dependencies: dependencies()
         )
     }

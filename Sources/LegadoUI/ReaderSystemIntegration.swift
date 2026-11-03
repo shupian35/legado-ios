@@ -118,6 +118,34 @@ public final class ReaderSystemIntegration: ObservableObject {
         settings.isDarkTheme ? settings.nightBrightness : settings.brightness
     }
 
+    /// Changes the screen brightness — upstream `ReadMenu.seekBrightness`
+    /// (`binding.seekBrightness` writes `AppConfig.brightness` and the
+    /// screen brightness).
+    ///
+    /// The value is a percentage (`0...100`); the setting is stored so the
+    /// reader opens with it again.
+    @MainActor
+    public func setBrightness(percent: Int) {
+        let value = min(max(percent, 0), 100)
+        settings.brightness = value
+        #if canImport(UIKit)
+        if previousBrightness == nil {
+            previousBrightness = Double(UIScreen.main.brightness)
+        }
+        UIScreen.main.brightness = CGFloat(Double(value) / 100.0)
+        #endif
+    }
+
+    /// The current screen brightness as a percentage (`0...100`).
+    @MainActor
+    public func currentBrightnessPercent() -> Int {
+        #if canImport(UIKit)
+        return Int((Double(UIScreen.main.brightness) * 100).rounded())
+        #else
+        return brightnessPercent
+        #endif
+    }
+
     /// Whether the status bar is hidden (the upstream `hideStatusBar`).
     public var hidesStatusBar: Bool {
         settings.bool(.hideStatusBar, default: false)

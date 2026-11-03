@@ -238,6 +238,64 @@ public struct ReaderPageRows: View {
         Stepper(value: $config.titleBottomSpacing, in: 0.0...60.0, step: 1) {
             Text("标题下间距 \(Int(config.titleBottomSpacing))")
         }
+        // `ReadBookConfig.headerMode` and `footerMode` — the visibility of the
+        // tip rows.
+        Picker("页眉模式", selection: $config.headerMode) {
+            ForEach(ReaderTipMode.allCases, id: \.rawValue) { mode in
+                Text(ReaderTipModeRow.name(of: mode)).tag(mode.rawValue)
+            }
+        }
+        Picker("页脚模式", selection: $config.footerMode) {
+            ForEach(ReaderTipMode.allCases, id: \.rawValue) { mode in
+                Text(ReaderTipModeRow.name(of: mode)).tag(mode.rawValue)
+            }
+        }
+        // `ReadBookConfig.tipHeaderLeft` … `tipFooterRight` — the six tip
+        // slots of the page.
+        Picker("页眉左侧", selection: $config.tipHeaderLeft) {
+            ForEach(ReaderTipType.pickerOrder, id: \.rawValue) { type in
+                Text(type.displayName).tag(type.rawValue)
+            }
+        }
+        Picker("页眉中间", selection: $config.tipHeaderMiddle) {
+            ForEach(ReaderTipType.pickerOrder, id: \.rawValue) { type in
+                Text(type.displayName).tag(type.rawValue)
+            }
+        }
+        Picker("页眉右侧", selection: $config.tipHeaderRight) {
+            ForEach(ReaderTipType.pickerOrder, id: \.rawValue) { type in
+                Text(type.displayName).tag(type.rawValue)
+            }
+        }
+        Picker("页脚左侧", selection: $config.tipFooterLeft) {
+            ForEach(ReaderTipType.pickerOrder, id: \.rawValue) { type in
+                Text(type.displayName).tag(type.rawValue)
+            }
+        }
+        Picker("页脚中间", selection: $config.tipFooterMiddle) {
+            ForEach(ReaderTipType.pickerOrder, id: \.rawValue) { type in
+                Text(type.displayName).tag(type.rawValue)
+            }
+        }
+        Picker("页脚右侧", selection: $config.tipFooterRight) {
+            ForEach(ReaderTipType.pickerOrder, id: \.rawValue) { type in
+                Text(type.displayName).tag(type.rawValue)
+            }
+        }
+    }
+}
+
+/// The names of the tip modes — upstream `ReadTipConfig` (the header has
+/// three states, the footer two).
+public enum ReaderTipModeRow {
+
+    /// The name of a mode.
+    public static func name(of mode: ReaderTipMode) -> String {
+        switch mode {
+        case .automatic: return "自动"
+        case .always: return "始终显示"
+        case .never: return "隐藏"
+        }
     }
 }
 
@@ -418,6 +476,13 @@ public struct ReaderSettingsView: View {
             Section("文字转换") {
                 ReaderConverterRow(selection: controller.configStore.chineseConverterType) { mode in
                     Task { await controller.setChineseConverter(mode) }
+                }
+            }
+            Section("点击区域") {
+                // Upstream `ClickActionConfigDialog` — the nine regions of
+                // the page.
+                NavigationLink("点击区域设置") {
+                    ClickRegionEditorView(settings: controller.environment.settings)
                 }
             }
         }

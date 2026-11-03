@@ -330,9 +330,9 @@ struct BookRow: View {
     }
 
     /// The number of the chapters that were not read — upstream
-    /// `Book.getUnreadChapterNum()`.
+    /// `Book.getUnreadChapterNum()` (the simulated reading is honoured).
     static func unreadCount(_ book: Book) -> Int {
-        max(Int(book.totalChapterNum) - Int(book.durChapterIndex) - 1, 0)
+        Int(book.unreadChapterNum())
     }
 
     /// The text of the time of the last update — upstream

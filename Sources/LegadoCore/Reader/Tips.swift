@@ -177,6 +177,42 @@ public enum ReaderTipRenderer {
         return "\(index + 1)/~\(pageSize)"
     }
 
+    /// The progress of the whole book — upstream `TextPage.readProgress`
+    /// (the `DecimalFormat("0.0%")` of the upstream: one decimal and a
+    /// percent sign).
+    ///
+    /// - Parameters:
+    ///   - chapterIndex: the index of the chapter (0 based).
+    ///   - chapterSize: the number of the chapters.
+    ///   - pageIndex: the index of the page (0 based).
+    ///   - pageSize: the number of the pages of the chapter.
+    public static func readProgress(
+        chapterIndex: Int,
+        chapterSize: Int,
+        pageIndex: Int,
+        pageSize: Int
+    ) -> String {
+        guard chapterSize > 0, !(pageSize == 0 && chapterIndex == 0) else { return "0.0%" }
+        if pageSize == 0 {
+            return percent(Double(chapterIndex + 1) / Double(chapterSize))
+        }
+        let value = Double(chapterIndex) / Double(chapterSize)
+            + 1.0 / Double(chapterSize) * Double(pageIndex + 1) / Double(pageSize)
+        var text = percent(value)
+        // The upstream clamps the progress to 99.9 % when the book is not
+        // completely read yet.
+        if text == "100.0%" && (chapterIndex + 1 != chapterSize || pageIndex + 1 != pageSize) {
+            text = "99.9%"
+        }
+        return text
+    }
+
+    /// Formats a ratio as the upstream's `DecimalFormat("0.0%")`.
+    private static func percent(_ value: Double) -> String {
+        let scaled = (value * 1000).rounded() / 10
+        return String(format: "%.1f%%", scaled)
+    }
+
     /// The text of a tip.
     ///
     /// - Returns: `nil` for the `none` tip.

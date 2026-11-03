@@ -25,6 +25,16 @@ public protocol ChapterContentProviding: AnyObject {
     /// Returns the raw (unprocessed) text of `chapter`, or `nil` when the
     /// chapter has no text yet (for example a volume title chapter).
     func chapterContent(book: Book, chapter: BookChapter) async throws -> String?
+
+    /// Whether the duplicated title is removed from the content of the
+    /// chapter — upstream `BookHelp.removeSameTitle`.
+    ///
+    /// The default keeps the removal on (the upstream behaviour).
+    func removesSameTitle(book: Book, chapter: BookChapter) -> Bool
+}
+
+public extension ChapterContentProviding {
+    func removesSameTitle(book: Book, chapter: BookChapter) -> Bool { true }
 }
 
 public enum ChapterProviderError: Error, Equatable {
@@ -70,9 +80,11 @@ public enum ChapterProvider {
         layout: ReaderLayout,
         measurer: TextMeasuring,
         chineseConversionMode: ChineseConversionMode = .off,
-        converter: ChineseConverting = DefaultChineseConverter()
+        converter: ChineseConverting = DefaultChineseConverter(),
+        removeSameTitle: Bool? = nil
     ) async throws -> TextChapter {
         let raw = try await contentProvider.chapterContent(book: book, chapter: chapter) ?? ""
+        let removesSameTitle = removeSameTitle ?? contentProvider.removesSameTitle(book: book, chapter: chapter)
 
         let processed = try ReplaceRuleEngine.processContent(
             book: book,
@@ -91,7 +103,8 @@ public enum ChapterProvider {
             paragraphIndent: config.paragraphIndent,
             conversionMode: chineseConversionMode,
             converter: converter,
-            scriptEngine: scriptEngine
+            scriptEngine: scriptEngine,
+            removeSameTitle: removesSameTitle
         )
 
         let textChapter = TextChapter(

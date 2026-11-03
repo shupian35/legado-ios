@@ -202,6 +202,22 @@ open class UIScreen: NSObject {
 
 // MARK: - UIApplication
 
+/// `UIKit.UIDevice` — the battery level of the device.
+@MainActor
+open class UIDevice: NSObject {
+    open class var current: UIDevice { UIDevice() }
+    open var isBatteryMonitoringEnabled: Bool = false
+    open var batteryLevel: Float = -1
+}
+
+/// `UIKit.UIDevice.BatteryState`.
+public enum UIDeviceBatteryState: Int {
+    case unknown = 0
+    case unplugged = 1
+    case charging = 2
+    case full = 3
+}
+
 /// `UIKit.UIInterfaceOrientationMask`.
 public struct UIInterfaceOrientationMask: OptionSet {
     public let rawValue: UInt

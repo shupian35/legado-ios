@@ -35,6 +35,13 @@ public final class MediaCommandBridge {
     /// Stops the read aloud.
     public var onStop: (() -> Void)?
 
+    /// Whether the media buttons skip a paragraph instead of a chapter —
+    /// upstream `mediaButtonPerNext` (`MediaButtonReceiver.kt:51`).
+    ///
+    /// When it is off the next / the previous track command jumps a chapter,
+    /// when it is on it skips a paragraph.
+    public var perNext: Bool = false
+
     #if canImport(MediaPlayer)
     private let center = MPRemoteCommandCenter.shared()
     /// The tokens of the registered handlers — `MPRemoteCommandCenter` is a
@@ -53,11 +60,21 @@ public final class MediaCommandBridge {
         center.skipBackwardCommand.isEnabled = true
 
         targets.append((center.previousTrackCommand, center.previousTrackCommand.addTarget { [weak self] _ in
-            self?.onPreviousChapter?()
+            guard let self else { return .success }
+            if self.perNext {
+                self.onPreviousParagraph?()
+            } else {
+                self.onPreviousChapter?()
+            }
             return .success
         }))
         targets.append((center.nextTrackCommand, center.nextTrackCommand.addTarget { [weak self] _ in
-            self?.onNextChapter?()
+            guard let self else { return .success }
+            if self.perNext {
+                self.onNextParagraph?()
+            } else {
+                self.onNextChapter?()
+            }
             return .success
         }))
         targets.append((center.playCommand, center.playCommand.addTarget { [weak self] _ in

@@ -233,6 +233,48 @@ public enum SettingsKey: String, CaseIterable, Sendable {
     case welcomeShowIconDark = "welcomeShowIconDark"
     case welcomeShowText = "welcomeShowText"
     case welcomeShowTextDark = "welcomeShowTextDark"
+
+    // The upstream preferences that are read with their raw key instead of a
+    // `PreferKey` constant — the screens that use them are
+    // `ui/book/read/config/MoreConfigDialog.kt`,
+    // `ui/book/read/config/ReadAloudConfigDialog.kt`,
+    // `ui/config/ThemeConfigFragment.kt`, `ui/config/CoverConfigFragment.kt`,
+    // `ui/config/BackupConfigFragment.kt`, `help/config/AppConfig.kt` and
+    // `service/BaseReadAloudService.kt`.
+    /// The click-region configuration — upstream `MoreConfigDialog.kt:182`.
+    case clickRegionalConfig = "clickRegionalConfig"
+    /// Whether the back key is disabled in the reader — upstream
+    /// `ReadBookActivity.kt:288`.
+    case disableReturnKey = "disableReturnKey"
+    /// The custom page-turn key — upstream `MoreConfigDialog.kt:181`.
+    case customPageKey = "customPageKey"
+    /// Whether the media button stops the read aloud when the app exits —
+    /// upstream `AppConfig.mediaButtonOnExit`.
+    case mediaButtonOnExit = "mediaButtonOnExit"
+    /// The compatibility switch of the system media control — upstream
+    /// `BaseReadAloudService.kt:482`.
+    case systemMediaControlCompatibilityChange = "systemMediaControlCompatibilityChange"
+    /// Whether the media button skips to the next paragraph — upstream
+    /// `MediaButtonReceiver.kt:51`.
+    case mediaButtonPerNext = "mediaButtonPerNext"
+    /// The system TTS settings — upstream `ReadAloudConfigDialog.kt:107`.
+    case sysTtsConfig = "sysTtsConfig"
+    /// The style of the welcome screen — upstream
+    /// `ThemeConfigFragment.kt:207`.
+    case welcomeStyle = "welcomeStyle"
+    /// The cover configuration — upstream `ThemeConfigFragment.kt:203`.
+    case coverConfig = "coverConfig"
+    /// The list of the themes — upstream `ThemeConfigFragment.kt:199`.
+    case themeList = "themeList"
+    /// The name of the saved day theme — upstream `ThemeConfig.kt:193`.
+    case saveDayTheme = "saveDayTheme"
+    /// The name of the saved night theme — upstream `ThemeConfig.kt:213`.
+    case saveNightTheme = "saveNightTheme"
+    /// The cover rule — upstream `CoverConfigFragment.kt:102`.
+    case coverRule = "coverRule"
+    /// The restore of the old backups — upstream
+    /// `BackupConfigFragment.kt:238`.
+    case importOld = "import_old"
 }
 
 /// A minimal key/value store — upstream `SharedPreferences`.
@@ -668,6 +710,41 @@ public final class AppSettings {
     public var readAloudByPage: Bool {
         get { bool(.readAloudByPage, default: false) }
         set { set(newValue, for: .readAloudByPage) }
+    }
+
+    /// The auto-stop timer of the read aloud in minutes — upstream
+    /// `PreferKey.ttsTimer` (0 = no timer).
+    public var ttsTimer: Int {
+        get { int(.ttsTimer, default: 0) }
+        set { set(newValue, for: .ttsTimer) }
+    }
+
+    /// The id of the HTTP TTS engine — upstream `PreferKey.ttsEngine`
+    /// (`appTtsEngine`).
+    public var ttsEngineId: Int64 {
+        get { Int64(int(.ttsEngine, default: 0)) }
+        set { set(Int(newValue), for: .ttsEngine) }
+    }
+
+    /// Whether the media buttons skip a paragraph instead of a chapter —
+    /// upstream `mediaButtonPerNext` (`MediaButtonReceiver.kt:51`).
+    public var mediaButtonPerNext: Bool {
+        get { bool(.mediaButtonPerNext, default: false) }
+        set { set(newValue, for: .mediaButtonPerNext) }
+    }
+
+    /// Whether the media button stops the read aloud when the app exits —
+    /// upstream `AppConfig.mediaButtonOnExit`.
+    public var mediaButtonOnExit: Bool {
+        get { bool(.mediaButtonOnExit, default: true) }
+        set { set(newValue, for: .mediaButtonOnExit) }
+    }
+
+    /// The compatibility switch of the system media control — upstream
+    /// `systemMediaControlCompatibilityChange` (`BaseReadAloudService.kt:482`).
+    public var systemMediaControlCompatibilityChange: Bool {
+        get { bool(.systemMediaControlCompatibilityChange, default: false) }
+        set { set(newValue, for: .systemMediaControlCompatibilityChange) }
     }
 
     // MARK: - Import / export

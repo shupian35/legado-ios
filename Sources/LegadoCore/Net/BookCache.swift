@@ -110,6 +110,39 @@ public final class BookCacheStorage: @unchecked Sendable {
         try? fileManager.removeItem(at: layout.chapterFile(book: book, chapter: chapter))
     }
 
+    // MARK: - The duplicated title
+
+    /// The marker file that keeps the duplicated title of a chapter — upstream
+    /// `BookHelp.setRemoveSameTitle` (the chapter file name with the "nr"
+    /// suffix).
+    public func sameTitleMarker(book: Book, chapter: BookChapter) -> URL {
+        let name = BookCacheLayout.chapterFileName(for: chapter)
+        let base = name.hasSuffix(".nb") ? String(name.dropLast(3)) : name
+        return layout.folder(for: book).appendingPathComponent(base + ".nr")
+    }
+
+    /// Whether the duplicated title is removed for the chapter — upstream
+    /// `BookHelp.removeSameTitle` (the marker file exists ⇒ the title is
+    /// kept).
+    public func isSameTitleRemoved(book: Book, chapter: BookChapter) -> Bool {
+        !fileManager.fileExists(atPath: sameTitleMarker(book: book, chapter: chapter).path)
+    }
+
+    /// Sets whether the duplicated title is removed for the chapter — upstream
+    /// `BookHelp.setRemoveSameTitle`.
+    public func setSameTitleRemoved(book: Book, chapter: BookChapter, removed: Bool) {
+        let marker = sameTitleMarker(book: book, chapter: chapter)
+        if removed {
+            try? fileManager.removeItem(at: marker)
+        } else {
+            try? fileManager.createDirectory(
+                at: marker.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try? Data().write(to: marker, options: .atomic)
+        }
+    }
+
     /// The names of the chapter files already cached for a book — upstream
     /// `BookHelp.getChapterFiles`. A local TXT book keeps nothing on disk.
     public func chapterFileNames(book: Book) -> Set<String> {

@@ -269,7 +269,8 @@ public enum ReplaceRuleEngine {
         conversionMode: ChineseConversionMode = .off,
         converter: ChineseConverting = NoChineseConverter(),
         resegmenter: ContentResegmenter = NoOpResegmenter(),
-        scriptEngine: RuleScriptEngine? = nil
+        scriptEngine: RuleScriptEngine? = nil,
+        removeSameTitle: Bool = true
     ) throws -> ProcessedContent {
         var text = content
         var sameTitleRemoved = false
@@ -281,7 +282,7 @@ public enum ReplaceRuleEngine {
                 var title = NSRegularExpression.escapedPattern(for: chapter.title)
                     .replacingOccurrences(of: "\\s+", with: "\\s*")
                 var pattern = "^(\\s|\\p{P}|\(name))*\(title)(\\s)*"
-                if let expression = try? NSRegularExpression(pattern: pattern) {
+                if removeSameTitle, let expression = try? NSRegularExpression(pattern: pattern) {
                     let range = NSRange(text.startIndex..<text.endIndex, in: text)
                     if let match = expression.firstMatch(in: text, options: [], range: range) {
                         text = String(text.dropFirst(match.range.location + match.range.length))

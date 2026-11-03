@@ -23,6 +23,14 @@ public struct SearchScope: Equatable {
     /// The scope of every source.
     public static let all = SearchScope(scope: "")
 
+    /// The raw preference key of the scope — upstream `AppConfig.searchScope`
+    /// (`app/src/main/java/io/legado/app/help/config/AppConfig.kt:521-524`).
+    public static let scopeKey = "searchScope"
+
+    /// The raw preference key of the single group of the scope — upstream
+    /// `AppConfig.searchGroup` (`AppConfig.kt:527-530`).
+    public static let groupKey = "searchGroup"
+
     /// The raw scope.
     public var scope: String
 
@@ -100,9 +108,31 @@ public struct SearchScope: Equatable {
     }
 }
 
+public extension AppSettings {
+
+    /// The scope of the search — upstream `AppConfig.searchScope`.
+    ///
+    /// The upstream stores the scope under the raw preference key
+    /// "searchScope" (it is not a `PreferKey` constant, so the port reads it
+    /// through the settings store directly).
+    var searchScope: SearchScope {
+        SearchScope(scope: settingsStore.string(forKey: SearchScope.scopeKey) ?? "")
+    }
+
+    /// Sets the scope of the search — upstream `SearchScope.save()`.
+    ///
+    /// The scope is written to "searchScope"; the single group of the scope
+    /// is also written to "searchGroup" (the upstream keeps the group there
+    /// for the change-source screen).
+    func setSearchScope(_ scope: SearchScope) {
+        settingsStore.set(scope.scope, forKey: SearchScope.scopeKey)
+        let isSingleGroup = !scope.isAll && !scope.isSource && scope.groupNames.count == 1
+        settingsStore.set(isSingleGroup ? scope.scope : "", forKey: SearchScope.groupKey)
+    }
+}
+
 /// The merge of the results of a search — upstream `SearchModel.mergeItems`.
 public enum SearchResultMerge {
-
     /// Merges the results of the sources of a search — upstream
     /// `SearchModel.mergeItems(newDataS, precision)`.
     ///

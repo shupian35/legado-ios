@@ -388,6 +388,34 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     /// The progress of the book, 0…1.
     public var progress: Double { readBook.progress }
 
+    /// The values the header and the footer tips are rendered from —
+    /// upstream `PageView.setProgress` (the tip context of the page).
+    public var tipContext: ReaderTipContext {
+        ReaderTipContext(
+            bookName: book.name,
+            chapterTitle: chapterTitle,
+            pageIndex: pageIndex,
+            pageSize: pageSize,
+            chapterIndex: chapterIndex,
+            chapterSize: chapters.count,
+            readProgress: ReaderTipRenderer.readProgress(
+                chapterIndex: chapterIndex,
+                chapterSize: chapters.count,
+                pageIndex: pageIndex,
+                pageSize: pageSize
+            ),
+            isChapterCompleted: isChapterCompleted,
+            time: Date(),
+            batteryLevel: ReaderBattery.level
+        )
+    }
+
+    /// Whether the chapter on the screen is completely read — upstream
+    /// `PageView.upChapterCompleted`.
+    public var isChapterCompleted: Bool {
+        pageSize > 0 && pageIndex >= pageSize - 1
+    }
+
     // MARK: - The reader settings
 
     /// Changes the reader configuration and lays the chapter out again —
@@ -577,6 +605,9 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     /// the Android media session.
     public func activateMediaCommands() {
         let bridge = MediaCommandBridge()
+        // Upstream `mediaButtonPerNext` — the media buttons skip a paragraph
+        // instead of a chapter when it is on.
+        bridge.perNext = environment.settings.bool(.mediaButtonPerNext, default: false)
         bridge.onPreviousChapter = { [weak self] in
             Task { await self?.readBook.moveToPrevChapter() }
         }
@@ -711,6 +742,114 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
         refreshPage()
     }
 
+    // MARK: - The upstream top bar options
+
+    /// Saves the simulated reading — upstream
+    /// `BaseReadBookActivity.showSimulatedReading()`.
+    public func setSimulatedReading(_ config: BookReadConfig) {
+        var changed = book
+        changed.readConfigBox = config
+        try? environment.store.update(changed)
+        reloadContent()
+    }
+
+    /// Sets the character set of a local book — upstream
+    /// `ReadBook.setCharset(it)` (the "切换编码" option).
+    public func setCharset(_ charset: String) {
+        var changed = book
+        changed.charset = charset
+        try? environment.store.update(changed)
+        reloadContent()
+    }
+
+    /// Toggles the re-segmenting of the paragraphs — upstream
+    /// `ReadBookActivity.menu_re_segment`.
+    public func toggleReSegment() {
+        var changed = book
+        changed.reSegment = !changed.reSegment
+        try? environment.store.update(changed)
+        reloadContent()
+    }
+
+    /// Toggles the removal of a tag from the content — upstream
+    /// `ReadBookActivity.menu_del_ruby_tag` / `menu_del_h_tag`.
+    ///
+    /// The tags are upstream `Book.rubyTag` (4) and `Book.hTag` (2).
+    public func toggleDelTag(_ tag: Int64) {
+        var changed = book
+        var config = changed.readConfigBox
+        config.delTag = changed.hasDelTag(tag) ? changed.removingDelTag(tag) : changed.addingDelTag(tag)
+        changed.readConfigBox = config
+        try? environment.store.update(changed)
+        reloadContent()
+    }
+
+    /// The image style of the book — upstream `Book.getImageStyle()`.
+    public var imageStyle: BookImageStyle {
+        guard let raw = book.readConfigBox.imageStyle else { return .standard }
+        return BookImageStyle(rawValue: raw) ?? .standard
+    }
+
+    /// Sets the image style — upstream `ReadBookActivity.menu_image_style`.
+    public func setImageStyle(_ style: BookImageStyle) {
+        var changed = book
+        var config = changed.readConfigBox
+        config.imageStyle = style.rawValue
+        if style == .single {
+            // Upstream switches to the cover animation with the single style.
+            config.pageAnim = 0
+        }
+        changed.readConfigBox = config
+        try? environment.store.update(changed)
+        Task { await updateReaderStyle { $0.pageAnim = config.pageAnim ?? $0.pageAnim } }
+        reloadContent()
+    }
+
+    /// Whether the duplicated title is removed for the current chapter —
+    /// upstream `BookHelp.removeSameTitle`.
+    public var removesSameTitle: Bool {
+        guard let storage = environment.cacheStorage else { return true }
+        let index = readBook.durChapterIndex
+        guard chapters.indices.contains(index) else { return true }
+        return storage.isSameTitleRemoved(book: book, chapter: chapters[index])
+    }
+
+    /// Keeps (or removes again) the duplicated title of the current chapter —
+    /// upstream `ReadBookViewModel.reverseRemoveSameTitle()`.
+    public func toggleSameTitleRemoved() {
+        guard let storage = environment.cacheStorage else { return }
+        let index = readBook.durChapterIndex
+        guard chapters.indices.contains(index) else { return }
+        storage.setSameTitleRemoved(
+            book: book,
+            chapter: chapters[index],
+            removed: !removesSameTitle
+        )
+        reloadContent()
+    }
+
+    /// Reverses the paragraphs of the current chapter — upstream
+    /// `ReadBookViewModel.reverseContent(book)`.
+    public func reverseCurrentContent() {
+        let index = readBook.durChapterIndex
+        guard chapters.indices.contains(index) else { return }
+        let chapter = chapters[index]
+        guard let storage = environment.cacheStorage,
+              let content = storage.content(book: book, chapter: chapter) else { return }
+        let paragraphs = content.components(separatedBy: "\n").reversed().joined(separator: "\n")
+        try? storage.saveText(book: book, chapter: chapter, content: paragraphs)
+        reloadContent()
+    }
+
+    /// Reloads the content of the current chapter — upstream
+    /// `ReadBook.loadContent(false)` after a content option changed.
+    private func reloadContent() {
+        Task {
+            await readBook.reloadCurrentChapter()
+            refreshPage()
+        }
+    }
+
     /// Looks a word up in the dictionary rules — upstream `DictDialog`.
     public func lookupDictionary(_ word: String) {
         Task {
@@ -813,6 +952,13 @@ final class AppChapterContentProvider: ChapterContentProviding {
         }
         return try await environment.loadContent(book: book, chapter: chapter, source: source)
     }
+
+    /// Whether the duplicated title is removed — upstream
+    /// `BookHelp.removeSameTitle` (the marker file in the cache folder).
+    func removesSameTitle(book: Book, chapter: BookChapter) -> Bool {
+        guard let storage = environment.cacheStorage else { return true }
+        return storage.isSameTitleRemoved(book: book, chapter: chapter)
+    }
 }
 
 /// Resolves the file of a local book.
@@ -858,6 +1004,8 @@ public struct ReaderView: View {
                     if controller.isLoading {
                         ProgressView("加载中")
                     } else {
+                        // The header of the page — upstream `PageView.upTipStyle`.
+                        tipHeader
                         GeometryReader { proxy in
                             PageTurnContainer(
                                 style: controller.pageTurnStyle,
@@ -917,6 +1065,8 @@ public struct ReaderView: View {
                                 ))
                             }
                         }
+                        // The footer of the page — upstream `PageView.upTipStyle`.
+                        tipFooter
                     }
                     readAloudBar
                     // The text selection — upstream `TextActionMenu`.
@@ -967,6 +1117,8 @@ public struct ReaderView: View {
                 // (`BaseReadBookActivity.kt`).
                 controller.system.activate()
                 controller.activateMediaCommands()
+                // The battery level of the tip header/footer.
+                ReaderBattery.refresh()
                 Task { await controller.start() }
             }
             .onDisappear {
@@ -1013,6 +1165,53 @@ public struct ReaderView: View {
                 }
             }
         }
+    }
+
+    /// The header of the page — upstream `PageView.upTipStyle` (the tip row
+    /// above the text).
+    @ViewBuilder
+    private var tipHeader: some View {
+        let layout = controller.config.tipLayout
+        if controller.config.showHeader && layout.headerMode.isVisible(statusBarVisible: false) {
+            ReaderTipView(
+                row: layout.header,
+                context: controller.tipContext,
+                textColor: tipColor
+            )
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+        }
+    }
+
+    /// The footer of the page — upstream `PageView.upTipStyle` (the tip row
+    /// below the text).
+    @ViewBuilder
+    private var tipFooter: some View {
+        let layout = controller.config.tipLayout
+        if controller.config.showFooter && layout.footerMode.isVisible() {
+            ReaderTipView(
+                row: layout.footer,
+                context: controller.tipContext,
+                textColor: tipColor
+            )
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+        }
+    }
+
+    /// The colour of the tips — upstream `ReadBookConfig.tipColor` (0 = the
+    /// text colour of the reader).
+    private var tipColor: Color {
+        if controller.config.tipColor > 0 {
+            return ColorHex.color(
+                String(format: "#%06X", controller.config.tipColor),
+                fallback: .secondary
+            )
+        }
+        return ColorHex.color(
+            controller.backgroundPreset.textColorString(for: controller.displayMode),
+            fallback: .secondary
+        )
     }
 
     /// The read-aloud bar — upstream `ReadAloudDialog`.

@@ -316,6 +316,28 @@ public final class LegadoAppModel: ObservableObject {
         }
     }
 
+    /// The keys of the books on the shelf — upstream
+    /// `ui/book/search/SearchViewModel.bookshelf`: the "name-author", the name
+    /// and the address of every book that is on the shelf.
+    public func shelfBookKeys() -> Set<String> {
+        let all = (try? environment.store.allBooks()) ?? []
+        var keys = Set<String>()
+        for book in all {
+            keys.insert("\(book.name)-\(book.author)")
+            keys.insert(book.name)
+            keys.insert(book.bookUrl)
+        }
+        return keys
+    }
+
+    /// Whether the book is on the shelf — upstream
+    /// `ui/book/search/SearchViewModel.isInBookShelf`.
+    public func isOnShelf(_ book: SearchBook) -> Bool {
+        let key = book.author.isEmpty ? book.name : "\(book.name)-\(book.author)"
+        let keys = shelfBookKeys()
+        return keys.contains(key) || keys.contains(book.bookUrl)
+    }
+
     /// Reloads the book sources.
     public func reloadSources() {
         do {

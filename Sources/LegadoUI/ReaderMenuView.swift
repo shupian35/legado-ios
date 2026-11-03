@@ -35,9 +35,17 @@ public struct ReaderMenuView: View {
     /// Whether the change source screen is shown — upstream
     /// `ReadBookActivity.menu_changeSource`.
     @State private var isChangeSourcePresented = false
-    /// The brightness of the screen, 0…1.
-    @State private var brightness: Double = 0.5
-
+    /// Whether the read-aloud settings are shown — upstream
+    /// `ReadAloudDialog`.
+    @State private var isAloudSettingsPresented = false
+    /// Whether the simulated reading is shown — upstream
+    /// `ReadBookActivity.menu_simulated_reading`.
+    @State private var isSimulatedReadingPresented = false
+    /// Whether the character set is shown — upstream
+    /// `ReadBookActivity.menu_set_charset`.
+    @State private var isCharsetPresented = false
+    /// The character set that the user picked.
+    @State private var charset = ""
     /// Closes the sheet.
     @Environment(\.dismiss) private var dismissAction
 
@@ -76,8 +84,57 @@ public struct ReaderMenuView: View {
                     }
                 }
             }
+            .sheet(isPresented: $isAloudSettingsPresented) {
+                NavigationStack {
+                    ReaderAloudDialogView(controller: controller)
+                }
+            }
+            .sheet(isPresented: $isSimulatedReadingPresented) {
+                NavigationStack {
+                    SimulatedReadingView(book: controller.book) { config in
+                        controller.setSimulatedReading(config)
+                        isSimulatedReadingPresented = false
+                    }
+                }
+            }
+            .sheet(isPresented: $isCharsetPresented) {
+                NavigationStack {
+                    charsetSheet
+                }
+            }
         }
     }
+
+    /// The character set of a local book — upstream
+    /// `BaseReadBookActivity.showCharsetConfig()`.
+    private var charsetSheet: some View {
+        Form {
+            Section("常用编码") {
+                ForEach(ReaderMenuView.charsets, id: \.self) { value in
+                    Button(value) {
+                        controller.setCharset(value)
+                        isCharsetPresented = false
+                    }
+                }
+            }
+            Section("自定义") {
+                TextField("charset", text: $charset)
+                Button("确定") {
+                    let value = charset.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !value.isEmpty else { return }
+                    controller.setCharset(value)
+                    isCharsetPresented = false
+                }
+            }
+        }
+        .navigationTitle("切换编码")
+    }
+
+    /// The character sets offered by the upstream's filter.
+    static let charsets = [
+        "UTF-8", "UTF-16", "GBK", "GB2312", "GB18030", "BIG5",
+        "ISO-8859-1", "Shift_JIS", "EUC-JP", "EUC-KR", "KOI8-R", "MacRoman"
+    ]
 
     // MARK: - The sections
 
@@ -293,7 +350,22 @@ public struct ReaderMenuView: View {
     /// brightness, not the reader background).
     private var brightnessSection: some View {
         Section("亮度") {
-            Slider(value: $brightness, in: 0...1)
+            Slider(
+                value: Binding(
+                    get: { Double(controller.system.brightnessPercent) / 100.0 },
+                    set: { value in
+                        // The screen brightness is a main-actor API on Apple;
+                        // the hop keeps the call valid on every platform.
+                        Task { @MainActor in
+                            controller.system.setBrightness(percent: Int((value * 100).rounded()))
+                        }
+                    }
+                ),
+                in: 0...1
+            )
+            Text("\(controller.system.brightnessPercent) %")
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
         }
     }
 
@@ -357,6 +429,74 @@ public struct ReaderMenuView: View {
                 step: 1
             ) {
                 Text("自动翻页间隔 \(controller.autoPager.configuration.speed) 秒")
+            }
+            // Upstream `ReadAloudDialog` — the speech rate, the timer and
+            // the HTTP TTS engines.
+            Button("朗读设置") {
+                isAloudSettingsPresented = true
+            }
+            // Upstream `ReadBookActivity.menu_simulated_reading`.
+            Button("模拟阅读") {
+                isSimulatedReadingPresented = true
+            }
+            // Upstream `ReadBookActivity.menu_set_charset` — the character
+            // set of a local book.
+            Button("切换编码") {
+                charset = controller.book.charset ?? ""
+                isCharsetPresented = true
+            }
+            // Upstream `ReadBookActivity.menu_re_segment`.
+            Toggle(
+                "重新分段",
+                isOn: Binding(
+                    get: { controller.book.reSegment },
+                    set: { _ in controller.toggleReSegment() }
+                )
+            )
+            // Upstream `ReadBookActivity.menu_del_ruby_tag` /
+            // `menu_del_h_tag` — the tags removed from the content.
+            Toggle(
+                "删除ruby标签",
+                isOn: Binding(
+                    get: { controller.book.hasDelTag(BookTag.rubyTag.rawValue) },
+                    set: { _ in controller.toggleDelTag(BookTag.rubyTag.rawValue) }
+                )
+            )
+            Toggle(
+                "删除h标签",
+                isOn: Binding(
+                    get: { controller.book.hasDelTag(BookTag.hTag.rawValue) },
+                    set: { _ in controller.toggleDelTag(BookTag.hTag.rawValue) }
+                )
+            )
+            // Upstream `ReadBookActivity.menu_same_title_removed`.
+            Toggle(
+                "移除相同标题",
+                isOn: Binding(
+                    get: { controller.removesSameTitle },
+                    set: { _ in controller.toggleSameTitleRemoved() }
+                )
+            )
+            // Upstream `ReadBookActivity.menu_reverse_content` — the
+            // paragraphs of the current chapter are reversed.
+            Button("反转正文") {
+                controller.reverseCurrentContent()
+            }
+            // Upstream `ReadBookActivity.menu_image_style`.
+            Picker(
+                "图片样式",
+                selection: Binding(
+                    get: { controller.imageStyle.rawValue },
+                    set: { value in
+                        if let style = BookImageStyle(rawValue: value) {
+                            controller.setImageStyle(style)
+                        }
+                    }
+                )
+            ) {
+                ForEach(BookImageStyle.allCases) { style in
+                    Text(style.displayName).tag(style.rawValue)
+                }
             }
         }
     }

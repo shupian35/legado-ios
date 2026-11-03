@@ -244,6 +244,7 @@ public struct Book: Equatable, Hashable {
             if let ttsEngine = object["ttsEngine"]?.textValue { config.ttsEngine = ttsEngine }
             if let splitLongChapter = object["splitLongChapter"]?.boolValue { config.splitLongChapter = splitLongChapter }
             if let readSimulating = object["readSimulating"]?.boolValue { config.readSimulating = readSimulating }
+            if let startDate = object["startDate"]?.textValue { config.startDate = startDate }
             if let startChapter = object["startChapter"]?.intValue { config.startChapter = Int(startChapter) }
             if let dailyChapters = object["dailyChapters"]?.intValue { config.dailyChapters = Int(dailyChapters) }
             return config
@@ -259,6 +260,7 @@ public struct Book: Equatable, Hashable {
             if let ttsEngine = newValue.ttsEngine { object["ttsEngine"] = .string(ttsEngine) }
             object["splitLongChapter"] = .bool(newValue.splitLongChapter)
             object["readSimulating"] = .bool(newValue.readSimulating)
+            if let startDate = newValue.startDate { object["startDate"] = .string(startDate) }
             if let startChapter = newValue.startChapter { object["startChapter"] = .number(Double(startChapter)) }
             object["dailyChapters"] = .number(Double(newValue.dailyChapters))
             readConfig = JSONValue.object(object).jsonString
@@ -330,6 +332,28 @@ public struct Book: Equatable, Hashable {
             config.reSegment = newValue
             readConfigBox = config
         }
+    }
+
+    /// Whether the given tag is removed from the content — upstream
+    /// `Book.getDelTag(tag)`.
+    public func hasDelTag(_ tag: Int64) -> Bool {
+        readConfigBox.delTag & tag == tag
+    }
+
+    /// The bit mask of the removed tags with `tag` added — upstream
+    /// `Book.addDelTag(tag)`.
+    ///
+    /// The upstream writes `config.delTag = config.delTag and tag`, which can
+    /// never switch a tag on (the mask starts at zero). The port uses the
+    /// intended `or` so that the feature works; see the parity matrix.
+    public func addingDelTag(_ tag: Int64) -> Int64 {
+        readConfigBox.delTag | tag
+    }
+
+    /// The bit mask of the removed tags with `tag` cleared — upstream
+    /// `Book.removeDelTag(tag)`.
+    public func removingDelTag(_ tag: Int64) -> Int64 {
+        readConfigBox.delTag & ~tag
     }
 
     public init(
@@ -841,6 +865,92 @@ public struct ReadRecord: Equatable {
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
         return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(lastRead) / 1000))
     }
+}
+
+// MARK: - The simulated reading
+
+extension Book {
+
+    /// The date format of the simulation — upstream
+    /// `DateTimeFormatter.ofPattern("yyyy-MM-dd")`.
+    static let simulationDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
+        return formatter
+    }()
+
+    /// Whether the reading progress is simulated — upstream
+    /// `Book.readSimulating()`.
+    public func readSimulating() -> Bool {
+        readConfigBox.readSimulating
+    }
+
+    /// The number of chapters that are unlocked today — upstream
+    /// `Book.simulatedTotalChapterNum()`.
+    ///
+    /// With the simulation on, the chapters unlock day by day
+    /// (`startChapter` + the days since `startDate` × `dailyChapters`); the
+    /// result never exceeds the real number of chapters.
+    public func simulatedTotalChapterNum(now: Date = Date()) -> Int64 {
+        guard readSimulating() else { return totalChapterNum }
+        let config = readConfigBox
+        let daysPassed = daysSinceStart(config.startDate, now: now) + 1
+        let unlocked = Int64(config.startChapter ?? 0) + Int64(daysPassed * config.dailyChapters)
+        return min(totalChapterNum, max(0, unlocked))
+    }
+
+    /// The number of chapters that are not read yet — upstream
+    /// `Book.getUnreadChapterNum()`.
+    public func unreadChapterNum(now: Date = Date()) -> Int64 {
+        max(simulatedTotalChapterNum(now: now) - durChapterIndex - 1, 0)
+    }
+
+    /// The number of days between the start date of the simulation and today
+    /// — upstream `between(config.startDate, currentDate).days`.
+    private func daysSinceStart(_ startDate: String?, now: Date) -> Int {
+        guard let startDate, let date = Book.simulationDateFormatter.date(from: startDate) else { return 0 }
+        let calendar = Calendar(identifier: .gregorian)
+        let from = calendar.startOfDay(for: date)
+        let to = calendar.startOfDay(for: now)
+        return calendar.dateComponents([.day], from: from, to: to).day ?? 0
+    }
+}
+
+/// The tags that can be removed from the content of a book — upstream
+/// `Book.hTag` and `Book.rubyTag`.
+public enum BookTag: Int64, CaseIterable, Sendable {
+    /// The `<h>` heading tag.
+    case hTag = 2
+    /// The `<ruby>` annotation tag.
+    case rubyTag = 4
+
+    /// The name shown in the UI.
+    public var displayName: String {
+        switch self {
+        case .hTag: return "h标签"
+        case .rubyTag: return "ruby标签"
+        }
+    }
+}
+
+/// The image display style of a comic — upstream `Book.imgStyleDefault`,
+/// `Book.imgStyleFull`, `Book.imgStyleText` and `Book.imgStyleSingle`.
+public enum BookImageStyle: String, CaseIterable, Sendable, Identifiable {
+    /// The default style — the images are scaled to the page.
+    case standard = "DEFAULT"
+    /// The images fill the whole page.
+    case full = "FULL"
+    /// The images are shown as text (no image rendering).
+    case text = "TEXT"
+    /// One image per page.
+    case single = "SINGLE"
+
+    public var id: String { rawValue }
+
+    /// The name shown in the UI — the upstream shows the raw value.
+    public var displayName: String { rawValue }
 }
 
 /// One category of the explore list of a source — upstream

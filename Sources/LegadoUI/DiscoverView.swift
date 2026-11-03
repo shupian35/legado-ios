@@ -2,11 +2,12 @@
 //  DiscoverView.swift
 //  LegadoUI
 //
-//  The discovery tab — upstream `ui/main/discover/`.
+//  The discovery tab — upstream `ui/main/explore/`.
 //
-//  It lists the book sources, their explore categories and the books of the
-//  selected category, and it offers the search (upstream
-//  `ui/book/search/BookSearchActivity`).
+//  It lists the book sources that have an exploration rule, their explore
+//  categories and the books of the selected category. A long press on a
+//  source opens the menu of the upstream `res/menu/explore_item.xml`
+//  (编辑 / 置顶 / 登录 / 搜索 / 刷新 / 删除).
 //
 //  See `AppModel.swift` for the state.
 //
@@ -19,17 +20,41 @@ import LegadoUIShim
 
 import LegadoCore
 
-/// The discovery tab.
+/// The discovery tab — upstream `ui/main/explore/ExploreFragment`.
 public struct DiscoverView: View {
 
     @ObservedObject var model: LegadoAppModel
 
+    /// The source whose categories are shown.
     @State private var selectedSource: BookSource?
+    /// The categories of the selected source — upstream `ExploreKind`.
     @State private var categories: [ExploreCategory] = []
+    /// The selected category — upstream `ExploreShowViewModel.exploreUrl`.
+    @State private var selectedCategory: ExploreCategory?
+    /// The books of the selected category.
     @State private var results: [SearchBook] = []
     @State private var isLoading = false
+    /// The search screen — upstream `ui/book/search/SearchActivity`.
     @State private var isSearchPresented = false
+    /// The keyword of the search.
     @State private var keyword: String = ""
+    /// The filter of the sources — upstream `ExploreFragment` has no filter,
+    /// but the sources can be many; the port adds one.
+    @State private var sourceFilter: String = ""
+    /// The group of the sources — upstream `ExploreFragment` groups the
+    /// sources by their `bookSourceGroup`.
+    @State private var groupFilter: String = ""
+    /// The page of the explore — upstream `ExploreShowViewModel.page`.
+    @State private var page = 1
+    /// Whether the explore has more pages.
+    @State private var hasMore = false
+    /// The keys of the books on the shelf — upstream
+    /// `ExploreShowViewModel.isInBookShelf`.
+    @State private var shelfKeys: Set<String> = []
+    /// The source editor — upstream `menu_edit`.
+    @State private var editingSource: BookSource?
+    /// Whether the source editor is shown.
+    @State private var isEditorPresented = false
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -38,6 +63,7 @@ public struct DiscoverView: View {
     public var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                sourceFilterBar
                 sourceList
                 categoryList
                 resultList
@@ -53,10 +79,18 @@ public struct DiscoverView: View {
             .sheet(isPresented: $isSearchPresented) {
                 SearchView(model: model, keyword: keyword, source: selectedSource)
             }
+            .sheet(isPresented: $isEditorPresented) {
+                if let editingSource {
+                    NavigationStack {
+                        SourceEditorView(model: model, source: editingSource)
+                    }
+                }
+            }
             .onAppear {
                 model.reloadSources()
+                reloadShelfKeys()
                 if selectedSource == nil {
-                    selectedSource = model.sources.first
+                    selectedSource = filteredSources.first
                     loadCategories()
                 }
             }
@@ -65,14 +99,55 @@ public struct DiscoverView: View {
 
     // MARK: - Parts
 
+    /// The filter of the sources and the groups.
+    private var sourceFilterBar: some View {
+        VStack(spacing: 6) {
+            TextField("搜索书源", text: $sourceFilter)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+            if !allGroups.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        groupChip(name: "", title: "全部")
+                        ForEach(allGroups, id: \.self) { group in
+                            groupChip(name: group, title: group)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private func groupChip(name: String, title: String) -> some View {
+        Button {
+            groupFilter = name
+        } label: {
+            Text(title)
+                .font(.system(size: 13))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(
+                    groupFilter == name
+                        ? Color.accentColor.opacity(0.2)
+                        : Color.gray.opacity(0.12)
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    /// The sources — upstream `ExploreFragment` shows the sources that have
+    /// an exploration rule.
     private var sourceList: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(model.sources, id: \.bookSourceUrl) { source in
+                ForEach(filteredSources, id: \.bookSourceUrl) { source in
                     Button {
                         selectedSource = source
                         loadCategories()
                         results = []
+                        page = 1
+                        hasMore = false
                     } label: {
                         Text(source.bookSourceName)
                             .font(.system(size: 14))
@@ -85,6 +160,34 @@ public struct DiscoverView: View {
                             )
                     }
                     .buttonStyle(PlainButtonStyle())
+                    // Upstream `res/menu/explore_item.xml` — the menu of a
+                    // source.
+                    .contextMenu {
+                        Button("编辑") {
+                            editingSource = source
+                            isEditorPresented = true
+                        }
+                        Button("置顶") {
+                            model.topSources([source])
+                        }
+                        if !(source.loginUrl ?? "").isEmpty {
+                            Button("登录") {
+                                model.presentLogin(for: source)
+                            }
+                        }
+                        Button("搜索") {
+                            keyword = ""
+                            isSearchPresented = true
+                        }
+                        Button("刷新") {
+                            // Upstream `menu_refresh` — the categories are
+                            // read again.
+                            loadCategories()
+                        }
+                        Button("删除") {
+                            model.deleteSource(source)
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 12)
@@ -118,29 +221,104 @@ public struct DiscoverView: View {
 
     @ViewBuilder
     private var resultList: some View {
-        if isLoading {
+        if isLoading && results.isEmpty {
             ProgressView("加载中")
         } else if results.isEmpty {
             EmptyState(text: "没有内容")
         } else {
-            List(results, id: \.bookUrl) { book in
-                Button {
-                    open(book)
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(book.name)
-                            .font(.system(size: 16))
-                            .lineLimit(1)
-                        Text(book.author)
-                            .font(.system(size: 13))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
+            List {
+                ForEach(results, id: \.bookUrl) { book in
+                    NavigationLink {
+                        // Upstream `ExploreShowActivity` opens the detail page of
+                        // the book.
+                        BookDetailView(model: model, book: book.toBook())
+                    } label: {
+                        resultRow(book)
                     }
                 }
-                .buttonStyle(PlainButtonStyle())
+                if hasMore {
+                    HStack {
+                        Spacer(minLength: 0)
+                        Button("加载更多") {
+                            loadMore()
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 8)
+                }
             }
             .listStyle(PlainListStyle())
         }
+    }
+
+    /// A result of the explore — upstream `ExploreShowAdapter`.
+    private func resultRow(_ book: SearchBook) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(book.name)
+                    .font(.system(size: 16))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                // Upstream `ExploreShowViewModel.isInBookShelf`.
+                if isInShelf(book) {
+                    Text("已在书架")
+                        .font(.system(size: 11))
+                        .foregroundColor(.accentColor)
+                }
+            }
+            Text(book.author)
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+            if let intro = book.intro, !intro.isEmpty {
+                Text(intro)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .lineLimit(3)
+            }
+        }
+    }
+
+    // MARK: - The data
+
+    /// The sources of the list — the enabled ones that have an exploration
+    /// rule, filtered by the search text and the group.
+    private var filteredSources: [BookSource] {
+        let key = sourceFilter.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let all = model.sources
+            .filter { !($0.exploreUrl ?? "").isEmpty }
+            .sorted { $0.customOrder < $1.customOrder }
+        let grouped = groupFilter.isEmpty
+            ? all
+            : all.filter { $0.groups.contains(groupFilter) }
+        guard !key.isEmpty else { return grouped }
+        return grouped.filter { source in
+            source.bookSourceName.lowercased().contains(key)
+                || source.bookSourceUrl.lowercased().contains(key)
+        }
+    }
+
+    /// The groups of the sources — upstream `BookSource.bookSourceGroup`.
+    private var allGroups: [String] {
+        var names: [String] = []
+        for source in model.sources {
+            for group in source.groups where !names.contains(group) {
+                names.append(group)
+            }
+        }
+        return names.sorted()
+    }
+
+    /// Whether the book is on the shelf — upstream
+    /// `ExploreShowViewModel.isInBookShelf`.
+    private func isInShelf(_ book: SearchBook) -> Bool {
+        let key = book.author.isEmpty ? book.name : "\(book.name)-\(book.author)"
+        return shelfKeys.contains(key) || shelfKeys.contains(book.bookUrl)
+    }
+
+    private func reloadShelfKeys() {
+        shelfKeys = model.shelfBookKeys()
     }
 
     // MARK: - Actions
@@ -149,100 +327,45 @@ public struct DiscoverView: View {
         categories = selectedSource.map { model.environment.exploreCategories(source: $0) } ?? []
     }
 
+    /// Loads a category — upstream `ExploreShowViewModel.explore`.
     private func load(category: ExploreCategory) {
         guard let source = selectedSource else { return }
         isLoading = true
+        page = 1
+        selectedCategory = category
         Task {
             do {
                 results = try await model.environment.explore(source: source, url: category.url)
+                page = 2
+                hasMore = !results.isEmpty
             } catch {
                 model.errorMessage = error.localizedDescription
                 results = []
+                hasMore = false
             }
             isLoading = false
         }
     }
 
-    private func open(_ searchBook: SearchBook) {
-        guard let source = selectedSource else { return }
-        var book = searchBook.toBook()
-        book.origin = source.bookSourceUrl
-        do {
-            try model.environment.saveToShelf(book)
-            model.reloadBookshelf()
-        } catch {
-            model.errorMessage = error.localizedDescription
-        }
-    }
-}
-
-/// The search screen — upstream `ui/book/search/BookSearchActivity`.
-public struct SearchView: View {
-
-    @ObservedObject var model: LegadoAppModel
-    @State var keyword: String
-    @State var source: BookSource?
-    @State private var results: [SearchBook] = []
-    @State private var isLoading = false
-
-    public init(model: LegadoAppModel, keyword: String, source: BookSource?) {
-        self.model = model
-        self._keyword = State(initialValue: keyword)
-        self._source = State(initialValue: source)
-    }
-
-    public var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                HStack(spacing: 8) {
-                    TextField("书名或作者", text: $keyword)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                    Button("搜索") {
-                        search()
-                    }
-                }
-                .padding(12)
-                if isLoading {
-                    ProgressView("搜索中")
-                } else if results.isEmpty {
-                    EmptyState(text: "没有结果")
-                } else {
-                    List(results, id: \.bookUrl) { book in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(book.name)
-                                .font(.system(size: 16))
-                            Text(book.author)
-                                .font(.system(size: 13))
-                                .foregroundColor(.secondary)
-                            if let intro = book.intro, !intro.isEmpty {
-                                Text(intro)
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(3)
-                            }
-                        }
-                    }
-                    .listStyle(PlainListStyle())
-                }
-            }
-            .navigationTitle("搜索")
-            .onAppear {
-                if source == nil {
-                    source = model.sources.first
-                }
-            }
-        }
-    }
-
-    private func search() {
-        guard let source, !keyword.isEmpty else { return }
+    /// Loads the next page — upstream `ExploreShowViewModel.explore` (the page
+    /// is incremented after every page).
+    private func loadMore() {
+        guard !isLoading, hasMore, let source = selectedSource, let category = selectedCategory else { return }
         isLoading = true
+        let current = page
         Task {
             do {
-                results = try await model.environment.search(source: source, keyword: keyword)
+                let found = try await model.environment.explore(
+                    source: source,
+                    url: category.url,
+                    page: current
+                )
+                results.append(contentsOf: found)
+                page = current + 1
+                hasMore = !found.isEmpty
             } catch {
                 model.errorMessage = error.localizedDescription
-                results = []
+                hasMore = false
             }
             isLoading = false
         }

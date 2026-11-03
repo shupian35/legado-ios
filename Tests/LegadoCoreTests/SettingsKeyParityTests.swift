@@ -199,6 +199,26 @@ final class SettingsKeyParityTests: XCTestCase {
         "welcomeShowIconDark",
         "welcomeShowText",
         "welcomeShowTextDark",
+        // The upstream preferences that are read with their raw key instead of
+        // a `PreferKey` constant:
+        // `MoreConfigDialog.kt`, `ReadAloudConfigDialog.kt`,
+        // `ThemeConfigFragment.kt`, `CoverConfigFragment.kt`,
+        // `BackupConfigFragment.kt`, `AppConfig.kt`, `MediaButtonReceiver.kt`
+        // and `BaseReadAloudService.kt`.
+        "clickRegionalConfig",
+        "coverConfig",
+        "coverRule",
+        "customPageKey",
+        "disableReturnKey",
+        "import_old",
+        "mediaButtonOnExit",
+        "mediaButtonPerNext",
+        "saveDayTheme",
+        "saveNightTheme",
+        "sysTtsConfig",
+        "systemMediaControlCompatibilityChange",
+        "themeList",
+        "welcomeStyle",
     ]
 
     func testEveryUpstreamPreferenceIsRepresented() {

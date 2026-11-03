@@ -105,6 +105,8 @@ extension View {
     public func help(_ text: String) -> some View { ModifiedView(self) }
     public func accessibilityLabel(_ label: String) -> some View { ModifiedView(self) }
     public func accessibilityIdentifier(_ identifier: String) -> some View { ModifiedView(self) }
+    /// The context menu of a view — the real SwiftUI offers it since iOS 13.
+    public func contextMenu<Items: View>(@ViewBuilder menuItems: () -> Items) -> some View { ModifiedView(self) }
 
     // MARK: - Life cycle
 

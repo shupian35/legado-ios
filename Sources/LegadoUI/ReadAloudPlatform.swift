@@ -381,10 +381,41 @@ public final class ReadAloudService: ObservableObject {
     /// Stops the speech.
     public func stop() {
         controller.stop()
+        cancelTimer()
         #if canImport(AVFoundation)
         speechEngine?.stop()
         audioPlayer.stop()
         #endif
+    }
+
+    /// The auto-stop timer in minutes — upstream `ReadAloud.setTimer`.
+    ///
+    /// `0` disables the timer.
+    public private(set) var timerMinutes: Int = 0
+
+    /// The task of the auto-stop timer.
+    private var timerTask: Task<Void, Never>?
+
+    /// Starts (or cancels) the auto-stop timer — upstream
+    /// `ReadAloud.setTimer(context, minutes)`.
+    ///
+    /// The speech stops when the timer expires.
+    public func startTimer(minutes: Int) {
+        timerMinutes = max(0, minutes)
+        cancelTimer()
+        guard timerMinutes > 0 else { return }
+        let seconds = timerMinutes * 60
+        timerTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.stop()
+        }
+    }
+
+    /// Cancels the auto-stop timer.
+    public func cancelTimer() {
+        timerTask?.cancel()
+        timerTask = nil
     }
 
     /// Moves to the next paragraph.
