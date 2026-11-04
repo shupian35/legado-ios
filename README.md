@@ -19,7 +19,7 @@ its state (`[x]` done, `[~]` partial, `[ ]` not started), followed by the
 deliberate deviations. The plain-language summary — **what is done and what is
 not** — is [`Plan/01-feature-status.md`](Plan/01-feature-status.md).
 
-The port is ~70,833 lines of Swift in 263 files, with ~15,666 lines of tests
+The port is ~71,940 lines of Swift in 265 files, with ~15,666 lines of tests
 (1,261 unit tests: 1,181 in `LegadoCoreTests`, 80 in `LegadoServerTests`) next to them.
 
 ## What is in here
@@ -187,17 +187,17 @@ A **second wave** of four fresh audits (2026-11-04, the reports in
 `Plan/audits/`) re-walked the same four areas and found ≈130 items the first
 wave had missed — the in-app file browser of the local import, the manga's
 horizontal scroll and zoom, the RSS favourites editor, the search row's
-labels, the tip colour pickers, … They are listed in **§8.7** of the matrix
-and were the current work list; the reader, the manga, the local import, the
-RSS and the discover + search rows are closed there now, and the bookshelf + TOC
-and the settings + sources rows are mostly closed (the remaining items are the
-import URL history, the source editor's help actions and a few interaction
-details).
+labels, the tip colour pickers, … They are listed in **§8.7** of the matrix.
+**That wave is closed now (2026-11-05)**: every row names the file that
+closes it, and the only thing left is the adult-domain list that the upstream
+refuses to import (a deliberate deviation).
 
 [`Plan/01-feature-status.md`](Plan/01-feature-status.md) turns all of that
 into a plain list: **what works today**, **what works but differs from the
-upstream**, **what is still missing** (≈30 items, ranked P0/P1/P2) and **what
-is deliberately not ported** (the Android-only abilities).
+upstream**, **what is still missing** (nothing that the upstream has — the
+remaining entries were either closed or checked against the upstream and
+found not to be upstream features) and **what is deliberately not ported**
+(the Android-only abilities).
 
 ## The security differences from the Android app
 

@@ -28,6 +28,9 @@ public struct SourceEditorView: View {
     @State private var message: String = ""
     @State private var isChecking = false
     @State private var isHelpPresented = false
+    /// The URL field that is being edited — the upstream inserts the URL
+    /// option into the focused field.
+    @State private var urlOptionTarget: UrlOptionTarget = .search
     /// The upstream `viewModel.autoComplete` — the rule completion is on.
     @State private var autoComplete = false
     @State private var isDebugPresented = false
@@ -57,6 +60,13 @@ public struct SourceEditorView: View {
 
     /// Closes the editor — the upstream's `finish()`.
     private let onClose: (() -> Void)?
+
+    /// The URL field that receives the URL option.
+    enum UrlOptionTarget {
+        case search
+        case explore
+        case login
+    }
 
     /// Whether the edited source differs from the original one — upstream
     /// `!source.equal(viewModel.bookSource ?: BookSource())`.
@@ -151,7 +161,10 @@ public struct SourceEditorView: View {
             Section("登录") {
                 TextField("登录脚本", text: Binding(
                     get: { source.loginUrl ?? "" },
-                    set: { source.loginUrl = $0.isEmpty ? nil : $0 }
+                    set: {
+                        urlOptionTarget = .login
+                        source.loginUrl = $0.isEmpty ? nil : $0
+                    }
                 ))
                 TextField("登录界面", text: Binding(
                     get: { source.loginUi ?? "" },
@@ -169,7 +182,10 @@ public struct SourceEditorView: View {
             Section("搜索") {
                 TextField("搜索地址", text: Binding(
                     get: { source.searchUrl ?? "" },
-                    set: { source.searchUrl = $0.isEmpty ? nil : $0 }
+                    set: {
+                        urlOptionTarget = .search
+                        source.searchUrl = $0.isEmpty ? nil : $0
+                    }
                 ))
                 RuleTextField(title: "搜索规则", value: ruleBinding(\.ruleSearch, kind: .search))
             }
@@ -177,7 +193,10 @@ public struct SourceEditorView: View {
             Section("发现") {
                 TextField("发现地址", text: Binding(
                     get: { source.exploreUrl ?? "" },
-                    set: { source.exploreUrl = $0.isEmpty ? nil : $0 }
+                    set: {
+                        urlOptionTarget = .explore
+                        source.exploreUrl = $0.isEmpty ? nil : $0
+                    }
                 ))
                 RuleTextField(title: "发现规则", value: ruleBinding(\.ruleExplore, kind: .explore))
             }
@@ -268,7 +287,9 @@ public struct SourceEditorView: View {
                         isSharePresented = true
                     }
                     NavigationLink("帮助") {
-                        RuleHelpView()
+                        SourceEditorHelpView { json in
+                            insertUrlOption(json)
+                        }
                     }
                 }
             }
@@ -362,6 +383,24 @@ public struct SourceEditorView: View {
     /// The source as a JSON document — the upstream `GSON.toJson(getSource())`.
     private var sourceJSON: String {
         BookSourceJSONBridge.encode(source).jsonString
+    }
+
+    /// Inserts the JSON of a URL option into the field that is being edited —
+    /// the upstream `BookSourceEditActivity.onHelpActionSelect` inserts it into
+    /// the focused field.
+    private func insertUrlOption(_ json: String) {
+        guard !json.isEmpty else { return }
+        var updated = source
+        switch urlOptionTarget {
+        case .search:
+            updated.searchUrl = json
+        case .explore:
+            updated.exploreUrl = json
+        case .login:
+            updated.loginUrl = json
+        }
+        source = updated
+        message = "已插入 URL 参数"
     }
 
     /// Pastes a source from the clipboard — upstream `viewModel.pasteSource`.

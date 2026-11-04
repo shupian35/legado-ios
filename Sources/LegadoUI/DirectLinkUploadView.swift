@@ -37,6 +37,9 @@ public struct DirectLinkUploadConfigView: View {
     @State private var message: String?
     @State private var isTesting = false
     @State private var isDefaultPickerPresented = false
+    /// The result of the test upload — the upstream shows it in an alert.
+    @State private var testResult: String?
+    @State private var isTestResultPresented = false
 
     public init(model: LegadoAppModel, onSave: ((DirectLinkUploadRule) -> Void)? = nil) {
         self.model = model
@@ -73,6 +76,19 @@ public struct DirectLinkUploadConfigView: View {
                 }
             }
             .navigationTitle("直链上传")
+            .alert("result", isPresented: $isTestResultPresented, actions: {
+                Button("好") {
+                    isTestResultPresented = false
+                }
+                Button("复制文本") {
+                    if let testResult {
+                        UIPasteboardShim.copy(testResult)
+                    }
+                    isTestResultPresented = false
+                }
+            }, message: {
+                Text(testResult ?? "")
+            })
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button("确定") {
@@ -223,9 +239,12 @@ public struct DirectLinkUploadConfigView: View {
                     rule: rule,
                     dependencies: model.environment.dependencies()
                 )
-                message = url
+                // The upstream shows the result in an alert with a copy button.
+                testResult = url
+                isTestResultPresented = true
             } catch {
-                message = error.localizedDescription
+                testResult = error.localizedDescription
+                isTestResultPresented = true
             }
             isTesting = false
         }

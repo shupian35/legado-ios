@@ -1,0 +1,952 @@
+//
+//  SourceEditorHelp.swift
+//  LegadoUI
+//
+//  The help documents of the source editor.
+//
+//  Upstream:
+//  app/src/main/java/io/legado/app/ui/book/source/edit/BookSourceEditActivity.kt:587-624
+//  app/src/main/java/io/legado/app/ui/widget/dialog/UrlOptionDialog.kt
+//  app/src/main/assets/web/help/md/ruleHelp.md
+//  app/src/main/assets/web/help/md/jsHelp.md
+//  app/src/main/assets/web/help/md/regexHelp.md
+//
+
+#if canImport(SwiftUI)
+import SwiftUI
+#else
+import LegadoUIShim
+#endif
+
+import LegadoCore
+
+/// The help documents of the source editor — upstream
+/// `BookSourceEditActivity.helpActions()`.
+public enum SourceEditorHelp {
+
+    /// The rule syntax reference — upstream `assets/web/help/md/ruleHelp.md`.
+    public static let ruleHelp =         """
+        # 源规则帮助
+
+        * [阅读3.0(Legado)规则说明](https://mgz0227.github.io/The-tutorial-of-Legado/)
+        * [书源帮助文档](https://mgz0227.github.io/The-tutorial-of-Legado/Rule/source.html)
+        * [订阅源帮助文档](https://mgz0227.github.io/The-tutorial-of-Legado/Rule/rss.html)
+        * 辅助键盘❓中可插入URL参数模板,打开帮助,js教程,正则教程,选择文件
+        * 规则标志, {{......}}内使用规则必须有明显的规则标志,没有规则标志当作js执行
+        ```
+        @@ 默认规则,直接写时可以省略@@
+        @XPath: xpath规则,直接写时以//开头可省略@XPath
+        @Json: json规则,直接写时以$.开头可省略@Json
+        : regex规则,不可省略,只可以用在书籍列表和目录列表
+        ```
+        * jsLib
+        > 注入JavaScript到RhinoJs引擎中，支持两种格式，可实现[函数共用](https://github.com/gedoor/legado/wiki/JavaScript%E5%87%BD%E6%95%B0%E5%85%B1%E7%94%A8)
+
+        > `JavaScript Code` 直接填写JavaScript片段  
+        > `{"example":"https://www.example.com/js/example.js", ...}` 自动复用已经下载的js文件
+
+        > 注意此处定义的函数可能会被多个线程同时调用，在函数里的全局变量内容将会共享使用，对其进行修改可能会出现竞争问题
+        > 函数内不可声明全局变量，函数外的全局变量不可再赋值，否则会抛出 `无法修改密封对象的属性` 异常
+
+        * 并发率
+        > 并发限制，单位ms，可填写两种格式
+
+        > `1000` 访问间隔1s  
+        > `20/60000` 60s内访问次数20  
+
+        * 书源类型: 文件
+        > 对于类似知轩藏书提供文件整合下载的网站，可以在书源详情的下载URL规则获取文件链接
+
+        > 通过截取下载链接或文件响应头头获取文件信息，获取失败会自动拼接`书名` `作者`和下载链接的`UrlOption`的`type`字段
+
+        > 压缩文件解压缓存会在下次启动后自动清理，不会占用额外空间  
+
+        * CookieJar
+        > 启用后会自动保存每次返回头中的Set-Cookie中的值，适用于验证码图片一类需要session的网站
+
+        * 登录UI
+        > 不使用内置webView登录网站，需要使用`登录URL`规则实现登录逻辑，可使用`登录检查JS`检查登录结果  
+        > 版本20221113重要更改：按钮支持调用`登录URL`规则里面的函数，必须实现`login`函数
+        ```
+        规则填写示范
+        [
+            {
+                "name": "telephone",
+                "type": "text"
+            },
+            {
+                "name": "password",
+                "type": "password"
+            },
+            {
+                "name": "注册",
+                "type": "button",
+                "action": "http://www.yooike.com/xiaoshuo/#/register?title=%E6%B3%A8%E5%86%8C"
+            },
+            {
+                "name": "获取验证码",
+                "type": "button",
+                "action": "getVerificationCode()",
+                "style": {
+                    "layout_flexGrow": 0,
+                    "layout_flexShrink": 1,
+                    "layout_alignSelf": "auto",
+                    "layout_flexBasisPercent": -1,
+                    "layout_wrapBefore": false
+                }
+            }
+        ]
+        ```
+        * 登录URL
+        > 可填写登录链接或者实现登录UI的登录逻辑的JavaScript
+        ```
+        示范填写
+        function login() {
+            java.log("模拟登录请求");
+            java.log(source.getLoginInfoMap());
+        }
+        function getVerificationCode() {
+            java.log("登录UI按钮：获取到手机号码"+result.get("telephone"))
+        }
+
+        登录按钮函数获取登录信息
+        result.get("telephone")
+        login函数获取登录信息
+        source.getLoginInfo()
+        source.getLoginInfoMap().get("telephone")
+        source登录相关方法,可在js内通过source.调用,可以参考阿里云语音登录
+        login()
+        getHeaderMap(hasLoginHeader: Boolean = false)
+        getLoginHeader(): String?
+        getLoginHeaderMap(): Map<String, String>?
+        putLoginHeader(header: String)
+        removeLoginHeader()
+        setVariable(variable: String?)
+        getVariable(): String?
+        AnalyzeUrl相关函数,js中通过java.调用
+        initUrl() //重新解析url,可以用于登录检测js登录后重新解析url重新访问
+        getHeaderMap().putAll(source.getHeaderMap(true)) //重新设置登录头
+        getStrResponse( jsStr: String? = null, sourceRegex: String? = null) //返回访问结果,文本类型,书源内部重新登录后可调用此方法重新返回结果
+        getResponse(): Response //返回访问结果,网络朗读引擎采用的是这个,调用登录后在调用这方法可以重新访问,参考阿里云登录检测
+        ```
+
+        * 发现url格式
+        ```json
+        [
+          {
+            "title": "xxx",
+            "url": "",
+            "style": {
+              "layout_flexGrow": 0,
+              "layout_flexShrink": 1,
+              "layout_alignSelf": "auto",
+              "layout_flexBasisPercent": -1,
+              "layout_wrapBefore": false
+            }
+          }
+        ]
+        ```
+
+        * 请求头,支持http代理,socks4 socks5代理设置
+        > 注意请求头的key是区分大小写的  
+        > 正确格式 User-Agent Referer  
+        > 错误格式 user-agent referer
+        ```
+        socks5代理
+        {
+          "proxy":"socks5://127.0.0.1:1080"
+        }
+        不支持需要验证的socks代理
+        http代理
+        {
+          "proxy":"http://127.0.0.1:1080"
+        }
+        支持http代理服务器验证
+        {
+          "proxy":"http://127.0.0.1:1080@用户名@密码"
+        }
+        注意:这些请求头是无意义的,会被忽略掉
+        ```
+
+        * url添加js参数,解析url时执行,可在访问url时处理url,例
+        ```
+        https://www.baidu.com,{"js":"java.headerMap.put('xxx', 'yyy')"}
+        https://www.baidu.com,{"js":"java.url=java.url+'yyyy'"}
+        ```
+
+        * 增加js方法，用于重定向拦截
+          * `java.get(urlStr: String, headers: Map<String, String>)`
+          * `java.post(urlStr: String, body: String, headers: Map<String, String>)`
+        * 对于搜索重定向的源，可以使用此方法获得重定向后的url
+        ```
+        (()=>{
+          if(page==1){
+            let url='https://www.yooread.net/e/search/index.php,'+JSON.stringify({
+            "method":"POST",
+            "body":"show=title&tempid=1&keyboard="+key
+            });
+            return source.put('surl',String(java.connect(url).raw().request().url()));
+          } else {
+            return source.get('surl')+'&page='+(page-1)
+          }
+        })()
+        或者
+        (()=>{
+          let base='https://www.yooread.net/e/search/';
+          if(page==1){
+            let url=base+'index.php';
+            let body='show=title&tempid=1&keyboard='+key;
+            return base+source.put('surl',java.post(url,body,{}).header("Location"));
+          } else {
+            return base+source.get('surl')+'&page='+(page-1);
+          }
+        })()
+        ```
+
+        * 图片链接支持修改headers
+        ```
+        let options = {
+        "headers": {"User-Agent": "xxxx","Referrer":baseUrl,"Cookie":"aaa=vbbb;"}
+        };
+        '<img src="'+src+","+JSON.stringify(options)+'">'
+        ```
+
+        * 字体解析使用
+        > 使用方法,在正文替换规则中使用,原理根据f1字体的字形数据到f2中查找字形对应的编码
+        ```
+        <js>
+        (function(){
+          var b64=String(src).match(/ttf;base64,([^\\)]+)/);
+          if(b64){
+            var f1 = java.queryTTF(b64[1]);
+            var f2 = java.queryTTF("https://alanskycn.gitee.io/teachme/assets/font/Source Han Sans CN Regular.ttf");
+            // return java.replaceFont(result, f1, f2);
+            return java.replaceFont(result, f1, f2, true); // 过滤掉f1中不存在的字形
+          }
+          return result;
+        })()
+        </js>
+        ```
+
+        * 购买操作
+        > 可直接填写链接或者JavaScript，如果执行结果是网络链接将会自动打开浏览器,js返回true自动刷新目录和当前章节
+
+        * 图片解密
+        > 适用于图片需要二次解密的情况，直接填写JavaScript，返回解密后的`ByteArray`  
+        > 部分变量说明：java（仅支持[js扩展类](https://github.com/gedoor/legado/blob/master/app/src/main/java/io/legado/app/help/JsExtensions.kt)），result为待解密图片的`ByteArray`，src为图片链接
+
+        ```js
+        java.createSymmetricCrypto("AES/CBC/PKCS5Padding", key, iv).decrypt(result)
+        ```
+
+        ```js
+        function decodeImage(data, key) {
+          var input = new Packages.java.io.ByteArrayInputStream(data)
+          var out = new Packages.java.io.ByteArrayOutputStream()
+          var byte
+          while ((byte = input.read()) != -1) {
+            out.write(byte ^ key)
+          }
+          return out.toByteArray()
+        }
+
+        decodeImage(result, key)
+        ```
+
+        * 封面解密
+        > 同图片解密 其中result为待解密封面的`inputStream`
+
+        ```js
+        java.createSymmetricCrypto("AES/CBC/PKCS5Padding", key, iv).decrypt(result)
+        ```
+
+        ```js
+        function decodeImage(data, key) {
+          var out = new Packages.java.io.ByteArrayOutputStream()
+          var byte
+          while ((byte = data.read()) != -1) {
+            out.write(byte ^ key)
+          }
+          return out.toByteArray()
+        }
+
+        decodeImage(result, key)
+        ```
+
+        """
+
+    /// The JavaScript tutorial — upstream `assets/web/help/md/jsHelp.md`.
+    public static let jsHelp =         """
+        # js变量和函数
+        > 阅读使用[Rhino v1.8.0](https://github.com/mozilla/rhino) 作为JavaScript引擎以便于[调用Java类和方法](https://m.jb51.net/article/92138.htm)，查看[ECMAScript兼容性表格](https://mozilla.github.io/rhino/compat/engines.html)
+
+        > [Rhino运行时](https://github.com/mozilla/rhino/blob/master/rhino/src/main/java/org/mozilla/javascript/ScriptRuntime.java)懒加载导入的Java类和方法
+
+        |构造函数|函数|对象|调用类|简要说明|
+        |------|-----|------|----|------|
+        |JavaImporter|importClass importPackage| |[ImporterTopLevel](https://github.com/mozilla/rhino/blob/master/rhino/src/main/java/org/mozilla/javascript/ImporterTopLevel.java)|导入Java类到JavaScript|
+        ||getClass|Packages java javax ...|[NativeJavaTopPackage](https://github.com/mozilla/rhino/blob/master/rhino/src/main/java/org/mozilla/javascript/NativeJavaTopPackage.java)|默认导入JavaScript中的Java类|
+        |JavaAdapter|||[JavaAdapter](https://github.com/mozilla/rhino/blob/master/rhino/src/main/java//org/mozilla/javascript/JavaAdapter.java)|继承Java类|
+
+        > 注意`java`变量指向已经被阅读修改，如果想要调用`java.*`下的包，请使用`Packages.java.*`
+
+        > 在书源规则中使用`@js` `<js>` `{{}}`可使用JavaScript调用阅读部分内置的类和方法
+
+        > 注意为了安全，阅读会屏蔽部分java类调用，见[RhinoClassShutter](https://github.com/gedoor/legado/blob/master/modules/rhino/src/main/java/com/script/rhino/RhinoClassShutter.kt)
+
+        > 不同的书源规则中支持的调用的Java类和方法可能有所不同
+
+        > 注意使用 `const` 声明的变量不支持块级作用域，在循环里使用会出现值不变的问题，请改用 `var` 声明
+
+        |变量名|调用类|
+        |------|-----|
+        |java|当前类|
+        |baseUrl|当前url,String  |
+        |result|上一步的结果|
+        |book|[书籍类](https://github.com/gedoor/legado/blob/master/app/src/main/java/io/legado/app/data/entities/Book.kt)|
+        |rssArticle|[Article类](https://github.com/gedoor/legado/blob/master/app/src/main/java/io/legado/app/data/entities/RssArticle.kt)|
+        |chapter|[章节类](https://github.com/gedoor/legado/blob/master/app/src/main/java/io/legado/app/data/entities/BookChapter.kt)|
+        |source|[基础书源类](https://github.com/gedoor/legado/blob/master/app/src/main/java/io/legado/app/data/entities/BaseSource.kt)|
+        |cookie|[cookie操作类](https://github.com/gedoor/legado/blob/master/app/src/main/java/io/legado/app/help/http/CookieStore.kt)| 
+        |cache|[缓存操作类](https://github.com/gedoor/legado/blob/master/app/src/main/java/io/legado/app/help/CacheManager.kt)|
+        |title|章节当前标题 String|
+        |src| 请求返回的源码|
+        |nextChapterUrl|下一章节url|
+
+        ## 当前类对象的可使用的部分方法
+
+        ### [RssJsExtensions](https://github.com/gedoor/legado/blob/master/app/src/main/java/io/legado/app/ui/rss/read/RssJsExtensions.kt)
+        > 只能在订阅源`shouldOverrideUrlLoading`规则中使用  
+        > 订阅添加跳转url拦截, js, 返回true拦截,js变量url,可以通过js打开url  
+        > url跳转拦截规则不能执行耗时操作
+        > 例子https://github.com/gedoor/legado/discussions/3259
+
+        * 调用阅读搜索
+
+        ```js
+        java.searchBook(bookName: String)
+        ```
+
+        * 添加书架
+
+        ```js
+        java.addBook(bookUrl: String)
+        ```
+
+        ### [AnalyzeUrl](https://github.com/gedoor/legado/blob/master/app/src/main/java/io/legado/app/model/analyzeRule/AnalyzeUrl.kt) 部分函数
+        > js中通过java.调用,只在`登录检查JS`规则中有效
+        ```js
+        initUrl() //重新解析url,可以用于登录检测js登录后重新解析url重新访问
+        getHeaderMap().putAll(source.getHeaderMap(true)) //重新设置登录头
+        getStrResponse( jsStr: String? = null, sourceRegex: String? = null) //返回访问结果,文本类型,书源内部重新登录后可调用此方法重新返回结果
+        getResponse(): Response //返回访问结果,网络朗读引擎采用的是这个,调用登录后在调用这方法可以重新访问,参考阿里云登录检测
+        ```
+
+        ### [AnalyzeRule](https://github.com/gedoor/legado/blob/master/app/src/main/java/io/legado/app/model/analyzeRule/AnalyzeRule.kt) 部分函数
+        * 获取文本/文本列表
+        > `mContent` 待解析源代码，默认为当前页面  
+        > `isUrl` 链接标识，默认为`false`
+        ```js
+        java.getString(ruleStr: String?, mContent: Any? = null, isUrl: Boolean = false)
+        java.getStringList(ruleStr: String?, mContent: Any? = null, isUrl: Boolean = false)
+        ```
+        * 设置解析内容
+
+        ```js
+        java.setContent(content: Any?, baseUrl: String? = null):
+        ```
+
+        * 获取Element/Element列表
+
+        > 如果要改变解析源代码，请先使用`java.setContent`
+
+        ```js
+        java.getElement(ruleStr: String)
+        java.getElements(ruleStr: String)
+        ```
+
+        * 重新搜索书籍/重新获取目录url
+
+        > 只能在刷新目录之前使用,有些书源书籍地址和目录url会变
+
+        ```js
+        java.reGetBook()
+        java.refreshTocUrl()
+        ```
+        * 变量存取
+
+        ```js
+        java.get(key)
+        java.put(key, value)
+        ```
+
+        ### [js扩展类](https://github.com/gedoor/legado/blob/master/app/src/main/java/io/legado/app/help/JsExtensions.kt) 部分函数
+
+        * 链接解析[JsURL](https://github.com/gedoor/legado/blob/master/app/src/main/java/io/legado/app/utils/JsURL.kt)
+        ```js
+        java.toURL(url): JsURL
+        java.toURL(url, baseUrl): JsURL
+        ```
+        * 获取SystemWebView User-Agent
+        ```js
+        java.getWebViewUA(): String
+        ```
+        * 网络请求
+        ```js
+        java.ajax(urlStr): String
+        java.ajaxAll(urlList: Array<String>): Array<StrResponse>
+        //返回StrResponse 方法body() code() message() headers() raw() toString() 
+        java.connect(urlStr): StrResponse
+
+        java.post(url: String, body: String, headerMap: Map<String, String>): Connection.Response
+
+        java.get(url: String, headerMap: Map<String, String>): Connection.Response
+
+        java.head(url: String, headerMap: Map<String, String>): Connection.Response
+
+        * 使用webView访问网络
+        * @param html 直接用webView载入的html, 如果html为空直接访问url
+        * @param url html内如果有相对路径的资源不传入url访问不了
+        * @param js 用来取返回值的js语句, 没有就返回整个源代码
+        * @return 返回js获取的内容
+        java.webView(html: String?, url: String?, js: String?): String?
+
+        * 使用webView获取跳转url
+        java.webViewGetOverrideUrl(html: String?, url: String?, js: String?, overrideUrlRegex: String): String?
+
+        * 使用webView获取资源url
+        java.webViewGetSource(html: String?, url: String?, js: String?, sourceRegex: String): String?
+
+        * 使用内置浏览器打开链接，可用于获取验证码 手动验证网站防爬
+        * @param url 要打开的链接
+        * @param title 浏览器的标题
+        java.startBrowser(url: String, title: String)
+
+        * 使用内置浏览器打开链接，并等待网页结果 .body()获取网页内容
+        java.startBrowserAwait(url: String, title: String, refetchAfterSuccess: Boolean? = true): StrResponse
+        ```
+        * 调试
+        ```js
+        java.log(msg)
+        java.logType(var)
+        ```
+        * 获取用户输入的验证码
+        ```js
+        java.getVerificationCode(imageUrl)
+        ```
+        * 弹窗提示
+        ```js
+        java.longToast(msg: Any?)
+        java.toast(msg: Any?)
+        ```
+        * 从网络(由java.cacheFile实现)、本地读取JavaScript文件，导入上下文请手动`eval(String(...))`
+        ```js
+        java.importScript(url)
+        //相对路径支持android/data/{package}/cache
+        java.importScript(relativePath)
+        java.importScript(absolutePath)
+        ```
+        * 缓存网络文件
+        ```js
+        获取
+        java.cacheFile(url)
+        java.cacheFile(url,saveTime)
+        执行内容
+        eval(String(java.cacheFile(url)))
+        使缓存失效
+        cache.delete(java.md5Encode16(url))
+        ```
+        * 获取网络压缩文件里面指定路径的数据 *可替换Zip Rar 7Z
+        ```js
+        java.get*StringContent(url: String, path: String): String
+
+        java.get*StringContent(url: String, path: String, charsetName: String): String
+
+        java.get*ByteArrayContent(url: String, path: String): ByteArray?
+
+        ```
+        * URI编码
+        ```js
+        java.encodeURI(str: String) //默认enc="UTF-8"
+        java.encodeURI(str: String, enc: String)
+        ```
+        * base64
+        > flags参数可省略，默认Base64.NO_WRAP，查看[flags参数说明](https://blog.csdn.net/zcmain/article/details/97051870)
+        ```js
+        java.base64Decode(str: String)
+        java.base64Decode(str: String, charset: String)
+        java.base64DecodeToByteArray(str: String, flags: Int)
+        java.base64Encode(str: String, flags: Int)
+        ```
+        * ByteArray
+        ```js
+        Str转Bytes
+        java.strToBytes(str: String)
+        java.strToBytes(str: String, charset: String)
+        Bytes转Str
+        java.bytesToStr(bytes: ByteArray)
+        java.bytesToStr(bytes: ByteArray, charset: String)
+        ```
+        * Hex
+        ```js
+        HexString 解码为字节数组
+        java.hexDecodeToByteArray(hex: String)
+        hexString 解码为utf8String
+        java.hexDecodeToString(hex: String)
+        utf8 编码为hexString
+        java.hexEncodeToString(utf8: String)
+        ```
+        * 标识id
+        ```js
+        java.randomUUID()
+        java.androidId()
+        ```
+        * 繁简转换
+        ```js
+        将文本转换为简体
+        java.t2s(text: String): String
+        将文本转换为繁体
+        java.s2t(text: String): String
+        ```
+        * 时间格式化
+        ```js
+        java.timeFormatUTC(time: Long, format: String, sh: Int): String?
+        java.timeFormat(time: Long): String
+        ```
+        * html格式化
+        ```js
+        java.htmlFormat(str: String): String
+        ```
+        * 文件
+        >  所有对于文件的读写删操作都是相对路径,只能操作阅读缓存/android/data/{package}/cache/内的文件
+        ```js
+        //文件下载 url用于生成文件名，返回文件路径
+        downloadFile(url: String): String
+        //文件解压,zipPath为压缩文件路径，返回解压路径
+        unArchiveFile(zipPath: String): String
+        unzipFile(zipPath: String): String
+        unrarFile(zipPath: String): String
+        un7zFile(zipPath: String): String
+        //文件夹内所有文件读取
+        getTxtInFolder(unzipPath: String): String
+        //读取文本文件
+        readTxtFile(path: String): String
+        //删除文件
+        deleteFile(path: String) 
+        ```
+
+        ### [js加解密类](https://github.com/gedoor/legado/blob/master/app/src/main/java/io/legado/app/help/JsEncodeUtils.kt) 部分函数
+
+        > 提供在JavaScript环境中快捷调用crypto算法的函数，由[hutool-crypto](https://www.hutool.cn/docs/#/crypto/概述)实现  
+        > 由于兼容性问题，hutool-crypto当前版本为5.8.22  
+
+        > 注意：如果输入的参数不是Utf8String 可先调用`java.hexDecodeToByteArray java.base64DecodeToByteArray`转成ByteArray
+        * 对称加密
+        > 输入参数key iv 支持ByteArray|**Utf8String**
+        ```js
+        // 创建Cipher
+        java.createSymmetricCrypto(transformation, key, iv)
+        ```
+        >解密加密参数 data支持ByteArray|Base64String|HexString|InputStream
+        ```js
+        //解密为ByteArray String
+        cipher.decrypt(data)
+        cipher.decryptStr(data)
+        //加密为ByteArray Base64字符 HEX字符
+        cipher.encrypt(data)
+        cipher.encryptBase64(data)
+        cipher.encryptHex(data)
+        ```
+        * 非对称加密
+        > 输入参数 key支持ByteArray|**Utf8String**
+        ```js
+        //创建cipher
+        java.createAsymmetricCrypto(transformation)
+        //设置密钥
+        .setPublicKey(key)
+        .setPrivateKey(key)
+
+        ```
+        > 解密加密参数 data支持ByteArray|Base64String|HexString|InputStream  
+        ```js
+        //解密为ByteArray String
+        cipher.decrypt(data,  usePublicKey: Boolean? = true
+        )
+        cipher.decryptStr(data, usePublicKey: Boolean? = true
+        )
+        //加密为ByteArray Base64字符 HEX字符
+        cipher.encrypt(data,  usePublicKey: Boolean? = true
+        )
+        cipher.encryptBase64(data,  usePublicKey: Boolean? = true
+        )
+        cipher.encryptHex(data,  usePublicKey: Boolean? = true
+        )
+        ```
+        * 签名
+        > 输入参数 key 支持ByteArray|**Utf8String**
+        ```js
+        //创建Sign
+        java.createSign(algorithm)
+        //设置密钥
+        .setPublicKey(key)
+        .setPrivateKey(key)
+        ```
+        > 签名参数 data支持ByteArray|inputStream|String
+        ```js
+        //签名输出 ByteArray HexString
+        sign.sign(data)
+        sign.signHex(data)
+        ```
+        * 摘要
+        ```js
+        java.digestHex(data: String, algorithm: String,): String?
+
+        java.digestBase64Str(data: String, algorithm: String,): String?
+        ```
+        * md5
+        ```js
+        java.md5Encode(str)
+        java.md5Encode16(str)
+        ```
+        * HMac
+        ```js
+        java.HMacHex(data: String, algorithm: String, key: String): String
+
+        java.HMacBase64(data: String, algorithm: String, key: String): String
+        ```
+
+        ## book对象的可用属性
+        ### 属性
+        > 使用方法: 在js中或{{}}中使用book.属性的方式即可获取.如在正文内容后加上 ##{{book.name+"正文卷"+title}} 可以净化 书名+正文卷+章节名称（如 我是大明星正文卷第二章我爸是豪门总裁） 这一类的字符.
+        ```js
+        bookUrl // 详情页Url(本地书源存储完整文件路径)
+        tocUrl // 目录页Url (toc=table of Contents)
+        origin // 书源URL(默认BookType.local)
+        originName //书源名称 or 本地书籍文件名
+        name // 书籍名称(书源获取)
+        author // 作者名称(书源获取)
+        kind // 分类信息(书源获取)
+        customTag // 分类信息(用户修改)
+        coverUrl // 封面Url(书源获取)
+        customCoverUrl // 封面Url(用户修改)
+        intro // 简介内容(书源获取)
+        customIntro // 简介内容(用户修改)
+        charset // 自定义字符集名称(仅适用于本地书籍)
+        type // 0:text 1:audio
+        group // 自定义分组索引号
+        latestChapterTitle // 最新章节标题
+        latestChapterTime // 最新章节标题更新时间
+        lastCheckTime // 最近一次更新书籍信息的时间
+        lastCheckCount // 最近一次发现新章节的数量
+        totalChapterNum // 书籍目录总数
+        durChapterTitle // 当前章节名称
+        durChapterIndex // 当前章节索引
+        durChapterPos // 当前阅读的进度(首行字符的索引位置)
+        durChapterTime // 最近一次阅读书籍的时间(打开正文的时间)
+        canUpdate // 刷新书架时更新书籍信息
+        order // 手动排序
+        originOrder //书源排序
+        variable // 自定义书籍变量信息(用于书源规则检索书籍信息)
+         ```
+
+        ## chapter对象的部分可用属性
+        > 使用方法: 在js中或{{}}中使用chapter.属性的方式即可获取.如在正文内容后加上 ##{{chapter.title+chapter.index}} 可以净化 章节标题+序号(如 第二章 天仙下凡2) 这一类的字符.
+         ```js
+         url // 章节地址
+         title // 章节标题
+         baseUrl //用来拼接相对url
+         bookUrl // 书籍地址
+         index // 章节序号
+         resourceUrl // 音频真实URL
+         tag //
+         start // 章节起始位置
+         end // 章节终止位置
+         variable //变量
+         ```
+         
+        ## source对象的部分可用函数
+        * 获取书源url
+        ```js
+        source.getKey()
+        ```
+        * 书源变量存取
+        ```js
+        source.setVariable(variable: String?)
+        source.getVariable()
+        ```
+
+        * 登录头操作
+        ```js
+        获取登录头
+        source.getLoginHeader()
+        获取登录头某一键值
+        source.getLoginHeaderMap().get(key: String)
+        保存登录头
+        source.putLoginHeader(header: String)
+        清除登录头
+        source.removeLoginHeader()
+        ```
+        * 用户登录信息操作
+        > 使用`登录UI`规则，并成功登录，阅读自动加密保存登录UI规则中除type为button的信息
+        ```js
+        login函数获取登录信息
+        source.getLoginInfo()
+        login函数获取登录信息键值
+        source.getLoginInfoMap().get(key: String)
+        清除登录信息
+        source.removeLoginInfo()
+        ```
+        ## cookie对象的部分可用函数
+        ```js
+        获取全部cookie
+        cookie.getCookie(url)
+        获取cookie某一键值
+        cookie.getKey(url,key)
+        设置cookie
+        cookie.setCookie(url,cookie)
+        替换cookie
+        cookie.replaceCookie(url,cookie)
+        删除cookie
+        cookie.removeCookie(url)
+        ```
+
+        ## cache对象的部分可用函数
+        > saveTime单位:秒，可省略  
+        > 保存至数据库和缓存文件(50M)，保存的内容较大时请使用`getFile putFile`
+        ```js
+        保存
+        cache.put(key: String, value: String, saveTime: Int)
+        读取数据库
+        cache.get(key: String): String?
+        删除
+        cache.delete(key: String)
+        缓存文件内容
+        cache.putFile(key: String, value: String, saveTime: Int)
+        读取文件内容
+        cache.getFile(key: String): String?
+        保存到内存
+        cache.putMemory(key: String, value: Any)
+        读取内存
+        cache.getFromMemory(key: String): Any?
+        删除内存
+        cache.deleteMemory(key: String)
+        ```
+
+        ## 跳转外部链接/应用函数
+        ```js
+        // 跳转外部链接，传入http链接或者scheme跳转到浏览器或其他应用
+        java.openUrl(url:String)
+        // 指定mimeType，可以跳转指定类型应用，例如（video/*）
+        java.openUrl(url:String,mimeType:String)
+        """
+
+    /// The regular expression tutorial — upstream
+    /// `assets/web/help/md/regexHelp.md`.
+    public static let regexHelp =         """
+        # 正则表达式学习
+
+        - [基本匹配]
+        - [元字符]
+          - [英文句号]
+          - [字符集]
+            - [否定字符集]
+          - [重复]
+            - [星号]
+            - [加号]
+            - [问号]
+          - [花括号]
+          - [字符组]
+          - [分支结构]
+          - [转义特殊字符]
+          - [定位符]
+            - [插入符号]
+            - [美元符号]
+        - [简写字符集]
+        - [断言]
+          - [正向先行断言]
+          - [负向先行断言]
+          - [正向后行断言]
+          - [负向后行断言]
+        - [标记]
+          - [不区分大小写]
+          - [全局搜索]
+          - [多行匹配]
+        - [常用正则表达式]
+
+        ## 1. 基本匹配
+
+        正则表达式只是我们用于在文本中检索字母和数字的模式。例如正则表达式 `cat`，表示: 字母 `c` 后面跟着一个字母 `a`，再后面跟着一个字母 `t`。<pre>"cat" => The <a href="#learn-regex"><strong>cat</strong></a> sat on the mat</pre>
+
+        正则表达式 `123` 会匹配字符串 "123"。通过将正则表达式中的每个字符逐个与要匹配的字符串中的每个字符进行比较，来完成正则匹配。
+        正则表达式通常区分大小写，因此正则表达式 `Cat` 与字符串 "cat" 不匹配。<pre>"Cat" => The cat sat on the <a href="#learn-regex"><strong>Cat</strong></a></pre>
+
+        ## 2. 元字符
+
+        元字符是正则表达式的基本组成元素。元字符在这里跟它通常表达的意思不一样，而是以某种特殊的含义去解释。有些元字符写在方括号内的时候有特殊含义。
+        元字符如下:
+
+        |元字符|描述|
+        |:----:|----|
+        |.|匹配除换行符以外的任意字符。|
+        |[ ]|字符类，匹配方括号中包含的任意字符。|
+        |[^ ]|否定字符类。匹配方括号中不包含的任意字符|
+        |*|匹配前面的子表达式零次或多次|
+        |+|匹配前面的子表达式一次或多次|
+        |?|匹配前面的子表达式零次或一次，或指明一个非贪婪限定符。|
+        |{n,m}|花括号，匹配前面字符至少 n 次，但是不超过 m 次。|
+        |(xyz)|字符组，按照确切的顺序匹配字符xyz。|
+        |&#124;|分支结构，匹配符号之前的字符或后面的字符。|
+        |&#92;|转义符，它可以还原元字符原来的含义，允许你匹配保留字符 <code>[ ] ( ) { } . * + ? ^ $ \\ &#124;</code>|
+        |^|匹配行的开始|
+        |$|匹配行的结束|
+
+        ## 2.1 英文句号
+
+        英文句号 `.` 是元字符的最简单的例子。元字符 `.` 可以匹配任意单个字符。它不会匹配换行符和新行的字符。例如正则表达式 `.ar`，表示: 任意字符后面跟着一个字母 `a`，
+        再后面跟着一个字母 `r`。<pre>".ar" => The <a href="#learn-regex"><strong>car</strong></a> <a href="#learn-regex"><strong>par</strong></a>ked in the <a href="#learn-regex"><strong>gar</strong></a>age.</pre>
+
+        ## 2.2 字符集
+
+        字符集也称为字符类。方括号被用于指定字符集。使用字符集内的连字符来指定字符范围。方括号内的字符范围的顺序并不重要。
+        例如正则表达式 `[Tt]he`，表示: 大写 `T` 或小写 `t` ，后跟字母 `h`，再后跟字母 `e`。<pre>"[Tt]he" => <a href="#learn-regex"><strong>The</strong></a> car parked in <a href="#learn-regex"><strong>the</strong></a> garage.</pre>
+
+        然而，字符集中的英文句号表示它字面的含义。正则表达式 `ar[.]`，表示小写字母 `a`，后面跟着一个字母 `r`，再后面跟着一个英文句号 `.` 字符。<pre>"ar[.]" => A garage is a good place to park a c<a href="#learn-regex"><strong>ar.</strong></a></pre>
+
+        ### 2.2.1 否定字符集
+
+        一般来说插入字符 `^` 表示一个字符串的开始，但是当它在方括号内出现时，它会取消字符集。例如正则表达式 `[^c]ar`，表示: 除了字母 `c` 以外的任意字符，后面跟着字符 `a`，
+        再后面跟着一个字母 `r`。<pre>"[^c]ar" => The car <a href="#learn-regex"><strong>par</strong></a>ked in the <a href="#learn-regex"><strong>gar</strong></a>age.</pre>
+
+        ## 2.3 重复
+
+        以下元字符 `+`，`*` 或 `?` 用于指定子模式可以出现多少次。这些元字符在不同情况下的作用不同。
+
+        ### 2.3.1 星号
+
+        该符号 `*` 表示匹配上一个匹配规则的零次或多次。正则表达式 `a*` 表示小写字母 `a` 可以重复零次或者多次。但是它如果出现在字符集或者字符类之后，它表示整个字符集的重复。
+        例如正则表达式 `[a-z]*`，表示: 一行中可以包含任意数量的小写字母。<pre>"[a-z]*" => T<a href="#learn-regex"><strong>he</strong></a> <a href="#learn-regex"><strong>car</strong></a> <a href="#learn-regex"><strong>parked</strong></a> <a href="#learn-regex"><strong>in</strong></a> <a href="#learn-regex"><strong>the</strong></a> <a href="#learn-regex"><strong>garage</strong></a> #21.</pre>
+
+        该 `*` 符号可以与元符号 `.` 用在一起，用来匹配任意字符串 `.*`。该 `*` 符号可以与空格符 `\\s` 一起使用，用来匹配一串空格字符。
+        例如正则表达式 `\\s*cat\\s*`，表示: 零个或多个空格，后面跟小写字母 `c`，再后面跟小写字母 `a`，再再后面跟小写字母 `t`，后面再跟零个或多个空格。<pre>"\\s*cat\\s*" => The fat<a href="#learn-regex"><strong> cat </strong></a>sat on the <a href="#learn-regex"><strong>cat</strong></a>.</pre>
+
+        ### 2.3.2 加号
+
+        该符号 `+` 匹配上一个字符的一次或多次。例如正则表达式 `c.+t`，表示: 一个小写字母 `c`，后跟任意数量的字符，后跟小写字母 `t`。<pre>"c.+t" => The fat <a href="#learn-regex"><strong>cat sat on the mat</strong></a>.</pre>
+
+        ### 2.3.3 问号
+
+        在正则表达式中，元字符 `?` 用来表示前一个字符是可选的。该符号匹配前一个字符的零次或一次。
+        例如正则表达式 `[T]?he`，表示: 可选的大写字母 `T`，后面跟小写字母 `h`，后跟小写字母 `e`。<pre>"[T]he" => <a href="#learn-regex"><strong>The</strong></a> car is parked in the garage.</pre><pre>"[T]?he" => <a href="#learn-regex"><strong>The</strong></a> car is parked in t<a href="#learn-regex"><strong>he</strong></a> garage.</pre>
+
+        ## 2.4 花括号
+
+        在正则表达式中花括号(也被称为量词 ?)用于指定字符或一组字符可以重复的次数。例如正则表达式 `[0-9]{2,3}`，表示: 匹配至少2位数字但不超过3位(0到9范围内的字符)。<pre>"[0-9]{2,3}" => The number was 9.<a href="#learn-regex"><strong>999</strong></a>7 but we rounded it off to <a href="#learn-regex"><strong>10</strong></a>.0.</pre>
+
+        我们可以省略第二个数字。例如正则表达式 `[0-9]{2,}`，表示: 匹配2个或更多个数字。如果我们也删除逗号，则正则表达式 `[0-9]{2}`，表示: 匹配正好为2位数的数字。<pre>"[0-9]{2,}" => The number was 9.<a href="#learn-regex"><strong>9997</strong></a> but we rounded it off to <a href="#learn-regex"><strong>10</strong></a>.0.</pre><pre>"[0-9]{2}" => The number was 9.<a href="#learn-regex"><strong>99</strong></a><a href="#learn-regex"><strong>97</strong></a> but we rounded it off to <a href="#learn-regex"><strong>10</strong></a>.0.</pre>
+
+        ## 2.5 字符组
+
+        字符组是一组写在圆括号内的子模式 `(...)`。正如我们在正则表达式中讨论的那样，如果我们把一个量词放在一个字符之后，它会重复前一个字符。
+        但是，如果我们把量词放在一个字符组之后，它会重复整个字符组。
+        例如正则表达式 `(ab)*` 表示匹配零个或多个的字符串 "ab"。我们还可以在字符组中使用元字符 `|`。例如正则表达式 `(c|g|p)ar`，表示: 小写字母 `c`、`g` 或 `p` 后面跟字母 `a`，后跟字母 `r`。<pre>"(c|g|p)ar" => The <a href="#learn-regex"><strong>car</strong></a> is <a href="#learn-regex"><strong>par</strong></a>ked in the <a href="#learn-regex"><strong>gar</strong></a>age.</pre>
+
+        ## 2.6 分支结构
+
+        在正则表达式中垂直条 `|` 用来定义分支结构，分支结构就像多个表达式之间的条件。现在你可能认为这个字符集和分支机构的工作方式一样。
+        但是字符集和分支结构巨大的区别是字符集只在字符级别上有作用，然而分支结构在表达式级别上依然可以使用。
+        例如正则表达式 `(T|t)he|car`，表示: 大写字母 `T` 或小写字母 `t`，后面跟小写字母 `h`，后跟小写字母 `e` 或小写字母 `c`，后跟小写字母 `a`，后跟小写字母 `r`。<pre>"(T|t)he|car" => <a href="#learn-regex"><strong>The</strong></a> <a href="#learn-regex"><strong>car</strong></a> is parked in <a href="#learn-regex"><strong>the</strong></a> garage.</pre>
+
+        ## 2.7 转义特殊字符
+
+        正则表达式中使用反斜杠 `\\` 来转义下一个字符。这将允许你使用保留字符来作为匹配字符 `{ } [ ] / \\ + * . $ ^ | ?`。在特殊字符前面加 `\\`，就可以使用它来做匹配字符。
+        例如正则表达式 `.` 是用来匹配除了换行符以外的任意字符。现在要在输入字符串中匹配 `.` 字符，正则表达式 `(f|c|m)at\\.?`，表示: 小写字母 `f`、`c` 或者 `m` 后跟小写字母 `a`，后跟小写字母 `t`，后跟可选的 `.` 字符。<pre>"(f|c|m)at\\.?" => The <a href="#learn-regex"><strong>fat</strong></a> <a href="#learn-regex"><strong>cat</strong></a> sat on the <a href="#learn-regex"><strong>mat.</strong></a></pre>
+
+        ## 2.8 定位符
+
+        在正则表达式中，为了检查匹配符号是否是起始符号或结尾符号，我们使用定位符。
+        定位符有两种类型: 第一种类型是 `^` 检查匹配字符是否是起始字符，第二种类型是 `$`，它检查匹配字符是否是输入字符串的最后一个字符。
+
+        ### 2.8.1 插入符号
+
+        插入符号 `^` 符号用于检查匹配字符是否是输入字符串的第一个字符。如果我们使用正则表达式 `^a` (如果a是起始符号)匹配字符串 `abc`，它会匹配到 `a`。
+        但是如果我们使用正则表达式 `^b`，它是匹配不到任何东西的，因为在字符串 `abc` 中 "b" 不是起始字符。
+        让我们来看看另一个正则表达式 `^(T|t)he`，这表示: 大写字母 `T` 或小写字母 `t` 是输入字符串的起始符号，后面跟着小写字母 `h`，后跟小写字母 `e`。<pre>"(T|t)he" => <a href="#learn-regex"><strong>The</strong></a> car is parked in <a href="#learn-regex"><strong>the</strong></a> garage.</pre><pre>"^(T|t)he" => <a href="#learn-regex"><strong>The</strong></a> car is parked in the garage.</pre>
+
+        ### 2.8.2 美元符号
+
+        美元 `$` 符号用于检查匹配字符是否是输入字符串的最后一个字符。例如正则表达式 `(at\\.)$`，表示: 小写字母 `a`，后跟小写字母 `t`，后跟一个 `.` 字符，且这个匹配器必须是字符串的结尾。<pre>"(at\\.)" => The fat c<a href="#learn-regex"><strong>at.</strong></a> s<a href="#learn-regex"><strong>at.</strong></a> on the m<a href="#learn-regex"><strong>at.</strong></a></pre><pre>"(at\\.)$" => The fat cat sat on the m<a href="#learn-regex"><strong>at.</strong></a></pre>
+
+        ## 3. 简写字符集
+
+        正则表达式为常用的字符集和常用的正则表达式提供了简写。简写字符集如下:
+
+        |简写|描述|
+        |:----:|----|
+        |.|匹配除换行符以外的任意字符|
+        |\\w|匹配所有字母和数字的字符: `[a-zA-Z0-9_]`|
+        |\\W|匹配非字母和数字的字符: `[^\\w]`|
+        |\\d|匹配数字: `[0-9]`|
+        |\\D|匹配非数字: `[^\\d]`|
+        |\\s|匹配空格符: `[\\t\\n\\f\\r\\p{Z}]`|
+        |\\S|匹配非空格符: `[^\\s]`|
+
+        ## 4. 断言
+
+        后行断言和先行断言有时候被称为断言，它们是特殊类型的 ***非捕获组*** (用于匹配模式，但不包括在匹配列表中)。当我们在一种特定模式之前或者之后有这种模式时，会优先使用断言。
+        例如我们想获取输入字符串 `$4.44 and $10.88` 中带有前缀 `$` 的所有数字。我们可以使用这个正则表达式 `(?<=\\$)[0-9\\.]*`，表示: 获取包含 `.` 字符且前缀为 `$` 的所有数字。
+        以下是正则表达式中使用的断言:
+
+        |符号|描述|
+        |:----:|----|
+        |?=|正向先行断言|
+        |?!|负向先行断言|
+        |?<=|正向后行断言|
+        |?<!|负向后行断言|
+
+        ### 4.1 正向先行断言
+
+        正向先行断言认为第一部分的表达式必须是先行断言表达式。返回的匹配结果仅包含与第一部分表达式匹配的文本。
+        要在一个括号内定义一个正向先行断言，在括号中问号和等号是这样使用的 `(?=...)`。先行断言表达式写在括号中的等号后面。
+        例如正则表达式 `(T|t)he(?=\\sfat)`，表示: 匹配大写字母 `T` 或小写字母 `t`，后面跟字母 `h`，后跟字母 `e`。
+        在括号中，我们定义了正向先行断言，它会引导正则表达式引擎匹配 `The` 或 `the` 后面跟着 `fat`。<pre>"(T|t)he(?=\\sfat)" => <a href="#learn-regex"><strong>The</strong></a> fat cat sat on the mat.</pre>
+
+        ### 4.2 负向先行断言
+
+        当我们需要从输入字符串中获取不匹配表达式的内容时，使用负向先行断言。负向先行断言的定义跟我们定义的正向先行断言一样，
+        唯一的区别是不是等号 `=`，我们使用否定符号 `!`，例如 `(?!...)`。
+        我们来看看下面的正则表达式 `(T|t)he(?!\\sfat)`，表示: 从输入字符串中获取全部 `The` 或者 `the` 且不匹配 `fat` 前面加上一个空格字符。<pre>"(T|t)he(?!\\sfat)" => The fat cat sat on <a href="#learn-regex"><strong>the</strong></a> mat.</pre>
+
+        ### 4.3 正向后行断言
+
+        正向后行断言是用于获取在特定模式之前的所有匹配内容。正向后行断言表示为 `(?<=...)`。例如正则表达式 `(?<=(T|t)he\\s)(fat|mat)`，表示: 从输入字符串中获取在单词 `The` 或 `the` 之后的所有 `fat` 和 `mat` 单词。<pre>"(?<=(T|t)he\\s)(fat|mat)" => The <a href="#learn-regex"><strong>fat</strong></a> cat sat on the <a href="#learn-regex"><strong>mat</strong></a>.</pre>
+
+        ### 4.4 负向后行断言
+
+        负向后行断言是用于获取不在特定模式之前的所有匹配的内容。负向后行断言表示为 `(?<!...)`。例如正则表达式 `(?<!(T|t)he\\s)(cat)`，表示: 在输入字符中获取所有不在 `The` 或 `the` 之后的所有单词 `cat`。<pre>"(?&lt;!(T|t)he\\s)(cat)" => The cat sat on <a href="#learn-regex"><strong>cat</strong></a>.</pre>
+
+        ## 5. 标记
+
+        标记也称为修饰符，因为它会修改正则表达式的输出。这些标志可以以任意顺序或组合使用，并且是正则表达式的一部分。
+
+        |标记|描述|
+        |:----:|----|
+        |i|不区分大小写: 将匹配设置为不区分大小写。|
+        |g|全局搜索: 搜索整个输入字符串中的所有匹配。|
+        |m|多行匹配: 会匹配输入字符串每一行。|
+
+        * **数字**: `\\d+$`
+        * **用户名**: `^[\\w\\d_.]{4,16}$`
+        * **字母数字字符**: `^[a-zA-Z0-9]*$`
+        * **带空格的字母数字字符**: `^[a-zA-Z0-9 ]*$`
+        * **小写字母**: `[a-z]+$`
+        * **大写字母**: `[A-Z]+$`
+        * **网址**: `^(((http|https|ftp):\\/\\/)?([[a-zA-Z0-9]\\-\\.])+(\\.)([[a-zA-Z0-9]]){2,4}([[a-zA-Z0-9]\\/+=%&_\\.~?\\-]*))*$`
+        * **日期 (MM/DD/YYYY)**: `^(0?[1-9]|1[012])[- /.](0?[1-9]|[12][0-9]|3[01])[- /.](19|20)?[0-9]{2}$`
+        * **日期 (YYYY/MM/DD)**: `^(19|20)?[0-9]{2}[- /.](0?[1-9]|1[012])[- /.](0?[1-9]|[12][0-9]|3[01])$`
+        * **求更求转发致谢**: `[\\(（【].*?[求更谢乐发推].*?[】）\\)]`
+        * **查找最新章节**: `您可以.*?查找最新章节`
+        * **ps/PS**: `(?i)ps\\b.*`
+        * **Html标签**: `<[^>]+?>`
+
+        """
+}

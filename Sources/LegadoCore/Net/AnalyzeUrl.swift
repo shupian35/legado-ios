@@ -603,6 +603,104 @@ public struct UrlOption {
     public var serverID: Int64?
     public var webViewDelayTime: Int64?
 
+    /// The charsets of the URL option — upstream `AppConst.charsets`.
+    public static let charsets = [
+        "UTF-8", "GB2312", "GB18030", "GBK", "Unicode", "UTF-16", "UTF-16LE", "ASCII"
+    ]
+
+    public init(
+        method: String? = nil,
+        charset: String? = nil,
+        headers: [String: String]? = nil,
+        body: String? = nil,
+        origin: String? = nil,
+        retry: Int? = nil,
+        type: String? = nil,
+        useWebView: Bool = false,
+        webJs: String? = nil,
+        js: String? = nil,
+        serverID: Int64? = nil,
+        webViewDelayTime: Int64? = nil
+    ) {
+        self.method = method
+        self.charset = charset
+        self.headers = headers
+        self.body = body
+        self.origin = origin
+        self.retry = retry
+        self.type = type
+        self.useWebView = useWebView
+        self.webJs = webJs
+        self.js = js
+        self.serverID = serverID
+        self.webViewDelayTime = webViewDelayTime
+    }
+
+    /// The JSON of the option block — the upstream `GSON.toJson(urlOption)`.
+    /// The null fields are omitted, exactly like GSON does, and the fields
+    /// keep the order of the upstream's data class.
+    public func jsonString() -> String {
+        var parts: [String] = []
+        if let method, !method.isEmpty {
+            parts.append("\"method\":\"\(UrlOption.escape(method))\"")
+        }
+        if let charset, !charset.isEmpty {
+            parts.append("\"charset\":\"\(UrlOption.escape(charset))\"")
+        }
+        if let headers, !headers.isEmpty {
+            let items = headers.keys.sorted().map { key in
+                "\"\(UrlOption.escape(key))\":\"\(UrlOption.escape(headers[key] ?? ""))\""
+            }
+            parts.append("\"headers\":{\(items.joined(separator: ","))}")
+        }
+        if let body, !body.isEmpty {
+            parts.append("\"body\":\"\(UrlOption.escape(body))\"")
+        }
+        if let origin, !origin.isEmpty {
+            parts.append("\"origin\":\"\(UrlOption.escape(origin))\"")
+        }
+        if let retry {
+            parts.append("\"retry\":\(retry)")
+        }
+        if let type, !type.isEmpty {
+            parts.append("\"type\":\"\(UrlOption.escape(type))\"")
+        }
+        if useWebView {
+            // Upstream `useWebView(false)` stores null, so the field is only
+            // written when it is on.
+            parts.append("\"webView\":true")
+        }
+        if let webJs, !webJs.isEmpty {
+            parts.append("\"webJs\":\"\(UrlOption.escape(webJs))\"")
+        }
+        if let js, !js.isEmpty {
+            parts.append("\"js\":\"\(UrlOption.escape(js))\"")
+        }
+        if let serverID {
+            parts.append("\"serverID\":\(serverID)")
+        }
+        if let webViewDelayTime {
+            parts.append("\"webViewDelayTime\":\(webViewDelayTime)")
+        }
+        return "{\(parts.joined(separator: ","))}"
+    }
+
+    /// Escapes a string for a JSON literal.
+    static func escape(_ text: String) -> String {
+        var out = ""
+        for character in text {
+            switch character {
+            case "\"": out += "\\\""
+            case "\\": out += "\\\\"
+            case "\n": out += "\\n"
+            case "\r": out += "\\r"
+            case "\t": out += "\\t"
+            default: out.append(character)
+            }
+        }
+        return out
+    }
+
     init(dictionary: [String: Any]) {
         method = UrlOption.string(dictionary["method"])
         charset = UrlOption.string(dictionary["charset"])
