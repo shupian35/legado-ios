@@ -297,6 +297,16 @@ public final class ReadBook {
         delegate?.readBook(self, didChangePageIndex: pageIndex)
     }
 
+    /// Moves the reading position to a character offset inside the current
+    /// chapter — upstream `ReadBook.durChapterPos = chapterStart` (the read
+    /// aloud follows the spoken paragraph).
+    public func moveToPosition(_ position: Int) {
+        guard let chapter = curTextChapter else { return }
+        durChapterPos = max(0, position)
+        pageIndex = chapter.pageIndex(forCharacterIndex: durChapterPos)
+        delegate?.readBook(self, didChangePageIndex: pageIndex)
+    }
+
     // MARK: - Progress
 
     /// Persists the reading progress (upstream `ReadBook.saveRead`).

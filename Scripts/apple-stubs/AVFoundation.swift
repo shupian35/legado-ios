@@ -123,6 +123,43 @@ open class AVAudioPlayer: NSObject {
     open func pause() {}
 }
 
+// MARK: - The streaming player
+
+/// `AVFoundation.AVURLAsset`.
+open class AVURLAsset: NSObject {
+    public let url: URL
+    public init(url: URL, options: [String: Any]? = nil) {
+        self.url = url
+        super.init()
+    }
+}
+
+/// `AVFoundation.AVPlayerItem`.
+open class AVPlayerItem: NSObject {
+    public let asset: AVURLAsset
+    public init(asset: AVURLAsset) {
+        self.asset = asset
+        super.init()
+    }
+}
+
+/// `AVFoundation.AVPlayer`.
+open class AVPlayer: NSObject {
+    public var currentItem: AVPlayerItem?
+    public init(playerItem: AVPlayerItem?) {
+        self.currentItem = playerItem
+        super.init()
+    }
+    open func play() {}
+    open func pause() {}
+    open var rate: Float = 0
+}
+
+public extension Notification.Name {
+    /// `AVFoundation.Notification.Name.AVPlayerItemDidPlayToEndTime`.
+    static let AVPlayerItemDidPlayToEndTime = Notification.Name("AVPlayerItemDidPlayToEndTime")
+}
+
 // MARK: - The camera
 
 /// `AVFoundation.AVCaptureDevice.Position`.

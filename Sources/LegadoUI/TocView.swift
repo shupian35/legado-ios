@@ -111,6 +111,21 @@ public struct TocView: View {
                                         .font(.system(size: 11))
                                         .foregroundColor(.secondary)
                                 }
+                                // Upstream `ChapterListAdapter` — the update
+                                // time rule writes the tag of a chapter; the
+                                // tag is hidden for the volume chapters.
+                                if !chapter.isVolume, let tag = chapter.tag, !tag.isEmpty {
+                                    Text(tag)
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.secondary)
+                                }
+                                // Upstream `ChapterListAdapter` — the lock of
+                                // a VIP chapter that was not paid for.
+                                if chapter.isVip && !chapter.isPay {
+                                    Text("VIP")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.secondary)
+                                }
                                 if chapter.isVolume {
                                     Text("卷")
                                         .font(.system(size: 10))

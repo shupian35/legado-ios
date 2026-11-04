@@ -75,6 +75,35 @@ public struct ReaderAloudDialogView: View {
                         applyConfiguration()
                     }
                 ))
+                // Upstream `pref_config_aloud.xml`: the audio of the HTTP TTS
+                // engine is either downloaded or streamed.
+                Toggle("流式播放朗读音频", isOn: Binding(
+                    get: { settings.streamReadAloudAudio },
+                    set: { value in
+                        settings.streamReadAloudAudio = value
+                        applyConfiguration()
+                    }
+                ))
+                Toggle("忽略音频焦点", isOn: Binding(
+                    get: { settings.ignoreAudioFocus },
+                    set: { value in settings.ignoreAudioFocus = value }
+                ))
+                Toggle("通话时暂停朗读", isOn: Binding(
+                    get: { settings.pauseReadAloudWhilePhoneCalls },
+                    set: { value in settings.pauseReadAloudWhilePhoneCalls = value }
+                ))
+                Toggle("朗读时保持唤醒", isOn: Binding(
+                    get: { settings.readAloudWakeLock },
+                    set: { value in settings.readAloudWakeLock = value }
+                ))
+                Toggle("系统媒体控制兼容", isOn: Binding(
+                    get: { settings.systemMediaControlCompatibilityChange },
+                    set: { value in settings.systemMediaControlCompatibilityChange = value }
+                ))
+                Toggle("媒体按钮下一段", isOn: Binding(
+                    get: { settings.mediaButtonPerNext },
+                    set: { value in settings.mediaButtonPerNext = value }
+                ))
             }
             Section("定时停止") {
                 Picker("定时", selection: Binding(
@@ -127,6 +156,11 @@ public struct ReaderAloudDialogView: View {
                 speakSpeed: settings.ttsSpeechRate + 5,
                 readAloudByPage: settings.readAloudByPage
             )
+        )
+        // Upstream `AppConfig.streamReadAloudAudio` decides whether the audio
+        // of the HTTP TTS engine is downloaded or streamed.
+        controller.readAloud.setDelivery(
+            settings.streamReadAloudAudio ? .stream : .download
         )
     }
 

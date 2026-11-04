@@ -35,19 +35,24 @@ public struct PagedContentView: View {
     let textAlignment: TextAlignment
     /// The colour of the text — upstream `ReadBookConfig.curTextColor`.
     let textColor: Color
+    /// The colour of the paragraph that is being read — upstream
+    /// `TextColumn.draw` uses the accent colour for `isReadAloud`.
+    let accentColor: Color
 
     public init(
         lines: [TextLine],
         titleFont: Font,
         bodyFont: Font,
         textAlignment: TextAlignment = .leading,
-        textColor: Color = .primary
+        textColor: Color = .primary,
+        accentColor: Color = .accentColor
     ) {
         self.lines = lines
         self.titleFont = titleFont
         self.bodyFont = bodyFont
         self.textAlignment = textAlignment
         self.textColor = textColor
+        self.accentColor = accentColor
     }
 
     public var body: some View {
@@ -55,7 +60,9 @@ public struct PagedContentView: View {
             ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                 Text(line.text)
                     .font(line.isTitle ? titleFont : bodyFont)
-                    .foregroundColor(textColor)
+                    // The paragraph that is being read is drawn with the
+                    // accent colour — upstream `TextColumn.draw`.
+                    .foregroundColor(line.isReadAloud ? accentColor : textColor)
                     .multilineTextAlignment(textAlignment)
                     // The line is never wrapped again — the layout engine has
                     // already broken it.

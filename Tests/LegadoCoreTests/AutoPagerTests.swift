@@ -87,6 +87,53 @@ final class AutoPagerTests: XCTestCase {
         XCTAssertTrue(pager.tick(elapsed: 8, pageHeight: 100))
     }
 
+    // MARK: - The progress mode
+
+    func testTheProgressModeGrowsTheProgress() {
+        let pager = AutoPager(configuration: .init(speed: 10, mode: .progress))
+        var scroll: [Double] = []
+        pager.onScroll = { scroll.append($0) }
+        pager.onTurn = { _ in true }
+        pager.start()
+        pager.tick(elapsed: 5)
+        XCTAssertEqual(scroll.last ?? 0, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(pager.pageProgress, 0.5, accuracy: 0.0001)
+    }
+
+    func testTheProgressModeTurnsThePageWhenTheTimeIsUp() {
+        let pager = AutoPager(configuration: .init(speed: 10, mode: .progress))
+        var turns = 0
+        pager.onTurn = { _ in
+            turns += 1
+            return true
+        }
+        pager.start()
+        XCTAssertTrue(pager.tick(elapsed: 9))
+        XCTAssertEqual(turns, 0)
+        XCTAssertTrue(pager.tick(elapsed: 1))
+        XCTAssertEqual(turns, 1)
+        // The progress starts again on the next page.
+        XCTAssertEqual(pager.pageProgress, 0, accuracy: 0.0001)
+    }
+
+    func testTheProgressModeStopsAtTheEndOfTheBook() {
+        let pager = AutoPager(configuration: .init(speed: 10, mode: .progress))
+        pager.onTurn = { _ in false }
+        pager.start()
+        XCTAssertFalse(pager.tick(elapsed: 10))
+        XCTAssertFalse(pager.isRunning)
+    }
+
+    func testTheProgressModeNeverReportsMoreThanOne() {
+        let pager = AutoPager(configuration: .init(speed: 10, mode: .progress))
+        var scroll: [Double] = []
+        pager.onScroll = { scroll.append($0) }
+        pager.onTurn = { _ in false }
+        pager.start()
+        pager.tick(elapsed: 30)
+        XCTAssertEqual(scroll.last ?? 0, 1, accuracy: 0.0001)
+    }
+
     // MARK: - The state
 
     func testAPausedPagerDoesNotAdvance() {

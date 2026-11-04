@@ -137,6 +137,10 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     /// Whether the auto pager is running.
     @Published public var isAutoPaging = false
 
+    /// The progress of the automatic page turn (0…1) — upstream
+    /// `AutoPager.onDraw` draws the bar at the bottom of the page.
+    @Published public var autoPageProgress: Double = 0
+
     /// Whether the reader menu is shown.
     @Published public var isMenuPresented = false
 
@@ -532,10 +536,25 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     public func startAutoPage() {
         guard !isAutoPaging else { return }
         isAutoPaging = true
+        // Upstream `AutoPager.start()`: the E-Ink mode turns the whole page
+        // after the interval, the normal mode fills the progress of the page
+        // and the scroll page animation scrolls the content.
+        var configuration = autoPager.configuration
+        if environment.settings.isEInkMode {
+            configuration.mode = .pageTurn
+        } else if pageTurnStyle == .scroll {
+            configuration.mode = .scroll
+        } else {
+            configuration.mode = .progress
+        }
+        autoPager.configuration = configuration
         autoPager.onTurn = { [weak self] direction in
             guard let self else { return false }
             Task { await self.nextPage() }
             return true
+        }
+        autoPager.onScroll = { [weak self] progress in
+            self?.autoPageProgress = progress
         }
         autoPager.start()
         scheduleAutoPageTick()
@@ -545,6 +564,7 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     public func stopAutoPage() {
         isAutoPaging = false
         autoPager.stop()
+        autoPageProgress = 0
         autoPageTask?.cancel()
         autoPageTask = nil
     }
@@ -559,14 +579,29 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     }
 
     /// Schedules the next tick of the auto pager.
+    ///
+    /// The E-Ink mode turns the page after the whole interval (the upstream
+    /// `postDelayed`), the other modes are ticked often so that the progress
+    /// of the page grows smoothly (the upstream computes the offset on every
+    /// draw).
     private func scheduleAutoPageTick() {
         autoPageTask?.cancel()
-        let seconds = autoPager.speed
+        let mode = autoPager.configuration.mode
+        let interval: UInt64 = mode == .pageTurn
+            ? UInt64(autoPager.speed) * 1_000_000_000
+            : 50_000_000
         autoPageTask = Task { [weak self] in
+            var last = Date()
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: interval)
                 guard let self, self.isAutoPaging else { return }
-                self.autoPager.tick(elapsed: TimeInterval(seconds))
+                let now = Date()
+                let elapsed = now.timeIntervalSince(last)
+                last = now
+                self.autoPager.tick(
+                    elapsed: elapsed,
+                    pageHeight: self.layoutBox.layout.viewHeight
+                )
             }
         }
     }
@@ -604,6 +639,31 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
         let paragraphs = ReadAloudSplitter.paragraphs(in: content)
         readAloud.chapterTitle = chapter.title
         readAloud.play(paragraphs: paragraphs, chapterIndex: index, startIndex: 0)
+    }
+
+    /// Highlights the paragraph that is being read — upstream
+    /// `ReadBookActivity.observeEventSticky(EventBus.TTS_PROGRESS)`: the page
+    /// that holds the spoken paragraph is highlighted with the accent colour
+    /// (`TextColumn.draw`), and the reading position follows the speech.
+    public func updateReadAloudHighlight() {
+        guard let chapter = readBook.curTextChapter else { return }
+        // Upstream `TextPage.removePageAloudSpan()` — only one paragraph is
+        // highlighted at a time.
+        for page in chapter.pages {
+            page.removePageAloudSpan()
+        }
+        guard let paragraph = readAloud.currentParagraph else {
+            refreshPage()
+            return
+        }
+        let offset = paragraph.start
+        let pageIndex = ReadAloudPosition.pageIndex(forChapterOffset: offset, in: chapter)
+        guard chapter.pages.indices.contains(pageIndex) else { return }
+        let spanStart = ReadAloudPosition.aloudSpanStart(chapterOffset: offset, in: chapter)
+        chapter.pages[pageIndex].updatePageAloudSpan(aloudSpanStart: spanStart)
+        // The reader follows the spoken paragraph.
+        readBook.moveToPosition(offset)
+        refreshPage()
     }
 
     private func refreshPage() {
@@ -1449,6 +1509,27 @@ public struct ReaderView: View {
                                         )
                                     }
                                 }
+                                // The progress of the automatic page turn — upstream
+                                // `AutoPager.onDraw` draws the bar at the bottom
+                                // of the page (the accent colour).
+                                if controller.autoPageProgress > 0 {
+                                    VStack {
+                                        Spacer()
+                                        GeometryReader { barProxy in
+                                            Rectangle()
+                                                .fill(Color.accentColor)
+                                                .frame(
+                                                    width: barProxy.size.width * controller.autoPageProgress,
+                                                    height: 2
+                                                )
+                                                .frame(
+                                                    maxWidth: .infinity,
+                                                    alignment: .leading
+                                                )
+                                        }
+                                        .frame(height: 2)
+                                    }
+                                }
                                 // The nine-zone tap area — upstream `ReadView.onSingleTapUp`.
                                 ReaderTapArea(
                                     configuration: ReaderInteractionConfiguration.configuration(
@@ -1475,6 +1556,13 @@ public struct ReaderView: View {
                                     width: Double(size.width),
                                     height: Double(size.height)
                                 ))
+                            }
+                            .onChange(of: readAloud.currentParagraph) { _, _ in
+                                // The paragraph that is being read is
+                                // highlighted — upstream
+                                // `EventBus.TTS_PROGRESS` →
+                                // `TextPage.upPageAloudSpan`.
+                                controller.updateReadAloudHighlight()
                             }
                         }
                         // The footer of the page — upstream `PageView.upTipStyle`.

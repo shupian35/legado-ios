@@ -166,6 +166,9 @@ public final class HttpTtsSynthesizer: SpeechSynthesizing, @unchecked Sendable {
     private let client: HttpClient
     private let scriptEngine: RuleScriptEngine?
     private let player: AVAudioTtsPlayer
+    private let streamer: AVStreamingTtsPlayer
+    /// How the audio is delivered — upstream `AppConfig.streamReadAloudAudio`.
+    public var delivery: HttpTtsDelivery = .download
     /// The upstream `speakSpeed = speechRatePlay + 5`.
     private var speed: Int = 10
     /// The task of the running download.
@@ -175,12 +178,14 @@ public final class HttpTtsSynthesizer: SpeechSynthesizing, @unchecked Sendable {
         tts: HttpTTS,
         client: HttpClient = URLSessionHttpClient(),
         scriptEngine: RuleScriptEngine? = nil,
-        player: AVAudioTtsPlayer = AVAudioTtsPlayer()
+        player: AVAudioTtsPlayer = AVAudioTtsPlayer(),
+        streamer: AVStreamingTtsPlayer = AVStreamingTtsPlayer()
     ) {
         self.tts = tts
         self.client = client
         self.scriptEngine = scriptEngine
         self.player = player
+        self.streamer = streamer
     }
 
     /// Sets the upstream speed.
@@ -198,6 +203,16 @@ public final class HttpTtsSynthesizer: SpeechSynthesizing, @unchecked Sendable {
                     speed: speed,
                     scriptEngine: scriptEngine
                 )
+                if delivery == .stream {
+                    // The audio is streamed straight from the server — upstream
+                    // `downloadAndPlayAudiosStream()`.
+                    guard let url = URL(string: request.url) else {
+                        completion(false)
+                        return
+                    }
+                    streamer.play(url: url, headers: request.headers, completion: completion)
+                    return
+                }
                 let response = try await client.send(request)
                 let contentType = response.headers.first { $0.key.lowercased() == "content-type" }?.value
                 guard HttpTts.matches(contentType: contentType, tts: tts) else {
@@ -219,6 +234,7 @@ public final class HttpTtsSynthesizer: SpeechSynthesizing, @unchecked Sendable {
         task?.cancel()
         task = nil
         player.stop()
+        streamer.stop()
     }
 }
 
@@ -262,6 +278,74 @@ public final class AVAudioTtsPlayer: NSObject, AVAudioPlayerDelegate {
 
     public func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         pendingCompletion?(flag)
+        pendingCompletion = nil
+    }
+}
+
+// MARK: - The streaming player
+
+/// Streams the audio of the HTTP TTS service straight from the server.
+///
+/// Upstream `HttpReadAloudService.downloadAndPlayAudiosStream()` hands the
+/// URL of the audio to the player instead of downloading it into a cache file
+/// first (the preference `AppConfig.streamReadAloudAudio`).
+public final class AVStreamingTtsPlayer: NSObject {
+
+    private var player: AVPlayer?
+    private var pendingCompletion: ((Bool) -> Void)?
+    private var endObserver: NSObjectProtocol?
+
+    public override init() {
+        super.init()
+    }
+
+    deinit {
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+        }
+    }
+
+    /// Streams the audio of `url`.
+    ///
+    /// - Parameters:
+    ///   - url: the URL of the audio.
+    ///   - headers: the headers of the TTS request — upstream sends them
+    ///     with the request as well.
+    public func play(url: URL, headers: [String: String], completion: @escaping (Bool) -> Void) {
+        stop()
+        AVSpeechSynthesizerEngine.activateAudioSession()
+        var options: [String: Any] = [:]
+        if !headers.isEmpty {
+            options["AVURLAssetHTTPHeaderFieldsKey"] = headers
+        }
+        let asset = AVURLAsset(url: url, options: options)
+        let item = AVPlayerItem(asset: asset)
+        let player = AVPlayer(playerItem: item)
+        self.player = player
+        pendingCompletion = completion
+        endObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            self?.finish(true)
+        }
+        player.play()
+    }
+
+    public func stop() {
+        player?.pause()
+        player = nil
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+            self.endObserver = nil
+        }
+        pendingCompletion?(false)
+        pendingCompletion = nil
+    }
+
+    private func finish(_ success: Bool) {
+        pendingCompletion?(success)
         pendingCompletion = nil
     }
 }
@@ -352,10 +436,24 @@ public final class ReadAloudService: ObservableObject {
                 scriptEngine: scriptEngine
             )
             engine.setSpeed(controller.currentConfiguration.speakSpeed)
+            engine.delivery = delivery
             router?.http = engine
         } else {
             router?.http = nil
         }
+        #endif
+    }
+
+    /// How the audio of the HTTP TTS engine is delivered — upstream
+    /// `AppConfig.streamReadAloudAudio`.
+    public private(set) var delivery: HttpTtsDelivery = .download
+
+    /// Sets the delivery mode of the HTTP TTS engine — upstream
+    /// `AppConfig.streamReadAloudAudio`.
+    public func setDelivery(_ delivery: HttpTtsDelivery) {
+        self.delivery = delivery
+        #if canImport(AVFoundation)
+        router?.http?.delivery = delivery
         #endif
     }
 

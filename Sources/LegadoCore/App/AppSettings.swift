@@ -712,6 +712,35 @@ public final class AppSettings {
         set { set(newValue, for: .readAloudByPage) }
     }
 
+    /// Whether the audio of the HTTP TTS engine is streamed instead of being
+    /// downloaded — upstream `PreferKey.streamReadAloudAudio`
+    /// (`HttpReadAloudService.downloadAndPlayAudiosStream`).
+    public var streamReadAloudAudio: Bool {
+        get { bool(.streamReadAloudAudio, default: false) }
+        set { set(newValue, for: .streamReadAloudAudio) }
+    }
+
+    /// Whether the read aloud ignores the audio focus — upstream
+    /// `PreferKey.ignoreAudioFocus`.
+    public var ignoreAudioFocus: Bool {
+        get { bool(.ignoreAudioFocus, default: false) }
+        set { set(newValue, for: .ignoreAudioFocus) }
+    }
+
+    /// Whether the read aloud pauses while a phone call comes in — upstream
+    /// `PreferKey.pauseReadAloudWhilePhoneCalls`.
+    public var pauseReadAloudWhilePhoneCalls: Bool {
+        get { bool(.pauseReadAloudWhilePhoneCalls, default: false) }
+        set { set(newValue, for: .pauseReadAloudWhilePhoneCalls) }
+    }
+
+    /// Whether the screen stays on while the reader speaks — upstream
+    /// `PreferKey.readAloudWakeLock`.
+    public var readAloudWakeLock: Bool {
+        get { bool(.readAloudWakeLock, default: false) }
+        set { set(newValue, for: .readAloudWakeLock) }
+    }
+
     /// The auto-stop timer of the read aloud in minutes — upstream
     /// `PreferKey.ttsTimer` (0 = no timer).
     public var ttsTimer: Int {

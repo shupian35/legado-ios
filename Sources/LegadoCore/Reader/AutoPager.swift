@@ -20,10 +20,16 @@ import Foundation
 
 /// How the auto pager advances.
 public enum AutoPagerMode: Int, CaseIterable, Sendable {
-    /// Turn the page every `speed` seconds — the upstream E-Ink mode.
+    /// Turn the page every `speed` seconds — the upstream E-Ink mode
+    /// (`AutoPager.start()` posts itself delayed and turns the whole page).
     case pageTurn
-    /// Scroll the page continuously — the upstream normal mode.
+    /// Scroll the page continuously — the upstream mode of the scroll page
+    /// animation (`ReadView.isScroll`, the `pageAnim == 3` case).
     case scroll
+    /// Fill the progress of the page over `speed` seconds and then turn it —
+    /// the upstream normal mode with a page-turn animation
+    /// (`AutoPager.computeOffset` + `AutoPager.onDraw`).
+    case progress
 }
 
 /// The auto pager.
@@ -66,6 +72,9 @@ public final class AutoPager {
     private var scrollOffset: Int = 0
     /// The progress of the current page in pixels — upstream `progress`.
     private var progress: Double = 0
+    /// The elapsed time of the current page in seconds — upstream
+    /// `lastTimeMillis` (the difference of two `SystemClock.uptimeMillis`).
+    private var elapsedRemain: Double = 0
 
     public init(configuration: Configuration = Configuration()) {
         self.configuration = configuration
@@ -81,6 +90,7 @@ public final class AutoPager {
         scrollOffsetRemain = 0
         scrollOffset = 0
         progress = 0
+        elapsedRemain = 0
     }
 
     /// Stops the pager — upstream `AutoPager.stop()`.
@@ -91,6 +101,7 @@ public final class AutoPager {
         scrollOffsetRemain = 0
         scrollOffset = 0
         progress = 0
+        elapsedRemain = 0
     }
 
     /// Pauses the pager — upstream `AutoPager.pause()`.
@@ -110,11 +121,16 @@ public final class AutoPager {
         scrollOffsetRemain = 0
         scrollOffset = 0
         progress = 0
+        elapsedRemain = 0
     }
 
     /// The scroll progress of the current page (0…1).
     public var pageProgress: Double {
-        configuration.mode == .scroll ? progress : 0
+        switch configuration.mode {
+        case .scroll: return progress
+        case .progress: return min(1, elapsedRemain / Double(speed))
+        case .pageTurn: return 0
+        }
     }
 
     /// Advances the pager.
@@ -140,6 +156,21 @@ public final class AutoPager {
             }
             stop()
             return false
+
+        case .progress:
+            // Upstream `AutoPager.computeOffset`: the elapsed time fills the
+            // progress of the page; when the page is full it is turned.
+            elapsedRemain += elapsed
+            let readTime = Double(speed)
+            onScroll?(min(1, elapsedRemain / readTime))
+            guard elapsedRemain >= readTime else { return true }
+            elapsedRemain = 0
+            guard let onTurn, onTurn(.next) else {
+                stop()
+                return false
+            }
+            onScroll?(0)
+            return true
 
         case .scroll:
             guard pageHeight > 0 else { return true }
