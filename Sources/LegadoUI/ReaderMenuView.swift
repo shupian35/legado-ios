@@ -174,7 +174,9 @@ public struct ReaderMenuView: View {
             .sheet(isPresented: $isSourceEditorPresented) {
                 if let model = controller.model, let source = source {
                     NavigationStack {
-                        SourceEditorView(model: model, source: source)
+                        SourceEditorView(model: model, source: source) {
+                            isSourceEditorPresented = false
+                        }
                     }
                 }
             }

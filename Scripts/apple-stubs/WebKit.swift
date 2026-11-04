@@ -63,6 +63,12 @@ open class WKWebsiteDataStore: NSObject {
     open class func `default`() -> WKWebsiteDataStore { WKWebsiteDataStore() }
     open class func nonPersistent() -> WKWebsiteDataStore { WKWebsiteDataStore() }
     open var httpCookieStore: WKHTTPCookieStore { WKHTTPCookieStore() }
+    open class func allWebsiteDataTypes() -> Set<String> { [] }
+    open func removeData(
+        ofTypes websiteDataTypes: Set<String>,
+        modifiedSince sinceDate: Date,
+        completionHandler: @escaping () -> Void
+    ) {}
 }
 
 // MARK: - The web view

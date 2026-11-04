@@ -1076,6 +1076,123 @@ public final class AppSettings {
         get { int(.chineseConverterType, default: 0) }
         set { set(newValue, for: .chineseConverterType) }
     }
+
+    // MARK: - The "其它设置" screen (upstream `ui/config/OtherConfigFragment`)
+
+    /// The size of the image cache in megabytes — upstream
+    /// `AppConfig.bitmapCacheSize` (the upstream's default is 50).
+    public var bitmapCacheSize: Int {
+        get { int(.bitmapCacheSize, default: 50) }
+        set { set(newValue, for: .bitmapCacheSize) }
+    }
+
+    /// The number of images kept in the cache — upstream
+    /// `AppConfig.imageRetainNum` (0 = unlimited).
+    public var imageRetainNum: Int {
+        get { int(.imageRetainNum, default: 0) }
+        set { set(newValue, for: .imageRetainNum) }
+    }
+
+    /// The maximum number of lines of a source editor field — upstream
+    /// `AppConfig.sourceEditMaxLine` (the upstream's default is unlimited).
+    public var sourceEditMaxLine: Int {
+        get { int(.sourceEditMaxLine, default: Int.max) }
+        set { set(newValue, for: .sourceEditMaxLine) }
+    }
+
+    /// The folder the local books are imported from — upstream
+    /// `AppConfig.defaultBookTreeUri`.
+    public var defaultBookTreeUri: String {
+        get { string(.defaultBookTreeUri) ?? "" }
+        set { set(newValue.isEmpty ? nil : newValue, for: .defaultBookTreeUri) }
+    }
+
+    /// Whether the shelf asks before it adds a book — upstream
+    /// `AppConfig.showAddToShelfAlert` (the default is true).
+    public var showAddToShelfAlert: Bool {
+        get { bool(.showAddToShelfAlert, default: true) }
+        set { set(newValue, for: .showAddToShelfAlert) }
+    }
+
+    /// Whether the expired cache is cleared automatically — upstream
+    /// `PreferKey.autoClearExpired`.
+    public var autoClearExpired: Bool {
+        get { bool(.autoClearExpired, default: false) }
+        set { set(newValue, for: .autoClearExpired) }
+    }
+
+    /// Whether the default replace rules are applied — upstream
+    /// `AppConfig.replaceEnableDefault` (the default is true).
+    public var replaceEnableDefault: Bool {
+        get { bool(.replaceEnableDefault, default: true) }
+        set { set(newValue, for: .replaceEnableDefault) }
+    }
+
+    /// The language of the interface — upstream `PreferKey.language`.
+    ///
+    /// The upstream ships the translations; the port is Chinese-only, so the
+    /// value is kept but it does not change the interface.
+    public var language: String {
+        get { string(.language) ?? "" }
+        set { set(newValue.isEmpty ? nil : newValue, for: .language) }
+    }
+
+    /// The tab the app opens on — upstream `AppConfig.defaultHomePage`
+    /// ("bookshelf", "discovery" or "rss").
+    public var defaultHomePage: String {
+        get { string(.defaultHomePage) ?? "bookshelf" }
+        set { set(newValue, for: .defaultHomePage) }
+    }
+
+    /// Whether the app opens the last read book — upstream
+    /// `PreferKey.defaultToRead`.
+    public var defaultToRead: Bool {
+        get { bool(.defaultToRead, default: false) }
+        set { set(newValue, for: .defaultToRead) }
+    }
+
+    /// Whether the images are anti-aliased — upstream `AppConfig.useAntiAlias`.
+    public var useAntiAlias: Bool {
+        get { bool(.antiAlias, default: false) }
+        set { set(newValue, for: .antiAlias) }
+    }
+
+    /// Whether the local service keeps the screen awake — upstream
+    /// `PreferKey.webServiceWakeLock`.
+    public var webServiceWakeLock: Bool {
+        get { bool(.webServiceWakeLock, default: false) }
+        set { set(newValue, for: .webServiceWakeLock) }
+    }
+
+    /// Whether the read-aloud is controlled by the media keys — upstream
+    /// `PreferKey.readAloudByMediaButton`.
+    public var readAloudByMediaButton: Bool {
+        get { bool(.readAloudByMediaButton, default: false) }
+        set { set(newValue, for: .readAloudByMediaButton) }
+    }
+
+    /// Whether the manga tab is shown — upstream `AppConfig.showMangaUi`
+    /// (the default is true).
+    public var showMangaUi: Bool {
+        get { bool(.showMangaUi, default: true) }
+        set { set(newValue, for: .showMangaUi) }
+    }
+
+    /// The update variant — upstream `AppConfig.updateToVariant`
+    /// ("default_version").
+    public var updateToVariant: String {
+        get { string(.updateToVariant) ?? "default_version" }
+        set { set(newValue, for: .updateToVariant) }
+    }
+
+    // MARK: - The backup and the WebDAV
+
+    /// Whether a newer backup on the WebDAV is looked for at startup —
+    /// upstream `AppConfig.autoCheckNewBackup` (the default is true).
+    public var autoCheckNewBackup: Bool {
+        get { bool(.autoCheckNewBackup, default: true) }
+        set { set(newValue, for: .autoCheckNewBackup) }
+    }
 }
 
 /// The nine click regions of the reader — upstream `AppConfig.clickAction*`.

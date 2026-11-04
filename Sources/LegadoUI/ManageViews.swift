@@ -57,6 +57,9 @@ public struct ReplaceRuleView: View {
     @State private var isHelpPresented = false
     @State private var isGroupPresented = false
     @State private var isSharePresented = false
+    /// The file that was written for the export — upstream
+    /// `menu_export_selection` → `exportResult.launch`.
+    @State private var exportedFileURL: URL?
     @State private var message: String?
 
     public init(model: LegadoAppModel) {
@@ -137,8 +140,7 @@ public struct ReplaceRuleView: View {
                         }
                         // Upstream `menu_export_selection`.
                         Button("导出所选") {
-                            UIPasteboardShim.copy(model.exportedReplaceRules(selectedRules))
-                            message = "已导出 \(selectedRules.count) 个规则"
+                            export(rules: selectedRules, fileName: "replaceRule.json")
                         }
                         // Upstream `menu_del_selection`.
                         Button("删除所选", role: .destructive) {
@@ -233,8 +235,7 @@ public struct ReplaceRuleView: View {
             ToolbarItem(placement: .secondaryAction) {
                 // Upstream `menu_export_selection` of the whole list.
                 Button("导出") {
-                    UIPasteboardShim.copy(model.exportedReplaceRules(visibleRules))
-                    message = "已导出 \(visibleRules.count) 个规则"
+                    export(rules: visibleRules, fileName: "replaceRule.json")
                 }
             }
         }
@@ -269,7 +270,7 @@ public struct ReplaceRuleView: View {
             }
         }
         .sheet(isPresented: $isSharePresented) {
-            ShareSheet(items: [model.exportedReplaceRules(visibleRules)])
+            ShareSheet(items: exportedFileURL.map { [$0] } ?? [model.exportedReplaceRules(visibleRules)])
         }
         .fileImporter(
             isPresented: $isFileImporterPresented,
@@ -294,6 +295,23 @@ public struct ReplaceRuleView: View {
     /// (L177-209).
     private var visibleRules: [ReplaceRule] {
         ReplaceRuleSearch.filter(model.replaceRules, key: searchText)
+    }
+
+    /// Exports the rules into a file — upstream
+    /// `ReplaceRuleActivity.menu_export_selection` → `exportResult.launch`.
+    private func export(rules: [ReplaceRule], fileName: String) {
+        let json = model.exportedReplaceRules(rules)
+        guard let data = json.data(using: .utf8) else {
+            message = "导出失败"
+            return
+        }
+        do {
+            exportedFileURL = try DocumentExporter.write(data, fileName: fileName)
+            isSharePresented = true
+            message = "已导出 \(rules.count) 个规则"
+        } catch {
+            message = "导出失败：\(error.localizedDescription)"
+        }
     }
 
     /// The rules of the selection.
@@ -534,6 +552,11 @@ public struct BookmarkView: View {
 
     @ObservedObject var model: LegadoAppModel
 
+    @State private var isSharePresented = false
+    /// The file that was written for the export — upstream
+    /// `AllBookmarkViewModel.exportBookmark`.
+    @State private var exportedFileURL: URL?
+
     public init(model: LegadoAppModel) {
         self.model = model
     }
@@ -566,8 +589,46 @@ public struct BookmarkView: View {
             }
         }
         .navigationTitle("书签")
+        .toolbar {
+            ToolbarItem(placement: .secondaryAction) {
+                // Upstream `res/menu/bookmark.xml` — `menu_export`.
+                Button("导出") {
+                    export(markdown: false)
+                }
+            }
+            ToolbarItem(placement: .secondaryAction) {
+                // Upstream `res/menu/bookmark.xml` — `menu_export_md`.
+                Button("导出 Markdown") {
+                    export(markdown: true)
+                }
+            }
+        }
+        .sheet(isPresented: $isSharePresented) {
+            if let exportedFileURL {
+                ShareSheet(items: [exportedFileURL])
+            }
+        }
         .onAppear {
             model.reloadBookmarks()
+        }
+    }
+
+    /// Writes the bookmarks into a file — upstream
+    /// `AllBookmarkViewModel.exportBookmark` / `exportBookmarkMd`.
+    private func export(markdown: Bool) {
+        let bookmarks = model.bookmarks
+        let text = markdown
+            ? BookmarkExport.markdown(bookmarks)
+            : BookmarkExport.json(bookmarks)
+        guard let data = text.data(using: .utf8) else { return }
+        do {
+            exportedFileURL = try DocumentExporter.write(
+                data,
+                fileName: BookmarkExport.fileName(Date(), markdown: markdown)
+            )
+            isSharePresented = true
+        } catch {
+            AppLog.shared.put("导出失败：\(error.localizedDescription)", error: error)
         }
     }
 }

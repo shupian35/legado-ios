@@ -40,6 +40,12 @@ public struct BackupView: View {
     @State private var isSelectingDirectory = false
     /// Whether the old-data picker is open — upstream `import_old`.
     @State private var isSelectingOldData = false
+    /// Whether the backup file picker is open — upstream `restoreFromLocal`.
+    @State private var isSelectingBackupFile = false
+    /// Whether the WebDAV help is shown — upstream `showHelp("webDavHelp")`.
+    @State private var isHelpPresented = false
+    /// Whether the log is shown — upstream `menu_log` → `AppLogDialog`.
+    @State private var isLogPresented = false
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -53,6 +59,9 @@ public struct BackupView: View {
                 }
                 Button("选择备份目录") {
                     isSelectingDirectory = true
+                }
+                Button("从文件恢复") {
+                    isSelectingBackupFile = true
                 }
                 Text(backupDirectory.path)
                     .font(.system(size: 12))
@@ -70,6 +79,15 @@ public struct BackupView: View {
                         }
                     }
                 }
+                HStack {
+                    Button("帮助") {
+                        isHelpPresented = true
+                    }
+                    Spacer()
+                    Button("日志") {
+                        isLogPresented = true
+                    }
+                }
             }
             Section("旧版数据") {
                 Button("导入旧版数据") {
@@ -85,6 +103,18 @@ public struct BackupView: View {
                 SecureField("密码", text: $webDavPassword)
                 TextField("根目录", text: $webDavDirectory)
                 TextField("设备名称", text: $webDavDeviceName)
+                Toggle("同步阅读进度", isOn: Binding(
+                    get: { model.environment.settings.syncBookProgress },
+                    set: { model.environment.settings.syncBookProgress = $0 }
+                ))
+                Toggle("打开书籍时同步进度", isOn: Binding(
+                    get: { model.environment.settings.syncBookProgressPlus },
+                    set: { model.environment.settings.syncBookProgressPlus = $0 }
+                ))
+                Toggle("自动检查新备份", isOn: Binding(
+                    get: { model.environment.settings.autoCheckNewBackup },
+                    set: { model.environment.settings.autoCheckNewBackup = $0 }
+                ))
                 Button("保存") {
                     saveWebDav()
                 }
@@ -140,6 +170,24 @@ public struct BackupView: View {
         ) { result in
             if case let .success(url) = result {
                 importOldData(url)
+            }
+        }
+        .fileImporter(
+            isPresented: $isSelectingBackupFile,
+            allowedContentTypes: [.data]
+        ) { result in
+            if case let .success(url) = result {
+                restore(url)
+            }
+        }
+        .sheet(isPresented: $isHelpPresented) {
+            NavigationStack {
+                WebDavHelpView()
+            }
+        }
+        .sheet(isPresented: $isLogPresented) {
+            NavigationStack {
+                AppLogView()
             }
         }
     }

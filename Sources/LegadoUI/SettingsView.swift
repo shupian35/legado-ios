@@ -231,6 +231,9 @@ public struct SettingsView: View {
                 }
 
                 Section("高级") {
+                    NavigationLink("其它设置") {
+                        OtherSettingsView(model: model)
+                    }
                     NavigationLink("全部设置") {
                         AdvancedSettingsView(model: model)
                     }

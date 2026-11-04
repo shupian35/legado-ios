@@ -47,6 +47,11 @@ public struct BookshelfManageView: View {
     @State private var selection: Set<String> = []
     @State private var message: String?
     @State private var isGroupPickerPresented = false
+    /// The file that was written for the export — upstream
+    /// `BookshelfManageViewModel.saveAllUseBookSourceToFile`.
+    @State private var exportedFileURL: URL?
+    /// Whether the exported file is shared.
+    @State private var isSharePresented = false
     @State private var isSourcePickerPresented = false
     @State private var isDeleteConfirmed = false
     @State private var deleteOriginal = false
@@ -214,6 +219,11 @@ public struct BookshelfManageView: View {
                 SourcePickerView(model: model) { source in
                     changeSource(to: source)
                 }
+            }
+        }
+        .sheet(isPresented: $isSharePresented) {
+            if let exportedFileURL {
+                ShareSheet(items: [exportedFileURL])
             }
         }
         .alert("删除", isPresented: $isDeleteConfirmed) {
@@ -488,13 +498,21 @@ public struct BookshelfManageView: View {
     }
 
     /// Exports the sources the books use — upstream
-    /// `BookshelfManageViewModel.saveAllUseBookSourceToFile`.
+    /// `BookshelfManageViewModel.saveAllUseBookSourceToFile` (the file
+    /// "shareBookSource.json").  The upstream exports the sources of ALL the
+    /// books of the shelf, not only the selected ones.
     private func exportUsedSources() {
-        let urls = Set(selectedBooks.map(\.origin))
+        let urls = Set(allBooks.map(\.origin))
         let used = model.sources.filter { urls.contains($0.bookSourceUrl) }
         let json = JSONValue.array(used.map { BookSourceJSONBridge.encode($0) }).jsonString
-        message = "已导出 \(used.count) 个书源"
-        UIPasteboardShim.copy(json)
+        guard let data = json.data(using: .utf8) else { return }
+        do {
+            exportedFileURL = try DocumentExporter.write(data, fileName: "shareBookSource.json")
+            isSharePresented = true
+            message = "已导出 \(used.count) 个书源"
+        } catch {
+            message = "导出失败：\(error.localizedDescription)"
+        }
     }
 
     /// Reorders the books — upstream `ItemTouchCallback`.

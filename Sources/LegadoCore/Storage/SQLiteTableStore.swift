@@ -129,6 +129,14 @@ public final class SQLiteTableStore: TableStore {
         if transactionDepth == 0 { try execute("COMMIT TRANSACTION") }
     }
 
+    // MARK: - Maintenance
+
+    /// Compacts the database file — upstream `ConfigViewModel.shrinkDatabase()`
+    /// → `execSQL("VACUUM")`.
+    public func vacuum() throws {
+        try execute("VACUUM")
+    }
+
     // MARK: - Low level
 
     private func execute(_ sql: String) throws {
@@ -293,6 +301,7 @@ public final class UnavailableTableStore: TableStore {
     public func firstRow(in table: String, where predicate: RowPredicate) throws -> StorageRow? { throw StorageError.unavailable(reason) }
     public func count(in table: String, where predicate: RowPredicate) throws -> Int { throw StorageError.unavailable(reason) }
     public func transaction(_ body: () throws -> Void) throws { throw StorageError.unavailable(reason) }
+    public func vacuum() throws { throw StorageError.unavailable(reason) }
 }
 
 #endif

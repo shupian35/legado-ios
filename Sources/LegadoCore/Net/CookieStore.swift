@@ -231,6 +231,17 @@ public final class CookieStore {
         lock.unlock()
     }
 
+    /// Removes every cookie of the jar — upstream
+    /// `ConfigViewModel.clearWebViewData()` → `CookieManager.removeAllCookies()`.
+    public func removeAllCookies() {
+        for domain in persistence.allDomains() {
+            persistence.removeCookie(forDomain: domain)
+        }
+        lock.lock()
+        sessionCookies.removeAll()
+        lock.unlock()
+    }
+
     // MARK: - Session cookies
 
     public func setSessionCookie(domain: String, key: String, value: String) {

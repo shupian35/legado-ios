@@ -182,6 +182,7 @@ public struct AsyncImage: View {
 public struct Button: View {
     public let action: () -> Void
     public init(action: @escaping () -> Void, @ViewBuilder label: () -> some View) { self.action = action }
+    public init(role: ButtonRole?, action: @escaping () -> Void, @ViewBuilder label: () -> some View) { self.action = action }
     public init<S: StringProtocol>(_ title: S, action: @escaping () -> Void) { self.action = action }
     public init<S: StringProtocol>(_ title: S, role: ButtonRole?, action: @escaping () -> Void) { self.action = action }
     public var body: Never { fatalError("Button has no body") }

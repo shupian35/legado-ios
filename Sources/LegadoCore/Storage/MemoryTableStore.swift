@@ -136,6 +136,9 @@ public final class MemoryTableStore: TableStore {
         if transactionDepth == 0 { rollbackSnapshot = nil }
     }
 
+    /// The in-memory store has no file to compact — upstream `VACUUM`.
+    public func vacuum() throws {}
+
     // MARK: - Helpers
 
     private func primaryKeyValues(_ row: StorageRow, definition: TableDefinition) -> [String: StorageValue] {

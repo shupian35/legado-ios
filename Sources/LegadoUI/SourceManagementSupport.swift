@@ -338,6 +338,50 @@ extension LegadoAppModel {
         reloadSources()
     }
 
+    /// Moves a source to a new position in the list — upstream
+    /// `BookSourceAdapter.swap` (L307-319) + `BookSourceAdapter.onClearView`
+    /// (L323-339).
+    ///
+    /// The two sources exchange their `customOrder`; when the moved sources
+    /// end up with the same order the whole list is renumbered by its
+    /// position (the upstream's `upOrder` branch).
+    public func moveSource(from source: BookSource, to target: BookSource, ascending: Bool = true) {
+        guard source.bookSourceUrl != target.bookSourceUrl else { return }
+        let (first, second) = SourceOrdering.swap(source, target)
+        let moved = [first, second]
+        if SourceOrdering.hasOrderCollision(moved) {
+            let ordered = sources.sorted { $0.customOrder < $1.customOrder }
+            for updated in SourceOrdering.renumber(ordered, ascending: ascending) {
+                try? environment.store.insert(updated)
+            }
+        } else {
+            for updated in moved {
+                try? environment.store.insert(updated)
+            }
+        }
+        reloadSources()
+    }
+
+    /// Renumbers the sources by their position — upstream
+    /// `BookSourceAdapter.onClearView` (`upOrder`).
+    public func renumberSources(ascending: Bool = true) {
+        for updated in SourceOrdering.renumber(sources, ascending: ascending) {
+            try? environment.store.insert(updated)
+        }
+        reloadSources()
+    }
+
+    /// Writes the order of the sources — upstream
+    /// `BookSourceAdapter.onClearView` (`upOrder(getItems().mapIndexed { index, … })`).
+    ///
+    /// The sources are numbered by their position in the list.
+    public func applySourceOrder(_ ordered: [BookSource]) {
+        for updated in SourceOrdering.renumber(ordered, ascending: true) {
+            try? environment.store.insert(updated)
+        }
+        reloadSources()
+    }
+
     /// Enables or disables the discovery of the sources — upstream
     /// `BookSourceViewModel.enableExplore` (L86-90).
     public func setSourcesExplore(_ sources: [BookSource], enabled: Bool) {

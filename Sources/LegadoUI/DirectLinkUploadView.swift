@@ -37,7 +37,6 @@ public struct DirectLinkUploadConfigView: View {
     @State private var message: String?
     @State private var isTesting = false
     @State private var isDefaultPickerPresented = false
-    @State private var selectedDefaultIndex: Int = 0
 
     public init(model: LegadoAppModel, onSave: ((DirectLinkUploadRule) -> Void)? = nil) {
         self.model = model
@@ -101,13 +100,29 @@ public struct DirectLinkUploadConfigView: View {
                     }
                 }
             }
-            .alert("导入默认", isPresented: $isDefaultPickerPresented) {
-                Button("取消", role: .cancel) { }
-                Button("确定") {
-                    applyDefault()
+            .sheet(isPresented: $isDefaultPickerPresented) {
+                NavigationStack {
+                    List {
+                        Section {
+                            ForEach(Array(DirectLinkUpload.defaultRules.enumerated()), id: \.offset) { index, rule in
+                                Button(rule.summary) {
+                                    applyDefault(index: index)
+                                    isDefaultPickerPresented = false
+                                }
+                            }
+                        } header: {
+                            Text("选择默认规则")
+                        }
+                    }
+                    .navigationTitle("导入默认")
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("取消") {
+                                isDefaultPickerPresented = false
+                            }
+                        }
+                    }
                 }
-            } message: {
-                Text(DirectLinkUpload.defaultRules[selectedDefaultIndex].summary)
             }
             .onAppear {
                 load()
@@ -179,9 +194,11 @@ public struct DirectLinkUploadConfigView: View {
         compress = rule.compress
     }
 
-    /// Applies one of the default rules — upstream `importDefault`.
-    private func applyDefault() {
-        let rule = DirectLinkUpload.defaultRules[selectedDefaultIndex]
+    /// Applies one of the default rules — upstream `importDefault` (the
+    /// upstream shows a selector over the default rules).
+    private func applyDefault(index: Int) {
+        guard DirectLinkUpload.defaultRules.indices.contains(index) else { return }
+        let rule = DirectLinkUpload.defaultRules[index]
         uploadUrl = rule.uploadUrl
         downloadUrlRule = rule.downloadUrlRule
         summary = rule.summary

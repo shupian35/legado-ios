@@ -694,6 +694,36 @@ public final class LegadoStore {
         try tables.allRows(in: "readRecord").map { ReadRecord(row: $0) }
     }
 
+    /// The reading records whose name contains `key` — upstream
+    /// `ReadRecordDao.search` (`bookName like '%' || :searchKey || '%'`).
+    public func readRecords(matching key: String) throws -> [ReadRecord] {
+        try tables.rows(
+            in: "readRecord",
+            where: .contains(column: "bookName", value: key),
+            orderBy: []
+        ).map { ReadRecord(row: $0) }
+    }
+
+    /// Deletes the reading records of a book — upstream
+    /// `ReadRecordDao.deleteByName`.
+    public func deleteReadRecords(bookName: String) throws {
+        try tables.delete(
+            from: "readRecord",
+            where: .equals(column: "bookName", value: .text(bookName))
+        )
+    }
+
+    /// Deletes every reading record — upstream `ReadRecordDao.clear`.
+    public func clearReadRecords() throws {
+        try tables.deleteAll(from: "readRecord")
+    }
+
+    /// Compacts the database file — upstream
+    /// `ConfigViewModel.shrinkDatabase()` → `execSQL("VACUUM")`.
+    public func shrinkDatabase() throws {
+        try tables.vacuum()
+    }
+
     /// Inserts or replaces a TXT table of contents rule.
     ///
     /// Upstream `TxtTocRule` has an auto-generated primary key, so a rule

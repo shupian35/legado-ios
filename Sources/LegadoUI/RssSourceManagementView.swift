@@ -75,6 +75,11 @@ public struct RssSourceManageView: View {
     @State private var importSources: [RssSource] = []
     /// Whether the import preview is shown.
     @State private var isImportPreviewPresented = false
+    /// The file that was written for the export — upstream
+    /// `RssSourceViewModel.saveToFile`.
+    @State private var exportedFileURL: URL?
+    /// Whether the exported file is shared.
+    @State private var isSharePresented = false
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -267,6 +272,11 @@ public struct RssSourceManageView: View {
         .sheet(isPresented: $isQRScannerPresented) {
             NavigationStack {
                 QRScannerView(result: $qrResult)
+            }
+        }
+        .sheet(isPresented: $isSharePresented) {
+            if let exportedFileURL {
+                ShareSheet(items: [exportedFileURL])
             }
         }
         .fileImporter(
@@ -543,11 +553,19 @@ public struct RssSourceManageView: View {
         reload()
     }
 
-    /// Exports the selected sources — upstream `RssSourceViewModel.saveToFile`.
+    /// Exports the selected sources — upstream `RssSourceViewModel.saveToFile`
+    /// (the file "shareRssSource.json").
     private func exportSelection() {
         let exported = sources.filter { selection.contains($0.sourceUrl) }
         let json = JSONValue.array(exported.map { RssSourceJSONBridge.encode($0) }).jsonString
-        message = "已导出 \(exported.count) 个订阅源:\n\(json)"
+        guard let data = json.data(using: .utf8) else { return }
+        do {
+            exportedFileURL = try DocumentExporter.write(data, fileName: "shareRssSource.json")
+            isSharePresented = true
+            message = "已导出 \(exported.count) 个订阅源"
+        } catch {
+            message = "导出失败：\(error.localizedDescription)"
+        }
     }
 
     /// Moves a source with a drag — upstream `RssSourceActivity.initRecyclerView`

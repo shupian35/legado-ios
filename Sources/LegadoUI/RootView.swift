@@ -73,5 +73,54 @@ public struct RootView: View {
                 }
             }
         }
+        // The upstream looks for a newer backup on the WebDAV server when the
+        // app starts (`MainActivity.backupSync()`) and asks the user whether
+        // it should be restored.
+        .task {
+            await model.checkNewBackup()
+        }
+        // Only one alert can be attached to a view, so the error message, the
+        // status message and the backup question share this one.
+        .alert(
+            alertTitle,
+            isPresented: Binding(
+                get: { model.errorMessage != nil || model.backupMessage != nil || model.pendingWebDavBackup != nil },
+                set: { if !$0 { dismissAlerts() } }
+            )
+        ) {
+            if model.pendingWebDavBackup != nil {
+                Button("取消") {
+                    model.pendingWebDavBackup = nil
+                }
+                Button("恢复") {
+                    Task { await model.restorePendingWebDavBackup() }
+                }
+            } else {
+                Button("好") {
+                    dismissAlerts()
+                }
+            }
+        } message: {
+            Text(alertMessage)
+        }
+    }
+
+    private var alertTitle: String {
+        if model.pendingWebDavBackup != nil { return "发现新的备份" }
+        if model.errorMessage != nil { return "出错了" }
+        return "提示"
+    }
+
+    private var alertMessage: String {
+        if model.pendingWebDavBackup != nil {
+            return "服务器上有一个更新的备份，是否恢复？"
+        }
+        return model.errorMessage ?? model.backupMessage ?? ""
+    }
+
+    private func dismissAlerts() {
+        model.errorMessage = nil
+        model.backupMessage = nil
+        model.pendingWebDavBackup = nil
     }
 }

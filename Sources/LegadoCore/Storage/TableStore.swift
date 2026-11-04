@@ -36,6 +36,10 @@ public protocol TableStore: AnyObject {
     func count(in table: String, where predicate: RowPredicate) throws -> Int
     /// Runs `body` inside a transaction, rolling back when it throws.
     func transaction(_ body: () throws -> Void) throws
+
+    /// Compacts the database file — upstream `ConfigViewModel.shrinkDatabase()`
+    /// → `execSQL("VACUUM")`.
+    func vacuum() throws
 }
 
 public extension TableStore {

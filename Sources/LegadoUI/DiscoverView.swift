@@ -82,7 +82,9 @@ public struct DiscoverView: View {
             .sheet(isPresented: $isEditorPresented) {
                 if let editingSource {
                     NavigationStack {
-                        SourceEditorView(model: model, source: editingSource)
+                        SourceEditorView(model: model, source: editingSource) {
+                            isEditorPresented = false
+                        }
                     }
                 }
             }

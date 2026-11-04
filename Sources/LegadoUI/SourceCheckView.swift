@@ -39,6 +39,11 @@ public struct SourceCheckView: View {
     /// The sources to check — an empty list means every source.
     let sources: [BookSource]
 
+    /// Called when the check is done — upstream the `CHECK_SOURCE_DONE` event
+    /// that `BookSourceActivity` listens to (it filters the invalid sources
+    /// out of the list).
+    var onFinished: ((Bool) -> Void)?
+
     @State private var results: [SourceCheckResult] = []
     @State private var isLoading = false
     @State private var keyword: String = ""
@@ -47,9 +52,14 @@ public struct SourceCheckView: View {
     @State private var message: String?
     @State private var checkTask: Task<Void, Never>?
 
-    public init(model: LegadoAppModel, sources: [BookSource] = []) {
+    public init(
+        model: LegadoAppModel,
+        sources: [BookSource] = [],
+        onFinished: ((Bool) -> Void)? = nil
+    ) {
         self.model = model
         self.sources = sources
+        self.onFinished = onFinished
     }
 
     public var body: some View {
@@ -163,6 +173,13 @@ public struct SourceCheckView: View {
             } else {
                 message = "校验完成"
             }
+            // Upstream `BookSourceActivity.kt:637-642` — when a source ended
+            // up in a group whose name contains "失效" the list is filtered
+            // by that word.
+            let hasInvalid = collected.contains { result in
+                result.invalidGroups.contains { $0.contains("失效") }
+            }
+            onFinished?(hasInvalid)
         }
     }
 

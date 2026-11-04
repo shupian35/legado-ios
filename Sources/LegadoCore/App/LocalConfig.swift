@@ -92,4 +92,11 @@ public final class LocalConfig {
         get { store.bool(forKey: "bookInfoDeleteAlert") ?? false }
         set { store.set(newValue, forKey: "bookInfoDeleteAlert") }
     }
+
+    /// The sorting of the reading records — upstream
+    /// `ReadRecordActivity.sortMode` (`LocalConfig.getInt("readRecordSort")`).
+    public var readRecordSort: ReadRecordSort {
+        get { ReadRecordSort(rawValue: store.int(forKey: "readRecordSort") ?? 0) ?? .name }
+        set { store.set(newValue.rawValue, forKey: "readRecordSort") }
+    }
 }

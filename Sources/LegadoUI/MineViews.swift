@@ -31,6 +31,8 @@ public struct TxtTocRuleView: View {
     @ObservedObject var model: LegadoAppModel
     @State private var rules: [TxtTocRule] = []
     @State private var editing: TxtTocRule?
+    @State private var isSharePresented = false
+    @State private var exportedFileURL: URL?
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -66,11 +68,23 @@ public struct TxtTocRuleView: View {
                     reload()
                 }
             }
+            ToolbarItem(placement: .secondaryAction) {
+                // Upstream `TxtTocRuleActivity.menu_export_selection` — the file
+                // "exportTxtTocRule.json".
+                Button("导出") {
+                    export(rules: rules, fileName: "exportTxtTocRule.json")
+                }
+            }
         }
         .sheet(item: $editing) { rule in
             TxtTocRuleEditor(rule: rule) { saved in
                 model.saveTxtTocRule(saved)
                 reload()
+            }
+        }
+        .sheet(isPresented: $isSharePresented) {
+            if let exportedFileURL {
+                ShareSheet(items: [exportedFileURL])
             }
         }
         .onAppear {
@@ -80,6 +94,19 @@ public struct TxtTocRuleView: View {
 
     private func reload() {
         rules = (try? model.environment.store.allTxtTocRules()) ?? []
+    }
+
+    /// Writes the rules into a file — upstream
+    /// `TxtTocRuleActivity.menu_export_selection`.
+    private func export(rules: [TxtTocRule], fileName: String) {
+        let json = DocumentExport.json(rules, row: { $0.row })
+        guard let data = json.data(using: .utf8) else { return }
+        do {
+            exportedFileURL = try DocumentExporter.write(data, fileName: fileName)
+            isSharePresented = true
+        } catch {
+            AppLog.shared.put("导出失败：\(error.localizedDescription)", error: error)
+        }
     }
 
     /// The accepted file types — upstream `AppPattern` accepts `txt` and
@@ -144,6 +171,8 @@ public struct DictRuleView: View {
     @ObservedObject var model: LegadoAppModel
     @State private var rules: [DictRule] = []
     @State private var editing: DictRule?
+    @State private var isSharePresented = false
+    @State private var exportedFileURL: URL?
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -178,11 +207,23 @@ public struct DictRuleView: View {
                     reload()
                 }
             }
+            ToolbarItem(placement: .secondaryAction) {
+                // Upstream `DictRuleActivity.menu_export_selection` — the file
+                // "exportDictRule.json".
+                Button("导出") {
+                    export(rules: rules, fileName: "exportDictRule.json")
+                }
+            }
         }
         .sheet(item: $editing) { rule in
             DictRuleEditor(rule: rule) { saved in
                 model.saveDictRule(saved)
                 reload()
+            }
+        }
+        .sheet(isPresented: $isSharePresented) {
+            if let exportedFileURL {
+                ShareSheet(items: [exportedFileURL])
             }
         }
         .onAppear {
@@ -192,6 +233,19 @@ public struct DictRuleView: View {
 
     private func reload() {
         rules = (try? model.environment.store.allDictRules()) ?? []
+    }
+
+    /// Writes the rules into a file — upstream
+    /// `DictRuleActivity.menu_export_selection`.
+    private func export(rules: [DictRule], fileName: String) {
+        let json = DocumentExport.json(rules, row: { $0.row })
+        guard let data = json.data(using: .utf8) else { return }
+        do {
+            exportedFileURL = try DocumentExporter.write(data, fileName: fileName)
+            isSharePresented = true
+        } catch {
+            AppLog.shared.put("导出失败：\(error.localizedDescription)", error: error)
+        }
     }
 }
 
@@ -229,32 +283,151 @@ struct DictRuleEditor: View {
 // MARK: - The reading records
 
 /// The reading records — upstream `ReadRecordActivity`.
+///
+/// Upstream `app/src/main/java/io/legado/app/ui/about/ReadRecordActivity.kt`:
+/// the search field, the total reading time, the sorting menu, the
+/// "记录" switch, the 删除 button and the rows (the book name, the reading
+/// duration, the last reading date, the per row delete).
 public struct ReadRecordView: View {
 
     @ObservedObject var model: LegadoAppModel
-    @State private var records: [ReadRecord] = []
+    @State private var records: [ReadRecordShow] = []
+    @State private var totalTime: Int64 = 0
+    @State private var keyword = ""
+    @State private var sort: ReadRecordSort = .name
+    @State private var isDeleteAllPresented = false
+    @State private var deleteTarget: ReadRecordShow?
+    @State private var openedBook: Book?
 
     public init(model: LegadoAppModel) {
         self.model = model
     }
 
+    /// The model of the records — upstream `ReadRecordDao`.
+    private var recordModel: ReadRecordModel {
+        ReadRecordModel(store: model.environment.store)
+    }
+
     public var body: some View {
         List {
-            ForEach(records, id: \.bookName) { record in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(record.bookName)
-                    Text("阅读时长 \(record.readDurationText)")
+            Section {
+                HStack {
+                    Text("总阅读时长")
+                    Spacer()
+                    Text(totalTime > 0 ? ReadRecordShow(bookName: "", readTime: totalTime).readDurationText : "0秒")
+                        .foregroundColor(.secondary)
+                }
+                if !records.isEmpty {
+                    Button(role: .destructive) {
+                        isDeleteAllPresented = true
+                    } label: {
+                        Label("清空阅读记录", systemImage: "trash")
+                    }
+                }
+            }
+
+            Section {
+                ForEach(records) { record in
+                    HStack {
+                        Button {
+                            open(record)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(record.bookName)
+                                Text("阅读时长 \(record.readDurationText)")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+                                if !record.lastReadText.isEmpty {
+                                    Text(record.lastReadText)
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        Spacer()
+                        Button(role: .destructive) {
+                            deleteTarget = record
+                        } label: {
+                            Text("删除")
+                        }
                         .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                    Text(record.lastReadText)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
+                    }
                 }
             }
         }
         .navigationTitle("阅读记录")
+        .searchable(text: $keyword, prompt: "搜索")
+        .toolbar {
+            ToolbarItem(placement: .secondaryAction) {
+                Menu {
+                    Picker("排序", selection: $sort) {
+                        ForEach(ReadRecordSort.allCases) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    Toggle("记录", isOn: Binding(
+                        get: { model.environment.settings.enableReadRecord },
+                        set: { model.environment.settings.enableReadRecord = $0 }
+                    ))
+                } label: {
+                    Text("排序")
+                }
+            }
+        }
         .onAppear {
-            records = (try? model.environment.store.allReadRecords()) ?? []
+            sort = model.environment.localConfig.readRecordSort
+            reload()
+        }
+        .onChange(of: keyword) { _ in reload() }
+        .onChange(of: sort) { newValue in
+            model.environment.localConfig.readRecordSort = newValue
+            reload()
+        }
+        .alert("删除", isPresented: $isDeleteAllPresented) {
+            Button("取消", role: .cancel) {}
+            Button("确定", role: .destructive) {
+                try? recordModel.clear()
+                reload()
+            }
+        } message: {
+            Text("确定要清空全部阅读记录吗？")
+        }
+        .alert("删除", isPresented: Binding(
+            get: { deleteTarget != nil },
+            set: { if !$0 { deleteTarget = nil } }
+        )) {
+            Button("取消", role: .cancel) {}
+            Button("确定", role: .destructive) {
+                if let target = deleteTarget {
+                    try? recordModel.delete(bookName: target.bookName)
+                }
+                deleteTarget = nil
+                reload()
+            }
+        } message: {
+            Text("确定要删除\n\(deleteTarget?.bookName ?? "")\n的阅读记录吗？")
+        }
+        .sheet(item: $openedBook) { book in
+            NavigationStack {
+                BookDetailView(model: model, book: book)
+            }
+        }
+    }
+
+    private func reload() {
+        records = (try? recordModel.records(searchKey: keyword, sort: sort)) ?? []
+        totalTime = (try? recordModel.totalTime()) ?? 0
+    }
+
+    /// Opens the book — upstream `startActivityForBook(book)`.
+    ///
+    /// When the book is not on the shelf the upstream opens the search with
+    /// the name of the book.
+    private func open(_ record: ReadRecordShow) {
+        let books = (try? model.environment.bookshelf().search(record.bookName)) ?? []
+        if let book = books.first {
+            openedBook = book
         }
     }
 }
@@ -446,6 +619,7 @@ public struct AboutView: View {
 
     @State private var updateMessage: String?
     @State private var updateInfo: AppUpdateInfo?
+    @State private var logMessage: String?
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -462,9 +636,41 @@ public struct AboutView: View {
                 Text("这是 Android 阅读 (Legado) 的 iOS 移植版，保留了规则引擎、书源、本地书、朗读、漫画、备份与本地服务器等功能。")
                     .font(.system(size: 13))
             }
+            Section("项目") {
+                // Upstream `AboutFragment.onPreferenceTreeClick` — the
+                // contributors page.
+                Link("贡献者", destination: URL(string: "https://github.com/gedoor/legado/graphs/contributors")!)
+            }
+            Section("文档") {
+                NavigationLink(AboutDocument.updateLog.title) {
+                    MarkdownView(document: .updateLog)
+                }
+                NavigationLink(AboutDocument.license.title) {
+                    MarkdownView(document: .license)
+                }
+                NavigationLink(AboutDocument.disclaimer.title) {
+                    MarkdownView(document: .disclaimer)
+                }
+                NavigationLink(AboutDocument.privacyPolicy.title) {
+                    MarkdownView(document: .privacyPolicy)
+                }
+            }
             Section("帮助") {
                 NavigationLink("规则帮助") {
                     RuleHelpView()
+                }
+            }
+            Section("日志") {
+                NavigationLink("崩溃日志") {
+                    CrashLogView(model: model)
+                }
+                Button("保存日志") {
+                    saveLog()
+                }
+                if let logMessage {
+                    Text(logMessage)
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
                 }
             }
             Section("更新") {
@@ -476,9 +682,14 @@ public struct AboutView: View {
                 if let updateInfo {
                     Text("发现新版本 \(updateInfo.versionName)")
                         .font(.system(size: 13))
-                    Text(updateInfo.note)
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
+                    // Upstream `UpdateDialog` — the release note is rendered
+                    // as Markdown.
+                    NavigationLink("更新日志") {
+                        MarkdownView(
+                            title: updateInfo.versionName,
+                            markdown: updateInfo.note
+                        )
+                    }
                     Link("下载", destination: URL(string: updateInfo.downloadURL) ?? URL(string: "https://github.com/gedoor/legado")!)
                 }
                 if let updateMessage {
@@ -489,6 +700,36 @@ public struct AboutView: View {
             }
         }
         .navigationTitle("关于")
+    }
+
+    /// Saves the log into the backup directory — upstream
+    /// `AboutFragment.saveLog`.
+    private func saveLog() {
+        do {
+            try FileManager.default.createDirectory(
+                at: backupDirectory,
+                withIntermediateDirectories: true
+            )
+            let file = try LogExporter.export(to: backupDirectory)
+            logMessage = "已保存至 \(file.lastPathComponent)"
+        } catch {
+            logMessage = "保存日志出错：\(error.localizedDescription)"
+            AppLog.shared.put("保存日志出错\n\(error.localizedDescription)", error: error)
+        }
+    }
+
+    /// The directory the local backups live in — upstream `PreferKey.backupPath`.
+    private var backupDirectory: URL {
+        if let path = model.environment.settings.backupPath, !path.isEmpty {
+            let url = URL(fileURLWithPath: path, isDirectory: true)
+            if FileManager.default.fileExists(atPath: url.path) {
+                return url
+            }
+        }
+        let base = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)
+            .first ?? FileManager.default.temporaryDirectory
+        return base.appendingPathComponent("backup", isDirectory: true)
     }
 
     private func checkUpdate() {

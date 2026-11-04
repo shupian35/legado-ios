@@ -73,6 +73,9 @@ public final class LegadoAppModel: ObservableObject {
     @Published public var isLoading = false
     /// The last error, shown as an alert.
     @Published public var errorMessage: String?
+    /// The last status message of a background action (the backup, the
+    /// restore) — shown as an alert too.
+    @Published public var backupMessage: String?
     /// The reader of the book that is being read (upstream `ReadBookActivity`).
     @Published public var reader: ReaderController?
     /// Whether the reader is presented.
@@ -712,6 +715,69 @@ public final class LegadoAppModel: ObservableObject {
         reloadBookshelf()
         reloadSources()
         reloadRSS()
+    }
+
+    // MARK: - The automatic backup check
+
+    /// The name of the backup on the WebDAV server that is newer than the
+    /// last local one — upstream `MainActivity.backupSync()`.
+    @Published public var pendingWebDavBackup: String?
+
+    /// Checks whether the WebDAV server holds a backup that is newer than the
+    /// last one this device knows about — upstream
+    /// `MainActivity.backupSync()`.
+    ///
+    /// The upstream compares the modification time of the newest backup with
+    /// `LocalConfig.lastBackup` and asks the user whether it should be
+    /// restored; the time is remembered either way.
+    public func checkNewBackup() async {
+        guard environment.settings.autoCheckNewBackup else { return }
+        let account = environment.settings.appWebDav
+        guard account.isConfigured else { return }
+        let service = WebDavService(
+            configuration: account.serviceConfiguration,
+            httpClient: environment.httpClient
+        )
+        guard let files = try? await service.backupNames(),
+              let last = files.first,
+              let modified = last.lastModified else { return }
+        let known = environment.localConfig.lastBackup ?? .distantPast
+        guard modified > known else { return }
+        environment.localConfig.lastBackup = modified
+        pendingWebDavBackup = last.name
+    }
+
+    /// Restores the backup the app found on the server — upstream
+    /// `viewModel.restoreWebDav(name)`.
+    public func restorePendingWebDavBackup() async {
+        guard let name = pendingWebDavBackup else { return }
+        pendingWebDavBackup = nil
+        let account = environment.settings.appWebDav
+        guard account.isConfigured else { return }
+        let service = WebDavService(
+            configuration: account.serviceConfiguration,
+            httpClient: environment.httpClient
+        )
+        do {
+            let data = try await service.downloadBackup(named: name)
+            let settings = BackupSettings(
+                password: environment.localConfig.password,
+                deviceName: environment.settings.webDavDeviceName,
+                onlyLatestBackup: environment.settings.onlyLatestBackup,
+                ignoreLocalBook: false
+            )
+            let summary = try LegadoBackup.restore(
+                zipData: data,
+                store: environment.store.tableStore,
+                settings: settings
+            )
+            environment.localConfig.lastBackup = Date()
+            reloadAll()
+            errorMessage = nil
+            backupMessage = "已恢复 \(summary.restoredRows) 条记录"
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     // MARK: - Bookshelf

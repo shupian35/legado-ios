@@ -334,6 +334,61 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
             await readBook.loadCurrentChapter()
         }
         isLoading = false
+        // The upstream syncs the reading progress with the WebDAV server when
+        // a book is opened (`ReadBookViewModel.initBook` → the
+        // `syncBookProgressPlus` path).
+        await syncProgressOnOpen()
+    }
+
+    /// Syncs the reading progress with the WebDAV server when the book is
+    /// opened — upstream `ReadBookViewModel.initBook` (the `syncBookProgressPlus`
+    /// path) → `ReadBook.syncProgress`.
+    ///
+    /// The upstream gates the whole exchange with `AppConfig.syncBookProgress`
+    /// and only runs it on open when `syncBookProgressPlus` is on: the local
+    /// progress is uploaded when the server has none or an older one, and the
+    /// user is asked when the server is further into the book.
+    public func syncProgressOnOpen() async {
+        let settings = environment.settings
+        guard settings.syncBookProgress, settings.syncBookProgressPlus else { return }
+        guard let service = webDavService() else { return }
+        let local = BookProgress(book: book)
+        let remote: BookProgress
+        do {
+            remote = try await service.downloadProgress(fileName: local.fileName)
+        } catch {
+            // The server has no progress for this book — the upstream uploads
+            // the local one.
+            do {
+                try await service.uploadProgress(local)
+                progressMessage = "已同步阅读进度"
+            } catch {
+                AppLog.shared.put("上传阅读进度失败", error: error)
+            }
+            return
+        }
+        let outcome = BookProgressSync.resolve(
+            remote: remote,
+            local: local,
+            totalChapters: Int(book.simulatedTotalChapterNum())
+        )
+        switch outcome {
+        case .same:
+            break
+        case .remoteOlder:
+            do {
+                try await service.uploadProgress(local)
+                progressMessage = "已同步阅读进度"
+            } catch {
+                AppLog.shared.put("上传阅读进度失败", error: error)
+            }
+        case .remoteNewer(let progress):
+            // The server is further into the book — the upstream asks the
+            // user whether the local progress should be overwritten.
+            pendingRemoteProgress = progress
+        case .beyondTheBook:
+            break
+        }
     }
 
     /// The size of the page changed — the device was rotated or the window

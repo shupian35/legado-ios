@@ -54,6 +54,9 @@ public struct SourceManagerView: View {
     @State private var loginSource: BookSource?
     @State private var isLoginPresented = false
     @State private var isSharePresented = false
+    /// The file that was written for the export — upstream
+    /// `menu_export_selection` → `saveToFile`.
+    @State private var exportedFileURL: URL?
     @State private var isQRCodePresented = false
     @State private var editingSource: BookSource?
     @State private var isEditorPresented = false
@@ -63,6 +66,10 @@ public struct SourceManagerView: View {
     @State private var isGroupPromptPresented = false
     @State private var groupPromptTitle: String = ""
     @State private var groupPromptAction: GroupPromptAction = .add
+    /// The source the search is scoped to — upstream
+    /// `BookSourceActivity.searchBook`.
+    @State private var searchSource: BookSource?
+    @State private var isSearchPresented = false
     @State private var message: String?
 
     public init(model: LegadoAppModel) {
@@ -106,6 +113,15 @@ public struct SourceManagerView: View {
                             Button("校验所选") {
                                 checkTargets = selectedSources
                                 isCheckPresented = true
+                            }
+                            // Upstream `BookSourceAdapter.checkSelectedInterval`
+                            // — every source between the first and the last
+                            // selected one is selected.
+                            Button("检查所选区间") {
+                                selection = SourceSelection.interval(
+                                    selected: selection,
+                                    in: visibleSources
+                                )
                             }
                             Button("删除所选", role: .destructive) {
                                 model.deleteSources(selectedSources)
@@ -260,6 +276,11 @@ public struct SourceManagerView: View {
                         if !isManaging { selection.removeAll() }
                     }
                 }
+                ToolbarItem(placement: .secondaryAction) {
+                    // Upstream `BookSourceActivity` — the sources are dragged
+                    // to reorder them (`ItemTouchHelper`).
+                    EditButton()
+                }
             }
             .sheet(isPresented: $isDebugPresented) {
                 SourceDebugView(model: model)
@@ -274,7 +295,13 @@ public struct SourceManagerView: View {
             }
             .sheet(isPresented: $isCheckPresented) {
                 NavigationStack {
-                    SourceCheckView(model: model, sources: checkTargets)
+                    SourceCheckView(model: model, sources: checkTargets) { hasInvalid in
+                        // Upstream `BookSourceActivity.kt:637-642` — the
+                        // invalid sources are filtered out of the list.
+                        guard hasInvalid, searchText.isEmpty else { return }
+                        searchText = "失效"
+                        message = "发现有失效书源，已为您自动筛选！"
+                    }
                 }
             }
             .sheet(isPresented: $isCheckConfigPresented) {
@@ -288,7 +315,14 @@ public struct SourceManagerView: View {
                 }
             }
             .sheet(isPresented: $isSharePresented) {
-                ShareSheet(items: [sharedText])
+                ShareSheet(items: shareItems)
+            }
+            .sheet(isPresented: $isSearchPresented) {
+                if let searchSource {
+                    NavigationStack {
+                        SearchView(model: model, source: searchSource)
+                    }
+                }
             }
             .sheet(isPresented: $isQRCodePresented) {
                 NavigationStack {
@@ -303,7 +337,9 @@ public struct SourceManagerView: View {
             .sheet(isPresented: $isEditorPresented) {
                 if let editingSource {
                     NavigationStack {
-                        SourceEditorView(model: model, source: editingSource)
+                        SourceEditorView(model: model, source: editingSource) {
+                            isEditorPresented = false
+                        }
                     }
                 }
             }
@@ -393,9 +429,33 @@ public struct SourceManagerView: View {
                 },
                 onDebug: {
                     isDebugPresented = true
+                },
+                onSearch: {
+                    // Upstream `BookSourceActivity.searchBook` — the search is
+                    // scoped to that source.
+                    searchSource = source
+                    isSearchPresented = true
                 }
             )
         }
+        .onMove { offsets, destination in
+            moveSources(in: sources, from: offsets, to: destination)
+        }
+    }
+
+    /// Moves a row — upstream `BookSourceAdapter.swap` + `onClearView`.
+    ///
+    /// The visible rows are renumbered by their position (the upstream's
+    /// `upOrder` branch).
+    private func moveSources(in sources: [BookSource], from offsets: IndexSet, to destination: Int) {
+        // The upstream reorders the sources of the whole list; the grouped
+        // list cannot be dragged (the domains would mix).
+        guard !isGroupedByDomain, sort == .custom else { return }
+        guard let first = offsets.first, first < sources.count else { return }
+        var list = sources
+        let moved = list.remove(at: first)
+        list.insert(moved, at: min(destination, list.count))
+        model.applySourceOrder(list)
     }
 
     /// The sources of the list — upstream `BookSourceActivity.upBookSource`
@@ -453,6 +513,16 @@ public struct SourceManagerView: View {
         return model.exportedSources(selectedSources)
     }
 
+    /// What the share sheet offers — the exported file when one was written
+    /// (upstream `menu_export_selection`), the JSON text otherwise
+    /// (upstream `menu_share_source`).
+    private var shareItems: [Any] {
+        if let exportedFileURL {
+            return [exportedFileURL]
+        }
+        return [sharedText]
+    }
+
     // MARK: - The actions
 
     /// The accepted file types — upstream `AppPattern` accepts `txt` and
@@ -487,10 +557,23 @@ public struct SourceManagerView: View {
         }
     }
 
-    /// Exports the selection — upstream `menu_export_selection`.
+    /// Exports the selection — upstream `menu_export_selection` (the file)
+    /// and `menu_share_source` (the share sheet).
     private func exportSelection() {
-        UIPasteboardShim.copy(model.exportedSources(selectedSources))
-        message = "已导出 \(selectedSources.count) 个书源"
+        let json = model.exportedSources(selectedSources)
+        guard let data = json.data(using: .utf8) else {
+            message = "导出失败"
+            return
+        }
+        do {
+            // Upstream `menu_export_selection` → `saveToFile` → the file
+            // picker; the share sheet offers "Save to Files" on iOS.
+            exportedFileURL = try DocumentExporter.write(data, fileName: "bookSource.json")
+            isSharePresented = true
+            message = "已导出 \(selectedSources.count) 个书源"
+        } catch {
+            message = "导出失败：\(error.localizedDescription)"
+        }
     }
 
     /// Asks for the name of a group — upstream
@@ -540,6 +623,8 @@ struct SourceRow: View {
     var onBottom: (() -> Void)?
     var onToggleExplore: (() -> Void)?
     var onDebug: (() -> Void)?
+    /// Upstream `BookSourceAdapter.showMenu` — `menu_search`.
+    var onSearch: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -594,6 +679,9 @@ struct SourceRow: View {
                 }
                 if let onDebug {
                     Button("调试", action: onDebug)
+                }
+                if let onSearch {
+                    Button("搜索该源", action: onSearch)
                 }
                 Button("删除", role: .destructive, action: onDelete)
             } label: {

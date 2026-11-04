@@ -33,12 +33,35 @@ public struct SourceEditorView: View {
     @State private var isDebugPresented = false
     @State private var isVariablesPresented = false
     @State private var isQRPresented = false
+    /// The QR scanner — upstream `menu_qr_code_camera`.
+    @State private var isQRScannerPresented = false
+    /// The result of the QR scan.
+    @State private var qrResult: String?
     @State private var isSharePresented = false
     @State private var variableText: String = ""
+    /// The source the search is scoped to — upstream `menu_search`.
+    @State private var searchSource: BookSource?
+    @State private var isSearchPresented = false
+    /// The source the editor was opened with — the upstream compares the
+    /// edited source with it to ask before the exit.
+    @State private var originalSource: BookSource
+    /// Whether the exit confirmation is shown — upstream `BookSourceEditActivity.finish`.
+    @State private var isExitConfirmed = false
 
-    public init(model: LegadoAppModel, source: BookSource) {
+    public init(model: LegadoAppModel, source: BookSource, onClose: (() -> Void)? = nil) {
         self.model = model
         self._source = State(initialValue: source)
+        self._originalSource = State(initialValue: source)
+        self.onClose = onClose
+    }
+
+    /// Closes the editor — the upstream's `finish()`.
+    private let onClose: (() -> Void)?
+
+    /// Whether the edited source differs from the original one — upstream
+    /// `!source.equal(viewModel.bookSource ?: BookSource())`.
+    private var hasChanges: Bool {
+        source != originalSource
     }
 
     public var body: some View {
@@ -56,6 +79,17 @@ public struct SourceEditorView: View {
                     get: { source.bookSourceGroup ?? "" },
                     set: { source.bookSourceGroup = $0.isEmpty ? nil : $0 }
                 ))
+                // Upstream `binding.spType` — the type of the source
+                // (`BookSourceType`).
+                Picker("类型", selection: Binding(
+                    get: { source.bookSourceType },
+                    set: { source.bookSourceType = $0 }
+                )) {
+                    Text("文本").tag(BookSourceType.default)
+                    Text("音频").tag(BookSourceType.audio)
+                    Text("图片").tag(BookSourceType.image)
+                    Text("文件").tag(BookSourceType.file)
+                }
                 Toggle("启用", isOn: Binding(
                     get: { source.enabled },
                     set: { source.enabled = $0 }
@@ -75,6 +109,23 @@ public struct SourceEditorView: View {
                 TextField("备注", text: Binding(
                     get: { source.bookSourceComment ?? "" },
                     set: { source.bookSourceComment = $0.isEmpty ? nil : $0 }
+                ))
+            }
+
+            Section("高级") {
+                // Upstream `BookSourceEditActivity.upSourceView` — the three
+                // advanced fields of the source.
+                TextField("封面解码", text: Binding(
+                    get: { source.coverDecodeJs ?? "" },
+                    set: { source.coverDecodeJs = $0.isEmpty ? nil : $0 }
+                ))
+                TextField("书籍地址正则", text: Binding(
+                    get: { source.bookUrlPattern ?? "" },
+                    set: { source.bookUrlPattern = $0.isEmpty ? nil : $0 }
+                ))
+                TextField("变量说明", text: Binding(
+                    get: { source.variableComment ?? "" },
+                    set: { source.variableComment = $0.isEmpty ? nil : $0 }
                 ))
             }
 
@@ -156,6 +207,17 @@ public struct SourceEditorView: View {
                     model.saveSource(source)
                 }
             }
+            ToolbarItem(placement: .cancellationAction) {
+                // Upstream `BookSourceEditActivity.finish()` — the exit asks
+                // when the source was not saved.
+                Button("关闭") {
+                    if hasChanges {
+                        isExitConfirmed = true
+                    } else {
+                        onClose?()
+                    }
+                }
+            }
             ToolbarItem(placement: .secondaryAction) {
                 Menu("更多") {
                     // The upstream `res/menu/source_edit.xml`.
@@ -167,6 +229,18 @@ public struct SourceEditorView: View {
                         model.environment.cookieStore.removeCookie(url: source.bookSourceUrl)
                         message = "已清除该书源的Cookie"
                     }
+                    // Upstream `menu_login` — the login of the source.
+                    if let loginUrl = source.loginUrl, !loginUrl.isEmpty {
+                        Button("登录") {
+                            model.presentLogin(for: source)
+                        }
+                    }
+                    // Upstream `menu_search` — the search scoped to this source.
+                    Button("搜索") {
+                        model.saveSource(source)
+                        searchSource = source
+                        isSearchPresented = true
+                    }
                     Button(autoComplete ? "自动补全：开" : "自动补全：关") {
                         autoComplete.toggle()
                         message = autoComplete ? "规则将自动补全" : "规则不再自动补全"
@@ -177,6 +251,11 @@ public struct SourceEditorView: View {
                     }
                     Button("粘贴书源") {
                         pasteSource()
+                    }
+                    // Upstream `menu_qr_code_camera` — the import from a QR
+                    // code.
+                    Button("扫码导入") {
+                        isQRScannerPresented = true
                     }
                     Button("设置变量") {
                         variableText = BookSourceVariables.sourceVariables(source.key) ?? ""
@@ -220,6 +299,45 @@ public struct SourceEditorView: View {
         .sheet(isPresented: $isSharePresented) {
             ShareSheet(items: [sourceJSON])
         }
+        .sheet(isPresented: $isSearchPresented) {
+            if let searchSource {
+                NavigationStack {
+                    SearchView(model: model, source: searchSource)
+                }
+            }
+        }
+        .sheet(isPresented: $isQRScannerPresented) {
+            NavigationStack {
+                QRScannerView(result: $qrResult)
+            }
+        }
+        .onChange(of: qrResult) { _, value in
+            guard let value, !value.isEmpty else { return }
+            qrResult = nil
+            importScanned(value)
+        }
+        .interactiveDismissDisabled(hasChanges)
+        .alert("退出", isPresented: $isExitConfirmed) {
+            Button("取消", role: .cancel) {}
+            Button("是", role: .destructive) {
+                onClose?()
+            }
+        } message: {
+            // Upstream `R.string.exit_no_save`.
+            Text("尚未保存，是否继续编辑？")
+        }
+    }
+
+    /// Imports the source of a QR code — upstream `BookSourceEditActivity`'s
+    /// `qrCodeResult` (the scanned text is a source JSON or a source URL).
+    private func importScanned(_ text: String) {
+        guard let value = try? JSONValue.parse(text),
+              let scanned = BookSourceJSONBridge.decode(value) else {
+            message = "二维码的内容不是一个书源"
+            return
+        }
+        source = scanned
+        message = "已导入书源"
     }
 
     /// The rule binding — with the auto-completion the upstream applies to
