@@ -278,6 +278,9 @@ public enum SettingsKey: String, CaseIterable, Sendable {
     /// Whether the brightness follows the system — upstream
     /// `ReadMenu.kt:320` (`context.getPrefBoolean("brightnessAuto", true)`).
     case brightnessAuto = "brightnessAuto"
+    /// The folder the local book browser starts in — upstream
+    /// `AppConfig.kt:247` (`appCtx.getPrefString("importBookPath")`).
+    case importBookPath = "importBookPath"
 }
 
 // MARK: - The welcome screen
@@ -1100,5 +1103,33 @@ public enum ClickRegion: String, CaseIterable, Sendable {
         case .topRight, .middleRight, .bottomCenter, .bottomRight: return 1
         case .middleCenter: return 0
         }
+    }
+}
+
+// MARK: - The local book import
+
+public extension AppSettings {
+
+    /// The folder the local book browser starts in — upstream
+    /// `AppConfig.kt:247` (`importBookPath`).
+    var importBookPath: String? {
+        get { string(.importBookPath) }
+        set { set(newValue, for: .importBookPath) }
+    }
+
+    /// The JavaScript rule that derives the name and the author of an
+    /// imported book from the name of its file — upstream
+    /// `AppConfig.kt:192` (`bookImportFileName`).
+    var bookImportFileName: String? {
+        get { string(.bookImportFileName) }
+        set { set(newValue, for: .bookImportFileName) }
+    }
+
+    /// The sort of the local book list — upstream
+    /// `PreferKey.localBookImportSort` (0 = the name, 1 = the size,
+    /// 2 = the time).
+    var localBookImportSort: Int {
+        get { int(.localBookImportSort, default: 0) }
+        set { set(newValue, for: .localBookImportSort) }
     }
 }

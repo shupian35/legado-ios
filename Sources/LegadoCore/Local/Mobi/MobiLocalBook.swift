@@ -212,10 +212,14 @@ public struct MobiLocalBook {
     // MARK: - The import
 
     /// Imports a MOBI file — upstream `LocalBook.getChapterList` for a MOBI.
-    public static func importFile(fileURL: URL, bookUrl: String?) throws -> LocalBook.ImportedBook {
+    public static func importFile(
+        fileURL: URL,
+        bookUrl: String?,
+        nameAuthorAnalyzer: LocalBook.NameAuthorAnalyzer? = nil
+    ) throws -> LocalBook.ImportedBook {
         let local = try MobiLocalBook.open(url: fileURL)
         let fileName = fileURL.lastPathComponent
-        let nameAuthor = LocalBook.analyzeNameAuthor(fileName: fileName)
+        let nameAuthor = nameAuthorAnalyzer?(fileName) ?? LocalBook.analyzeNameAuthor(fileName: fileName)
         var book = Book()
         book.bookUrl = bookUrl ?? fileURL.absoluteString
         book.originName = fileName

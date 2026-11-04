@@ -43,6 +43,11 @@ public struct LocalBookView: View {
                 Button("导入本地书") {
                     isImporterPresented = true
                 }
+                NavigationLink {
+                    LocalBookBrowserView(model: model)
+                } label: {
+                    Text("浏览文件夹导入")
+                }
                 Button("扫描文件夹") {
                     isFolderImporterPresented = true
                 }

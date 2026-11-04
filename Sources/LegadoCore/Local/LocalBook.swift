@@ -68,8 +68,45 @@ public enum LocalBook {
     /// Derive the book title and author from a file name.
     ///
     /// Upstream `analyzeNameAuthor(fileName)`.
-    public static func analyzeNameAuthor(fileName: String) -> (name: String, author: String) {
+    ///
+    /// - Parameters:
+    ///   - fileName: the name of the file.
+    ///   - fileNameRule: the JavaScript rule of the upstream
+    ///     `AppConfig.bookImportFileName` — the script gets the name of the
+    ///     file (without the extension) as `src` and assigns `name` and
+    ///     `author`; when it assigns nothing the four patterns are used.
+    ///   - scriptEngine: the engine that runs the rule.
+    public static func analyzeNameAuthor(
+        fileName: String,
+        fileNameRule: String? = nil,
+        scriptEngine: RuleScriptEngine? = nil
+    ) -> (name: String, author: String) {
         let tempFileName = (fileName as NSString).deletingPathExtension
+        if let rule = fileNameRule?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !rule.isEmpty,
+            let scriptEngine {
+            // The upstream appends the capture to the user's script, so that
+            // the values of the variables are returned.
+            let script = rule + "\nJSON.stringify({author:author,name:name})"
+            do {
+                let result = try scriptEngine.evaluate(script, bindings: ["src": .text(tempFileName)])
+                if case let .text(json) = result,
+                    let parsed = try? JSONValue.parse(json),
+                    case let .object(values) = parsed {
+                    let name = values["name"]?.stringValue ?? ""
+                    let author = values["author"]?.stringValue ?? ""
+                    if !name.isEmpty {
+                        // The upstream drops an author that is the whole file
+                        // name (that means the script did not set it).
+                        let author = author.count == tempFileName.count ? "" : author
+                        return (name, author)
+                    }
+                }
+            } catch {
+                // The upstream logs the error and falls back to the patterns.
+                AppLog.shared.put("执行导入文件名规则出错", error: error)
+            }
+        }
         for pattern in nameAuthorPatterns {
             guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
             let range = NSRange(location: 0, length: (tempFileName as NSString).length)
@@ -101,6 +138,13 @@ public enum LocalBook {
         public var tocPattern: String?
     }
 
+    /// Derives the name and the author of a book from the name of its file.
+    ///
+    /// The upstream uses the four patterns, unless the user configured a
+    /// JavaScript rule (`AppConfig.bookImportFileName`) — then the script
+    /// decides.
+    public typealias NameAuthorAnalyzer = (String) -> (name: String, author: String)
+
     /// Import a local file: build the book, parse the table of contents.
     ///
     /// Upstream `LocalBook.getChapterList(book)` dispatches on the file type:
@@ -111,11 +155,14 @@ public enum LocalBook {
     ///   - fileURL: the file to import.
     ///   - bookUrl: the stable identity of the book (upstream `book.bookUrl`).
     ///   - tocRules: the enabled TXT TOC rules.
+    ///   - nameAuthorAnalyzer: the rule that derives the name and the author
+    ///     from the name of the file.
     public static func importFile(
         fileURL: URL,
         bookUrl: String? = nil,
         tocRules: [TxtTocRule] = [],
-        splitLongChapter: Bool = false
+        splitLongChapter: Bool = false,
+        nameAuthorAnalyzer: NameAuthorAnalyzer? = nil
     ) throws -> ImportedBook {
         let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
         let size = (attributes?[.size] as? NSNumber)?.intValue ?? 0
@@ -131,16 +178,33 @@ public enum LocalBook {
                 fileURL: fileURL,
                 bookUrl: bookUrl,
                 tocRules: tocRules,
-                splitLongChapter: splitLongChapter
+                splitLongChapter: splitLongChapter,
+                nameAuthorAnalyzer: nameAuthorAnalyzer
             )
         case .epub:
-            return try importEpub(fileURL: fileURL, bookUrl: bookUrl)
+            return try importEpub(
+                fileURL: fileURL,
+                bookUrl: bookUrl,
+                nameAuthorAnalyzer: nameAuthorAnalyzer
+            )
         case .umd:
-            return try importUmd(fileURL: fileURL, bookUrl: bookUrl)
+            return try importUmd(
+                fileURL: fileURL,
+                bookUrl: bookUrl,
+                nameAuthorAnalyzer: nameAuthorAnalyzer
+            )
         case .pdf:
-            return try PdfBook.importFile(fileURL: fileURL, bookUrl: bookUrl)
+            return try PdfBook.importFile(
+                fileURL: fileURL,
+                bookUrl: bookUrl,
+                nameAuthorAnalyzer: nameAuthorAnalyzer
+            )
         case .mobi:
-            return try MobiLocalBook.importFile(fileURL: fileURL, bookUrl: bookUrl)
+            return try MobiLocalBook.importFile(
+                fileURL: fileURL,
+                bookUrl: bookUrl,
+                nameAuthorAnalyzer: nameAuthorAnalyzer
+            )
         }
     }
 
@@ -149,10 +213,11 @@ public enum LocalBook {
         fileURL: URL,
         bookUrl: String?,
         tocRules: [TxtTocRule],
-        splitLongChapter: Bool
+        splitLongChapter: Bool,
+        nameAuthorAnalyzer: NameAuthorAnalyzer?
     ) throws -> ImportedBook {
         let fileName = fileURL.lastPathComponent
-        let nameAuthor = analyzeNameAuthor(fileName: fileName)
+        let nameAuthor = nameAuthorAnalyzer?(fileName) ?? analyzeNameAuthor(fileName: fileName)
         var book = Book()
         book.bookUrl = bookUrl ?? fileURL.absoluteString
         book.originName = fileName
@@ -197,7 +262,11 @@ public enum LocalBook {
     ///
     /// Upstream `LocalBook.getChapterList` reads the navigation tree of the
     /// EPUB; the metadata comes from the OPF.
-    private static func importEpub(fileURL: URL, bookUrl: String?) throws -> ImportedBook {
+    private static func importEpub(
+        fileURL: URL,
+        bookUrl: String?,
+        nameAuthorAnalyzer: NameAuthorAnalyzer?
+    ) throws -> ImportedBook {
         let archive = try ZipArchive(fileURL: fileURL)
         let epubBook = try EpubBook(archive: archive)
         let epubFile = EpubFile(book: epubBook)
@@ -205,7 +274,7 @@ public enum LocalBook {
         guard !parsed.isEmpty else { throw LocalBookError.tocEmpty }
 
         let fileName = fileURL.lastPathComponent
-        let nameAuthor = analyzeNameAuthor(fileName: fileName)
+        let nameAuthor = nameAuthorAnalyzer?(fileName) ?? analyzeNameAuthor(fileName: fileName)
         var book = Book()
         book.bookUrl = bookUrl ?? fileURL.absoluteString
         book.originName = fileName
@@ -232,7 +301,11 @@ public enum LocalBook {
     }
 
     /// Imports a UMD file.
-    private static func importUmd(fileURL: URL, bookUrl: String?) throws -> ImportedBook {
+    private static func importUmd(
+        fileURL: URL,
+        bookUrl: String?,
+        nameAuthorAnalyzer: NameAuthorAnalyzer?
+    ) throws -> ImportedBook {
         let data = try Data(contentsOf: fileURL)
         let umdFile = try UmdFile(data: data)
         let identity = bookUrl ?? fileURL.absoluteString
@@ -240,7 +313,7 @@ public enum LocalBook {
         guard !parsed.isEmpty else { throw LocalBookError.tocEmpty }
 
         let fileName = fileURL.lastPathComponent
-        let nameAuthor = analyzeNameAuthor(fileName: fileName)
+        let nameAuthor = nameAuthorAnalyzer?(fileName) ?? analyzeNameAuthor(fileName: fileName)
         var book = Book()
         book.bookUrl = identity
         book.originName = fileName

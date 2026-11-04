@@ -311,7 +311,6 @@ public final class LegadoAppModel: ObservableObject {
             ?? FileManager.default.temporaryDirectory
                 .appendingPathComponent("books", isDirectory: true)
         try? FileManager.default.createDirectory(at: booksRoot, withIntermediateDirectories: true)
-        let localImporter = LocalBookImporter(store: store, booksDirectory: booksRoot)
         // The cookie jar of the app (upstream `CookieStore` keeps the cookies
         // in the shared preferences) and the login service of the sources.
         let cookieStore = CookieStore(persistence: UserDefaultsCookiePersistence())
@@ -331,6 +330,10 @@ public final class LegadoAppModel: ObservableObject {
             sandboxDirectory: cacheRoot.path,
             verification: verification
         )
+        // The importer runs the JavaScript rule of the file names, so it needs
+        // the script engine.
+        let localImporter = LocalBookImporter(store: store, booksDirectory: booksRoot)
+        localImporter.scriptEngine = scriptEngine
         let environment = AppEnvironment(
             store: store,
             settings: settings,
@@ -464,6 +467,7 @@ public final class LegadoAppModel: ObservableObject {
             errorMessage = "本地书导入不可用"
             return
         }
+        localImporter.fileNameRule = environment.settings.bookImportFileName
         do {
             _ = try localImporter.importBook(from: url)
             reloadLocalBooks()
@@ -471,6 +475,24 @@ public final class LegadoAppModel: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Imports several local books — upstream `LocalBook.importFiles`.
+    ///
+    /// The archives are unpacked and every book inside them is imported.
+    ///
+    /// - Returns: the number of the imported books.
+    @discardableResult
+    public func importLocalBooks(_ urls: [URL]) async -> Int {
+        guard let localImporter else {
+            errorMessage = "本地书导入不可用"
+            return 0
+        }
+        localImporter.fileNameRule = environment.settings.bookImportFileName
+        let count = (try? localImporter.importBooks(from: urls)) ?? 0
+        reloadLocalBooks()
+        reloadBookshelf()
+        return count
     }
 
     /// Deletes an imported local book.

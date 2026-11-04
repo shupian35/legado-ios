@@ -221,6 +221,8 @@ final class SettingsKeyParityTests: XCTestCase {
         "welcomeStyle",
         // `ReadMenu.kt:320` — the brightness follows the system.
         "brightnessAuto",
+        // `AppConfig.kt:247` — the folder of the local book browser.
+        "importBookPath",
     ]
 
     func testEveryUpstreamPreferenceIsRepresented() {

@@ -123,11 +123,12 @@ public enum PdfBook {
     public static func importDocument(
         document: PdfDocument,
         fileURL: URL,
-        bookUrl: String? = nil
+        bookUrl: String? = nil,
+        nameAuthorAnalyzer: LocalBook.NameAuthorAnalyzer? = nil
     ) throws -> LocalBook.ImportedBook {
         guard document.pageCount > 0 else { throw PdfBookError.emptyDocument }
         let fileName = fileURL.lastPathComponent
-        let nameAuthor = LocalBook.analyzeNameAuthor(fileName: fileName)
+        let nameAuthor = nameAuthorAnalyzer?(fileName) ?? LocalBook.analyzeNameAuthor(fileName: fileName)
         var book = Book()
         book.bookUrl = bookUrl ?? fileURL.absoluteString
         book.originName = fileName
@@ -152,9 +153,18 @@ public enum PdfBook {
     }
 
     /// Imports a PDF file from disk (no renderer).
-    public static func importFile(fileURL: URL, bookUrl: String? = nil) throws -> LocalBook.ImportedBook {
+    public static func importFile(
+        fileURL: URL,
+        bookUrl: String? = nil,
+        nameAuthorAnalyzer: LocalBook.NameAuthorAnalyzer? = nil
+    ) throws -> LocalBook.ImportedBook {
         let data = try Data(contentsOf: fileURL)
         let document = try RawPdfDocument(data: data)
-        return try importDocument(document: document, fileURL: fileURL, bookUrl: bookUrl)
+        return try importDocument(
+            document: document,
+            fileURL: fileURL,
+            bookUrl: bookUrl,
+            nameAuthorAnalyzer: nameAuthorAnalyzer
+        )
     }
 }
