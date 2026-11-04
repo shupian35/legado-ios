@@ -82,4 +82,14 @@ public final class LocalConfig {
         get { store.bool(forKey: "deleteBookOriginal") ?? false }
         set { store.set(newValue, forKey: "deleteBookOriginal") }
     }
+
+    /// Whether the book information screen asks before it deletes a book —
+    /// upstream `LocalConfig.bookInfoDeleteAlert`.
+    ///
+    /// The upstream toggles it in the book information menu
+    /// (`menu_delete_alert`) and reads it when the book is deleted.
+    public var bookInfoDeleteAlert: Bool {
+        get { store.bool(forKey: "bookInfoDeleteAlert") ?? false }
+        set { store.set(newValue, forKey: "bookInfoDeleteAlert") }
+    }
 }

@@ -35,6 +35,11 @@ public struct BookDetailView: View {
     @State private var isTocPresented = false
     @State private var isGroupPickerPresented = false
     @State private var isSharePresented = false
+    /// The confirmation of the upload to the WebDAV server — upstream
+    /// `BookInfoActivity.menu_upload`.
+    @State private var isUploadConfirmed = false
+    /// Whether the log is shown — upstream `BookInfoActivity.menu_log`.
+    @State private var isLogPresented = false
     /// Whether the book is on the shelf.
     @State private var isOnShelf = false
     /// The groups the book is in.
@@ -153,6 +158,31 @@ public struct BookDetailView: View {
                     Button(current.canUpdate ? "禁止更新" : "允许更新") {
                         toggleCanUpdate()
                     }
+                    // Upstream `BookInfoActivity.menu_upload` — the local
+                    // books are uploaded to the WebDAV server.
+                    if BookType.contains(current.type, BookType.local) {
+                        Button("上传到远程") {
+                            isUploadConfirmed = true
+                        }
+                    }
+                    // Upstream `BookInfoActivity.menu_split_long_chapter` —
+                    // only for the local TXT books.
+                    if isLocalTxt {
+                        Button(current.readConfigBox.splitLongChapter ? "取消分割长章节" : "分割长章节") {
+                            toggleSplitLongChapter()
+                        }
+                    }
+                    // Upstream `BookInfoActivity.menu_delete_alert` — whether
+                    // the book is deleted after a confirmation.
+                    Button(model.environment.localConfig.bookInfoDeleteAlert ? "取消删除提示" : "删除提示") {
+                        let value = !model.environment.localConfig.bookInfoDeleteAlert
+                        model.environment.localConfig.bookInfoDeleteAlert = value
+                    }
+                    // Upstream `BookInfoActivity.menu_log` — the log of the
+                    // app.
+                    Button("日志") {
+                        isLogPresented = true
+                    }
                     // Upstream `BookInfoActivity.menu_share` — the upstream
                     // shares `${bookUrl}#$bookJson`.
                     Button("分享") {
@@ -192,6 +222,19 @@ public struct BookDetailView: View {
         }
         .sheet(isPresented: $isSharePresented) {
             ShareSheet(items: [shareText])
+        }
+        .sheet(isPresented: $isLogPresented) {
+            NavigationStack {
+                AppLogView()
+            }
+        }
+        .alert("上传到远程", isPresented: $isUploadConfirmed) {
+            Button("取消", role: .cancel) {}
+            Button("确定") {
+                uploadToRemote()
+            }
+        } message: {
+            Text("确定要上传这本书到远程服务器吗？")
         }
         .sheet(isPresented: $model.isReaderPresented) {
             if let reader = model.reader {
@@ -398,6 +441,61 @@ public struct BookDetailView: View {
         try? model.environment.store.update(updated)
         current = updated
         model.reloadBookshelf()
+    }
+
+    /// Whether the book is a local TXT book — upstream `Book.isLocalTxt`.
+    private var isLocalTxt: Bool {
+        guard BookType.contains(current.type, BookType.local) else { return false }
+        guard let url = model.localImporter?.fileURL(for: current) else { return false }
+        return url.pathExtension.lowercased() == "txt"
+    }
+
+    /// Toggles the split of the long chapters — upstream
+    /// `BookInfoActivity.menu_split_long_chapter`.
+    private func toggleSplitLongChapter() {
+        let enabled = !current.readConfigBox.splitLongChapter
+        let changed = TocOperations.setSplitLongChapter(enabled, book: current)
+        try? model.environment.store.update(changed)
+        current = changed
+        if enabled, let fileURL = model.localImporter?.fileURL(for: current) {
+            try? TocOperations.reparse(
+                book: changed,
+                rule: changed.tocUrl,
+                fileURL: fileURL,
+                splitLongChapter: true
+            )
+        }
+        load()
+    }
+
+    /// Uploads the book to the WebDAV server — upstream
+    /// `BookInfoActivity.upLoadBook` + `RemoteBookWebDav.upload`.
+    private func uploadToRemote() {
+        let account = model.environment.settings.appWebDav
+        guard account.isConfigured else {
+            errorMessage = "未配置webDav"
+            return
+        }
+        Task {
+            do {
+                let client = WebDavClient(
+                    configuration: account.serviceConfiguration,
+                    httpClient: model.environment.httpClient
+                )
+                let importer = RemoteBookImporter(
+                    client: client,
+                    rootPath: "books/",
+                    serverID: nil
+                )
+                let uploaded = try await importer.upload(book: current)
+                try? model.environment.store.update(uploaded)
+                current = uploaded
+                model.reloadBookshelf()
+                errorMessage = nil
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
     }
 
     private func openReader(chapterIndex: Int64? = nil) {

@@ -291,10 +291,16 @@ public enum ChangeSourceService {
     /// The upstream `Book.migrateTo(newBook, toc)` copies the user fields and
     /// the reading progress onto the new book; the chapter list is replaced
     /// by the caller.
+    ///
+    /// The upstream also writes the DISPLAY title of the chapter
+    /// (`BookChapter.getDisplayTitle` with the title replace rules of the new
+    /// origin), so the `replaceRules` of the new source may be passed in.
     public static func switchSource(
         oldBook: Book,
         newBook: Book,
-        toc: [BookChapter]? = nil
+        toc: [BookChapter]? = nil,
+        replaceRules: [ReplaceRule]? = nil,
+        useReplace: Bool = true
     ) -> Book {
         var book = newBook
         let chapters = toc ?? []
@@ -306,7 +312,12 @@ public enum ChangeSourceService {
         )
         book.durChapterIndex = Int64(index)
         if chapters.indices.contains(index) {
-            book.durChapterTitle = chapters[index].title
+            let chapter = chapters[index]
+            book.durChapterTitle = (try? ReplaceRuleEngine.displayTitle(
+                chapter,
+                replaceRules: replaceRules,
+                useReplace: useReplace
+            )) ?? chapter.title
         }
         book.durChapterPos = oldBook.durChapterPos
         book.durChapterTime = oldBook.durChapterTime

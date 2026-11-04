@@ -34,8 +34,6 @@ public struct ChangeSourceView: View {
     @State private var candidates: [ChangeSourceCandidate] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
-    @State private var checkAuthor = true
-    @State private var loadWordCount = false
     @State private var didSearch = false
 
     public init(model: LegadoAppModel, book: Book) {
@@ -45,11 +43,20 @@ public struct ChangeSourceView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Toggle("校验作者", isOn: $checkAuthor)
-                Toggle("加载字数", isOn: $loadWordCount)
-                Button("搜索") {
-                    search()
+            // Upstream `ChangeBookSourceDialog` — the four switches of the
+            // menu `res/menu/change_source.xml`; they are stored in the
+            // preferences (`AppConfig.changeSource*`).
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Toggle("校验作者", isOn: settingBinding(.changeSourceCheckAuthor))
+                    Toggle("加载详情", isOn: settingBinding(.changeSourceLoadInfo))
+                }
+                HStack {
+                    Toggle("加载目录", isOn: settingBinding(.changeSourceLoadToc))
+                    Toggle("加载字数", isOn: settingBinding(.changeSourceLoadWordCount))
+                    Button("搜索") {
+                        search()
+                    }
                 }
             }
             if isLoading {
@@ -95,12 +102,15 @@ public struct ChangeSourceView: View {
         isLoading = true
         errorMessage = nil
         didSearch = true
+        let settings = model.environment.settings
         Task {
             do {
                 let sources = try model.environment.sources(enabledOnly: true)
                 let options = ChangeSourceOptions(
-                    checkAuthor: checkAuthor,
-                    loadWordCount: loadWordCount
+                    checkAuthor: settings.bool(.changeSourceCheckAuthor, default: false),
+                    loadInfo: settings.bool(.changeSourceLoadInfo, default: false),
+                    loadToc: settings.bool(.changeSourceLoadToc, default: false),
+                    loadWordCount: settings.bool(.changeSourceLoadWordCount, default: false)
                 )
                 let found = try await ChangeSourceService.search(
                     book: book,
@@ -114,6 +124,15 @@ public struct ChangeSourceView: View {
             }
             isLoading = false
         }
+    }
+
+    /// A binding for one of the switches of the upstream — the value is
+    /// stored in the preferences.
+    private func settingBinding(_ key: SettingsKey) -> Binding<Bool> {
+        Binding(
+            get: { model.environment.settings.bool(key, default: false) },
+            set: { model.environment.settings.set($0, for: key) }
+        )
     }
 
     private func switchSource(_ candidate: ChangeSourceCandidate) {

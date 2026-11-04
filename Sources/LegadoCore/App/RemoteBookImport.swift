@@ -168,6 +168,8 @@ public struct RemoteBookImporter: Sendable {
         case downloadFailed(String)
         /// The book could not be imported.
         case importFailed(String)
+        /// The book could not be uploaded.
+        case uploadFailed(String)
     }
 
     public let client: WebDavClient
@@ -247,8 +249,54 @@ public struct RemoteBookImporter: Sendable {
     /// The origin of an imported book — upstream
     /// `BookType.webDavTag + CustomUrl(path).putAttribute("serverID", …)`.
     public func origin(for book: RemoteBook) -> String {
-        let url = book.path
-        guard let serverID else { return BookType.webDavTag + url }
-        return BookType.webDavTag + url + ",{\"serverID\":\(serverID)}"
+        origin(forPath: book.path)
+    }
+
+    /// The origin of a book that lives at `path` — upstream
+    /// `BookType.webDavTag + CustomUrl(putUrl).putAttribute("serverID", …)`.
+    public func origin(forPath path: String) -> String {
+        guard let serverID else { return BookType.webDavTag + path }
+        return BookType.webDavTag + path + ",{\"serverID\":\(serverID)}"
+    }
+
+    /// Uploads a local book to the server — upstream
+    /// `RemoteBookWebDav.upload` (`RemoteBookWebDav.kt:69-83`).
+    ///
+    /// The file is PUT to `rootPath + the name of the file` (the upstream uses
+    /// the origin name of the book) and the origin of the book becomes the
+    /// WebDAV url with the id of the server, so that the book can be
+    /// downloaded from the remote browser later.
+    public func upload(book: Book, fileData: Data? = nil) async throws -> Book {
+        let fileName = uploadFileName(for: book)
+        let target = path(fileName)
+        let data: Data
+        if let fileData {
+            data = fileData
+        } else {
+            guard let url = URL(string: book.bookUrl) else {
+                throw ImportError.uploadFailed(book.bookUrl)
+            }
+            do {
+                data = try Data(contentsOf: url)
+            } catch {
+                throw ImportError.uploadFailed(book.bookUrl)
+            }
+        }
+        try await client.upload(data, to: target)
+        var updated = book
+        updated.origin = origin(forPath: target)
+        return updated
+    }
+
+    /// The name of the uploaded file — the upstream uses the origin name of
+    /// the book (the name of the local file).
+    private func uploadFileName(for book: Book) -> String {
+        if !book.originName.isEmpty {
+            return book.originName
+        }
+        if let name = URL(string: book.bookUrl)?.lastPathComponent, !name.isEmpty {
+            return name
+        }
+        return book.name
     }
 }

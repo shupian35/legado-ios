@@ -50,6 +50,8 @@ public struct TocView: View {
     /// Whether the global "use the replace rules in the TOC" is on — upstream
     /// `AppConfig.tocUiUseReplace`.
     @State private var usesGlobalReplace = false
+    /// The app log — upstream `TocActivity.menu_log`.
+    @State private var isLogPresented = false
 
     public init(model: LegadoAppModel, book: Book, onSelectChapter: ((Int) -> Void)? = nil) {
         self.model = model
@@ -69,6 +71,21 @@ public struct TocView: View {
                                 Text(bookmark.chapterName)
                                     .font(.system(size: 14))
                                     .frame(maxWidth: .infinity, alignment: .leading)
+                                // Upstream `BookmarkAdapter.convert` — the text
+                                // of the book at the bookmark position and the
+                                // note of the user; both are hidden when empty.
+                                if !bookmark.bookText.isEmpty {
+                                    Text(bookmark.bookText)
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(2)
+                                }
+                                if !bookmark.content.isEmpty {
+                                    Text(bookmark.content)
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(2)
+                                }
                                 Text("位置 \(bookmark.chapterPos)")
                                     .font(.system(size: 11))
                                     .foregroundColor(.secondary)
@@ -81,9 +98,22 @@ public struct TocView: View {
                 if !chapters.isEmpty {
                     Section {
                         HStack {
-                            Text("当前章节 \(currentChapterNumber)/\(chapters.count)")
-                                .font(.system(size: 12))
-                                .foregroundColor(.secondary)
+                            // Upstream `ChapterListFragment.upChapterList` — the
+                            // header shows the title of the current chapter and
+                            // its position; tapping it opens the reader there.
+                            Button {
+                                openChapter(index: Int(book.durChapterIndex))
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(currentChapterTitle)
+                                        .font(.system(size: 13))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    Text("当前章节 \(currentChapterNumber)/\(chapters.count)")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .buttonStyle(PlainButtonStyle())
                             Spacer()
                             Button("顶部") {
                                 openChapter(index: 0)
@@ -179,9 +209,11 @@ public struct TocView: View {
                             toggleSplitLongChapter()
                         }
                     }
-                    // Upstream `TocActivity.menu_load_word_count`.
+                    // Upstream `TocActivity.menu_load_word_count` — the global
+                    // flag `AppConfig.tocCountWords`.
                     Button(showsWordCount ? "隐藏字数" : "显示字数") {
                         showsWordCount.toggle()
+                        model.environment.settings.set(showsWordCount, for: .tocCountWords)
                     }
                     Button("导出书签") {
                         exportBookmarks(asMarkdown: false)
@@ -189,9 +221,18 @@ public struct TocView: View {
                     Button("导出书签(Markdown)") {
                         exportBookmarks(asMarkdown: true)
                     }
+                    // Upstream `TocActivity.menu_log` — the app log.
+                    Button("日志") {
+                        isLogPresented = true
+                    }
                 } label: {
                     Label("更多", systemImage: "ellipsis.circle")
                 }
+            }
+        }
+        .sheet(isPresented: $isLogPresented) {
+            NavigationStack {
+                AppLogView()
             }
         }
         .onAppear {
@@ -222,6 +263,17 @@ public struct TocView: View {
     private var currentChapterNumber: Int {
         let index = Int(book.durChapterIndex) + 1
         return max(1, min(index, max(1, chapters.count)))
+    }
+
+    /// The title of the current chapter — upstream
+    /// `ChapterListFragment.upChapterList` shows
+    /// "${book.durChapterTitle}(${index + 1}/${total})".
+    private var currentChapterTitle: String {
+        let index = Int(book.durChapterIndex)
+        if chapters.indices.contains(index) {
+            return displayTitle(for: chapters[index])
+        }
+        return book.durChapterTitle ?? ""
     }
 
     /// The display title of a chapter — the title replace rules are applied
@@ -310,14 +362,18 @@ public struct TocView: View {
             $0.bookName == book.name && $0.bookAuthor == book.author
         }
         usesGlobalReplace = model.environment.settings.bool(.tocUiUseReplace, default: false)
+        showsWordCount = model.environment.settings.bool(.tocCountWords, default: false)
         reloadDisplayTitles()
     }
 
     /// Computes the display titles of the chapters — upstream
     /// `ChapterListAdapter.upDisplayTitles`.
+    ///
+    /// The upstream uses the replace rules when the global flag
+    /// (`AppConfig.tocUiUseReplace`) AND the flag of the book are on.
     private func reloadDisplayTitles() {
         displayTitles = [:]
-        guard book.useReplaceRule else { return }
+        guard usesGlobalReplace, book.useReplaceRule else { return }
         let rules = (try? model.environment.store.replaceRulesForTitle(
             name: book.name,
             origin: book.origin
@@ -348,13 +404,18 @@ public struct TocView: View {
         message = "已反转目录"
     }
 
+    /// Toggles the use of the replace rules in the table of contents —
+    /// upstream `TocActivity.menu_use_replace`.
+    ///
+    /// The upstream flips the GLOBAL flag `AppConfig.tocUiUseReplace` (the
+    /// flag of the book, `book.getUseReplaceRule()`, is a separate one) and
+    /// then recomputes the display titles.
     private func toggleReplaceRule() {
-        var changed = book
-        changed.useReplaceRule.toggle()
-        try? model.environment.store.update(changed)
-        usesGlobalReplace.toggle()
+        let enabled = !model.environment.settings.bool(.tocUiUseReplace, default: false)
+        model.environment.settings.set(enabled, for: .tocUiUseReplace)
+        usesGlobalReplace = enabled
         reloadDisplayTitles()
-        message = changed.useReplaceRule ? "已使用替换规则" : "已关闭替换规则"
+        message = enabled ? "已使用替换规则" : "已关闭替换规则"
     }
 
     /// Exports the bookmarks — upstream `TocViewModel.saveBookmark`.

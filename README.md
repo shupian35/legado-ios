@@ -19,7 +19,7 @@ its state (`[x]` done, `[~]` partial, `[ ]` not started), followed by the
 deliberate deviations. The plain-language summary — **what is done and what is
 not** — is [`Plan/01-feature-status.md`](Plan/01-feature-status.md).
 
-The port is ~65,780 lines of Swift in 247 files, with ~14,690 lines of tests
+The port is ~66,345 lines of Swift in 247 files, with ~14,692 lines of tests
 (1,170 unit tests: 1,090 in `LegadoCoreTests`, 80 in `LegadoServerTests`) next to them.
 
 ## What is in here

@@ -95,6 +95,18 @@ public struct DownloadManageView: View {
     @State private var books: [Book] = []
     @State private var isLogPresented = false
     @State private var message: String?
+    /// The group filter — upstream `CacheActivity.menu_book_group`.
+    @State private var groupId: Int64 = BookGroup.Id.all
+    /// The name template of the exported file — upstream
+    /// `AppConfig.episodeExportFileName`.
+    @State private var exportFileName = ""
+    /// The folder the exports are written to — upstream
+    /// `CacheActivity.selectExportFolder`.
+    @State private var exportFolder = ""
+    /// The charset of the exported text — upstream `AppConfig.exportCharset`.
+    @State private var exportCharset = "UTF-8"
+    /// The export format (0 = txt, 1 = epub) — upstream `AppConfig.exportType`.
+    @State private var exportType = 0
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -118,7 +130,7 @@ public struct DownloadManageView: View {
                 )
             }
         }
-        .navigationTitle("缓存管理")
+        .navigationTitle(groupTitle)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu("更多") {
@@ -131,6 +143,64 @@ public struct DownloadManageView: View {
                         Task {
                             for book in books {
                                 await model.stopCaching(book: book)
+                            }
+                        }
+                    }
+                    // Upstream `CacheActivity.menu_export_all`.
+                    Button("导出全部") {
+                        exportAll()
+                    }
+                    // Upstream `CacheActivity.menu_enable_replace` and the
+                    // other export switches — they are the `AppConfig` flags
+                    // the export service reads.
+                    Section("导出选项") {
+                        Toggle("净化替换", isOn: settingBinding(.exportUseReplace))
+                        Toggle("自定义导出章节", isOn: settingBinding(.enableCustomExport))
+                        Toggle("不包含章节名", isOn: settingBinding(.exportNoChapterName))
+                        Toggle("导出到WebDAV", isOn: settingBinding(.exportToWebDav))
+                        Toggle("导出图片到文件夹", isOn: settingBinding(.exportPictureFile))
+                        Toggle("并行导出书籍", isOn: settingBinding(.parallelExportBook))
+                    }
+                    Section("导出配置") {
+                        Button(exportType == 0 ? "导出类型：TXT" : "导出类型：EPUB") {
+                            exportType = exportType == 0 ? 1 : 0
+                            model.environment.settings.set(exportType, for: .exportType)
+                        }
+                        Button("导出字符集：\(exportCharset)") {
+                            exportCharset = exportCharset == "UTF-8" ? "GBK" : "UTF-8"
+                            model.environment.settings.set(exportCharset, for: .exportCharset)
+                        }
+                        Button("导出文件名：\(exportFileName.isEmpty ? "默认" : exportFileName)") {
+                            exportFileName = exportFileName.isEmpty ? "{bookName}" : ""
+                            model.environment.settings.set(exportFileName, for: .episodeExportFileName)
+                        }
+                        Button("导出文件夹：\(exportFolder.isEmpty ? "默认" : exportFolder)") {
+                            exportFolder = exportFolder.isEmpty ? "书籍导出" : ""
+                            try? model.environment.store.putCache(
+                                "exportBookPath",
+                                value: exportFolder,
+                                deadline: 0
+                            )
+                        }
+                    }
+                    // Upstream `CacheActivity.menu_book_group` — the submenu
+                    // with every group of the shelf.
+                    Section("分组筛选") {
+                        Button {
+                            groupId = BookGroup.Id.all
+                            reload()
+                        } label: {
+                            Label("全部", systemImage: groupId == BookGroup.Id.all ? "checkmark" : "")
+                        }
+                        ForEach(model.groups) { group in
+                            Button {
+                                groupId = group.groupId
+                                reload()
+                            } label: {
+                                Label(
+                                    group.groupName,
+                                    systemImage: groupId == group.groupId ? "checkmark" : ""
+                                )
                             }
                         }
                     }
@@ -158,9 +228,18 @@ public struct DownloadManageView: View {
 
     private func reload() {
         books = (try? model.environment.bookshelf().books(
-            inGroup: BookGroup.Id.all,
+            inGroup: groupId,
             settings: model.environment.settings
         )) ?? []
+        exportType = model.environment.settings.exportType
+        exportCharset = model.environment.settings.exportCharset.isEmpty
+            ? "UTF-8"
+            : model.environment.settings.exportCharset
+        exportFileName = model.environment.settings.string(.episodeExportFileName) ?? ""
+        exportFolder = (try? model.environment.store.cache(
+            "exportBookPath",
+            now: Int64(Date().timeIntervalSince1970 * 1000)
+        )) ?? ""
         Task {
             for book in books {
                 await model.refreshCacheProgress(bookUrl: book.bookUrl)
@@ -178,12 +257,69 @@ public struct DownloadManageView: View {
     private func export(_ book: Book) {
         Task {
             do {
-                let file = try await model.exportBook(book: book, format: .txt)
+                let file = try await model.exportBook(
+                    book: book,
+                    format: exportType == 0 ? .txt : .epub,
+                    options: exportOptions(for: book)
+                )
                 message = "已导出：\(file.fileName)"
             } catch {
                 message = "导出失败：\(error.localizedDescription)"
             }
         }
+    }
+
+    /// Exports every book of the list — upstream `CacheActivity.exportAll`.
+    private func exportAll() {
+        let list = books
+        Task {
+            var exported = 0
+            var failed = 0
+            for book in list {
+                do {
+                    _ = try await model.exportBook(
+                        book: book,
+                        format: exportType == 0 ? .txt : .epub,
+                        options: exportOptions(for: book)
+                    )
+                    exported += 1
+                } catch {
+                    failed += 1
+                }
+            }
+            message = failed == 0
+                ? "已导出 \(exported) 本书"
+                : "已导出 \(exported) 本，失败 \(failed) 本"
+        }
+    }
+
+    /// The options of the export — upstream `AppConfig.exportUseReplace`,
+    /// `exportNoChapterName` and `exportPictureFile`.
+    private func exportOptions(for book: Book) -> BookExportOptions {
+        let settings = model.environment.settings
+        return BookExportOptions(
+            includeChapterTitle: !settings.exportNoChapterName,
+            useReplaceRule: settings.exportUseReplace,
+            exportPictureFile: settings.exportPictureFile,
+            fileName: exportFileName.isEmpty ? nil : exportFileName
+        )
+    }
+
+    /// A binding for one of the export switches of the upstream — the value
+    /// is stored in the preferences.
+    private func settingBinding(_ key: SettingsKey) -> Binding<Bool> {
+        Binding(
+            get: { model.environment.settings.bool(key, default: false) },
+            set: { model.environment.settings.set($0, for: key) }
+        )
+    }
+
+    /// The title of the screen — upstream `CacheActivity` shows the name of
+    /// the group in the subtitle.
+    private var groupTitle: String {
+        guard groupId != BookGroup.Id.all else { return "缓存管理" }
+        let name = model.groups.first { $0.groupId == groupId }?.groupName ?? ""
+        return "筛选 • \(name)"
     }
 }
 

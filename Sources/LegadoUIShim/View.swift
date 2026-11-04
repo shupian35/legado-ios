@@ -238,6 +238,14 @@ public struct Stepper: View {
         step: V.Stride = 1,
         @ViewBuilder label: () -> some View
     ) {}
+    /// The real SwiftUI also has a `Strideable` overload (the integer
+    /// steppers) — it is needed by the delay picker of the source picker.
+    public init<V: Strideable>(
+        value: Binding<V>,
+        in bounds: ClosedRange<V>,
+        step: V.Stride = 1,
+        @ViewBuilder label: () -> some View
+    ) {}
     public var body: Never { fatalError("Stepper has no body") }
 }
 
@@ -284,6 +292,8 @@ public struct Menu<Content: View>: View {
 public struct Label: View {
     public init<S: StringProtocol>(_ title: S, systemImage: String) {}
     public init(@ViewBuilder content: () -> some View) {}
+    /// The `Label { title } icon: { icon }` form.
+    public init(@ViewBuilder title: () -> some View, @ViewBuilder icon: () -> some View) {}
     public var body: Never { fatalError("Label has no body") }
 }
 

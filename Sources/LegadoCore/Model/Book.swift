@@ -73,7 +73,7 @@ public enum SourceType {
 }
 
 /// A book group — upstream `data/entities/BookGroup.kt`.
-public struct BookGroup: Equatable {
+public struct BookGroup: Equatable, Identifiable {
     /// The upstream well known group ids — upstream
     /// `data/entities/BookGroup.kt` companion object.
     ///
@@ -125,6 +125,9 @@ public struct BookGroup: Equatable {
         self.show = show
         self.bookSort = bookSort
     }
+
+    /// The identity of the group — the group id.
+    public var id: Int64 { groupId }
 
     public init(row: StorageRow) {
         groupId = row["groupId"]?.intValue ?? 0

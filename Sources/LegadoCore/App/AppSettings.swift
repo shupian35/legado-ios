@@ -673,6 +673,16 @@ public final class AppSettings {
         set { set(newValue, for: .preDownloadNum) }
     }
 
+    /// The delay between two books of a batch source change, in seconds —
+    /// upstream `AppConfig.batchChangeSourceDelay`.
+    ///
+    /// The upstream reads the preference without a default (`getPrefInt`), so
+    /// the value is 0 (no delay) until it is set.
+    public var batchChangeSourceDelay: Int {
+        get { int(.batchChangeSourceDelay, default: 0) }
+        set { set(newValue, for: .batchChangeSourceDelay) }
+    }
+
     // MARK: - Bookshelf
 
     /// The global bookshelf sort — upstream `AppConfig.bookshelfSort`.

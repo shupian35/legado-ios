@@ -141,7 +141,11 @@ public final class LegadoAppModel: ObservableObject {
     /// The cached chapters are used when they exist, otherwise the content is
     /// fetched through the source.
     @discardableResult
-    public func exportBook(book: Book, format: BookExportFormat) async throws -> ExportedFile {
+    public func exportBook(
+        book: Book,
+        format: BookExportFormat,
+        options: BookExportOptions = BookExportOptions()
+    ) async throws -> ExportedFile {
         let chapters = try environment.chapters(of: book)
         let titleRules = (try? environment.store.replaceRulesForTitle(name: book.name, origin: book.origin)) ?? []
         let contentRules = (try? environment.store.replaceRulesForContent(name: book.name, origin: book.origin)) ?? []
@@ -171,6 +175,7 @@ public final class LegadoAppModel: ObservableObject {
                 chapters: chapters,
                 titleRules: titleRules,
                 contentRules: contentRules,
+                options: options,
                 content: content
             )
             return result.file
@@ -180,6 +185,7 @@ public final class LegadoAppModel: ObservableObject {
                 chapters: chapters,
                 titleRules: titleRules,
                 contentRules: contentRules,
+                options: options,
                 content: content
             )
         }

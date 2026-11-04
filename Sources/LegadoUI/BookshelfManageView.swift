@@ -61,6 +61,15 @@ public struct BookshelfManageView: View {
     /// The book whose information is opened by tapping the title — upstream
     /// `BookAdapter.openBook`.
     @State private var openedBook: Book?
+    /// Whether a batch source change is running — upstream
+    /// `BookshelfManageViewModel.batchChangeSourceState`.
+    @State private var isChangingSource = false
+    /// The progress of the batch source change — upstream
+    /// `BookshelfManageViewModel.batchChangeSourceProcessLiveData`.
+    @State private var sourceProgress: String?
+    /// The book whose group is changed by the per-row group button — upstream
+    /// `BookAdapter.actionItem`.
+    @State private var groupBook: Book?
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -68,6 +77,18 @@ public struct BookshelfManageView: View {
 
     public var body: some View {
         List {
+            // Upstream `BookshelfManageViewModel.batchChangeSourceProcessLiveData`
+            // — the wait dialog of the batch source change.
+            if isChangingSource {
+                Section {
+                    HStack {
+                        Text("正在换源…")
+                        Spacer()
+                        Text(sourceProgress ?? "")
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
             Section {
                 ForEach(books, id: \.bookUrl) { book in
                     row(book)
@@ -112,6 +133,32 @@ public struct BookshelfManageView: View {
                             !model.environment.settings.bool(.openBookInfoByClickTitle, default: true),
                             for: .openBookInfoByClickTitle
                         )
+                    }
+                    // Upstream `menu_book_group` — the submenu of the groups
+                    // (`BookshelfManageActivity.upMenu`).
+                    Section("分组筛选") {
+                        Button {
+                            groupFilterId = BookGroup.Id.all
+                            applyFilter()
+                        } label: {
+                            Label {
+                                Text("全部")
+                            } icon: {
+                                Text(groupFilterId == BookGroup.Id.all ? "✓" : "")
+                            }
+                        }
+                        ForEach(model.groups, id: \.groupId) { group in
+                            Button {
+                                groupFilterId = group.groupId
+                                applyFilter()
+                            } label: {
+                                Label {
+                                    Text(group.groupName)
+                                } icon: {
+                                    Text(groupFilterId == group.groupId ? "✓" : "")
+                                }
+                            }
+                        }
                     }
                 } label: {
                     Text("更多")
@@ -185,6 +232,17 @@ public struct BookshelfManageView: View {
                 GroupManageView(model: model)
             }
         }
+        .sheet(item: $groupBook) { book in
+            NavigationStack {
+                GroupPickerView(model: model, selected: book.group) { groupId in
+                    var changed = book
+                    changed.group = groupId
+                    try? model.environment.store.update(changed)
+                    reload()
+                    model.reloadBookshelf()
+                }
+            }
+        }
         .sheet(item: $openedBook) { book in
             NavigationStack {
                 BookDetailView(model: model, book: book)
@@ -217,13 +275,35 @@ public struct BookshelfManageView: View {
                 Text(book.author)
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
-                if !book.originName.isEmpty {
+                // Upstream `BookAdapter.tvOrigin` — the local books show
+                // "本地书籍" instead of the name of the source.
+                if BookType.contains(book.type, BookType.local) {
+                    Text("本地书籍")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                } else {
                     Text(book.originName)
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+                // Upstream `BookAdapter.tvGroupS` — the names of the groups the
+                // book is in.
+                let names = groupNames(of: book)
+                if !names.isEmpty {
+                    Text(names)
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
                 }
             }
             Spacer()
+            // Upstream `BookAdapter.tvGroup` — the button that opens the group
+            // picker for this book (the group mask is replaced).
+            Button {
+                groupBook = book
+            } label: {
+                Text("分组")
+                    .font(.system(size: 12))
+            }
             Menu {
                 Button("移动到分组") {
                     isGroupPickerPresented = true
@@ -238,6 +318,15 @@ public struct BookshelfManageView: View {
                     .font(.system(size: 13))
             }
         }
+    }
+
+    /// The names of the groups a book is in — upstream
+    /// `BookAdapter.getGroupName`.
+    private func groupNames(of book: Book) -> String {
+        model.groups
+            .filter { $0.groupId > 0 && ($0.groupId & book.group) > 0 }
+            .map(\.groupName)
+            .joined(separator: ",")
     }
 
     private func reload() {
@@ -374,32 +463,24 @@ public struct BookshelfManageView: View {
 
     /// Changes the source of the selected books — upstream
     /// `BookshelfManageViewModel.changeSource`.
+    ///
+    /// The upstream migrates the reading progress onto the new book
+    /// (`Book.migrateTo`) and waits `batchChangeSourceDelay` seconds between
+    /// two books; the progress is shown as "${index + 1} / ${size}".
     private func changeSource(to source: BookSource) {
+        isChangingSource = true
+        let selected = selectedBooks
         Task {
-            var changed = 0
-            for book in selectedBooks {
-                if BookType.contains(book.type, BookType.local) { continue }
-                if book.origin == source.bookSourceUrl { continue }
-                guard let found = try? await WebBook.preciseSearch(
-                    bookSource: source,
-                    name: book.name,
-                    author: book.author,
-                    dependencies: model.environment.dependencies()
-                ) else { continue }
-                var newBook = found
-                if newBook.tocUrl.isEmpty {
-                    guard let info = try? await model.environment.loadBookInfo(book: newBook, source: source) else {
-                        continue
-                    }
-                    newBook = info
+            let changed = await model.environment.batchChangeSource(
+                books: selected,
+                source: source,
+                delaySeconds: model.environment.settings.batchChangeSourceDelay,
+                progress: { index, total in
+                    sourceProgress = "\(index) / \(total)"
                 }
-                guard let chapters = try? await model.environment.loadChapterList(book: newBook, source: source) else {
-                    continue
-                }
-                try? model.environment.store.insert(newBook)
-                try? model.environment.store.insert(chapters.chapters)
-                changed += 1
-            }
+            )
+            isChangingSource = false
+            sourceProgress = nil
             reload()
             model.reloadBookshelf()
             message = "已换源 \(changed) 本"
@@ -440,6 +521,9 @@ struct SourcePickerView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var filter = ""
+    /// The delay between two books of a batch change — upstream
+    /// `SourcePickerDialog.menu_change_source_delay`.
+    @State private var delaySeconds = 0
 
     public init(model: LegadoAppModel, onSelect: @escaping (BookSource) -> Void) {
         self.model = model
@@ -448,22 +532,35 @@ struct SourcePickerView: View {
 
     public var body: some View {
         List {
-            ForEach(filteredSources, id: \.bookSourceUrl) { source in
-                Button {
-                    onSelect(source)
-                    dismiss()
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(source.bookSourceName)
-                        Text(source.bookSourceUrl)
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
+            Section {
+                ForEach(filteredSources, id: \.bookSourceUrl) { source in
+                    Button {
+                        onSelect(source)
+                        dismiss()
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(source.bookSourceName)
+                            Text(source.bookSourceUrl)
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
                     }
+                }
+            }
+            Section("换源间隔（秒）") {
+                Stepper(value: $delaySeconds, in: 0...9999) {
+                    Text("\(delaySeconds)")
+                }
+                .onChange(of: delaySeconds) { value in
+                    model.environment.settings.batchChangeSourceDelay = value
                 }
             }
         }
         .searchable(text: $filter)
         .navigationTitle("选择书源")
+        .onAppear {
+            delaySeconds = model.environment.settings.batchChangeSourceDelay
+        }
     }
 
     private var filteredSources: [BookSource] {
@@ -480,20 +577,36 @@ struct GroupPickerView: View {
 
     @ObservedObject var model: LegadoAppModel
     let onSelect: (Int64) -> Void
+    /// The group that is marked as selected — upstream `GroupSelectDialog`
+    /// opens with the current group of the book.
+    var selected: Int64?
 
     @Environment(\.dismiss) private var dismiss
 
-    public init(model: LegadoAppModel, onSelect: @escaping (Int64) -> Void) {
+    public init(
+        model: LegadoAppModel,
+        selected: Int64? = nil,
+        onSelect: @escaping (Int64) -> Void
+    ) {
         self.model = model
+        self.selected = selected
         self.onSelect = onSelect
     }
 
     public var body: some View {
         List {
             ForEach(model.groups, id: \.groupId) { group in
-                Button(group.groupName) {
+                Button {
                     onSelect(group.groupId)
                     dismiss()
+                } label: {
+                    HStack {
+                        Text(group.groupName)
+                        Spacer()
+                        if selected == group.groupId {
+                            Text("✓")
+                        }
+                    }
                 }
             }
         }

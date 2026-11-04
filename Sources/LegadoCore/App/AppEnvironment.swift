@@ -344,6 +344,67 @@ public final class AppEnvironment {
         try store.chapters(bookUrl: book.bookUrl)
     }
 
+    /// The batch change of the source — upstream
+    /// `BookshelfManageViewModel.changeSource` (`BookshelfManageViewModel.kt:83-119`).
+    ///
+    /// For every book of the selection the local books and the books of that
+    /// very source are skipped, the book is searched in the new source, the
+    /// detail page is loaded when the chapter URL is missing, the chapter
+    /// list is loaded and the reading progress is migrated onto the new book
+    /// (`Book.migrateTo`). The books are separated by `delaySeconds`
+    /// (`AppConfig.batchChangeSourceDelay`).
+    ///
+    /// The progress closure receives the index of the book (1-based) and the
+    /// number of the books — the upstream posts it as "${index + 1} / ${size}".
+    @discardableResult
+    public func batchChangeSource(
+        books: [Book],
+        source: BookSource,
+        delaySeconds: Int = 0,
+        progress: ((Int, Int) -> Void)? = nil
+    ) async -> Int {
+        var changed = 0
+        let total = books.count
+        for (index, book) in books.enumerated() {
+            progress?(index + 1, total)
+            if BookType.contains(book.type, BookType.local) { continue }
+            if book.origin == source.bookSourceUrl { continue }
+            guard var newBook = try? await WebBook.preciseSearch(
+                bookSource: source,
+                name: book.name,
+                author: book.author,
+                dependencies: dependencies()
+            ) else { continue }
+            if newBook.tocUrl.isEmpty {
+                guard let info = try? await loadBookInfo(book: newBook, source: source) else {
+                    continue
+                }
+                newBook = info
+            }
+            guard let result = try? await loadChapterList(book: newBook, source: source) else {
+                continue
+            }
+            let toc = result.chapters
+            let rules = (try? store.replaceRulesForTitle(
+                name: newBook.name,
+                origin: newBook.origin
+            )) ?? nil
+            let migrated = ChangeSourceService.switchSource(
+                oldBook: book,
+                newBook: newBook,
+                toc: toc,
+                replaceRules: rules
+            )
+            try? store.insert(migrated)
+            try? store.insert(toc)
+            changed += 1
+            if delaySeconds > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(delaySeconds) * 1_000_000_000)
+            }
+        }
+        return changed
+    }
+
     // MARK: - RSS
 
     /// The RSS sources.
