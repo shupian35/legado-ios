@@ -556,6 +556,9 @@ public struct BookmarkView: View {
     /// The file that was written for the export — upstream
     /// `AllBookmarkViewModel.exportBookmark`.
     @State private var exportedFileURL: URL?
+    /// The bookmark that is edited — upstream `AllBookmarkActivity.onItemClick`
+    /// → `showDialogFragment(BookmarkDialog(bookmark, position))`.
+    @State private var editingBookmark: Bookmark?
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -569,17 +572,22 @@ public struct BookmarkView: View {
                     .foregroundColor(.secondary)
             } else {
                 ForEach(model.bookmarks, id: \.time) { bookmark in
-                    VStack(alignment: .leading) {
-                        Text(bookmark.chapterName.isEmpty ? bookmark.bookName : bookmark.chapterName)
-                        Text("\(bookmark.bookName) · \(bookmark.bookAuthor)")
-                            .font(.system(size: 12))
-                            .foregroundColor(.secondary)
-                        if !bookmark.content.isEmpty {
-                            Text(bookmark.content)
+                    Button {
+                        editingBookmark = bookmark
+                    } label: {
+                        VStack(alignment: .leading) {
+                            Text(bookmark.chapterName.isEmpty ? bookmark.bookName : bookmark.chapterName)
+                            Text("\(bookmark.bookName) · \(bookmark.bookAuthor)")
                                 .font(.system(size: 12))
                                 .foregroundColor(.secondary)
+                            if !bookmark.content.isEmpty {
+                                Text(bookmark.content)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+                            }
                         }
                     }
+                    .buttonStyle(PlainButtonStyle())
                 }
                 .onDelete { offsets in
                     for index in offsets {
@@ -607,6 +615,15 @@ public struct BookmarkView: View {
             if let exportedFileURL {
                 ShareSheet(items: [exportedFileURL])
             }
+        }
+        // The bookmark editor — upstream `AllBookmarkActivity.onItemClick`.
+        .sheet(item: $editingBookmark) { bookmark in
+            BookmarkEditView(
+                bookmark: bookmark,
+                showsDelete: true,
+                onSave: { model.saveBookmark($0) },
+                onDelete: { model.deleteBookmark(bookmark) }
+            )
         }
         .onAppear {
             model.reloadBookmarks()

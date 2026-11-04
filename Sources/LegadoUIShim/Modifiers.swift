@@ -76,7 +76,7 @@ extension View {
     public func scaleEffect(_ scale: Double, anchor: UnitPoint = .center) -> some View { ModifiedView(self) }
     public func rotationEffect(_ angle: Angle, anchor: UnitPoint = .center) -> some View { ModifiedView(self) }
     public func offset(x: Double = 0, y: Double = 0) -> some View { ModifiedView(self) }
-    public func rotation3DEffect(_ angle: Angle, axis: (x: Double, y: Double, z: Double)) -> some View { ModifiedView(self) }
+    public func rotation3DEffect(_ angle: Angle, axis: (x: Double, y: Double, z: Double), anchor: UnitPoint = .center, perspective: Double = 1) -> some View { ModifiedView(self) }
     public func lineLimit(_ number: Int?) -> some View { ModifiedView(self) }
     public func multilineTextAlignment(_ alignment: TextAlignment) -> some View { ModifiedView(self) }
     public func minimumScaleFactor(_ factor: Double) -> some View { ModifiedView(self) }
@@ -222,6 +222,10 @@ public struct UnitPoint: Hashable, Sendable {
     public static let top = UnitPoint()
     public static let bottom = UnitPoint()
     public static let center = UnitPoint()
+    public static let topLeading = UnitPoint()
+    public static let topTrailing = UnitPoint()
+    public static let bottomLeading = UnitPoint()
+    public static let bottomTrailing = UnitPoint()
     public init() {}
 }
 

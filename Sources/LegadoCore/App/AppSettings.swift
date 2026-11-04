@@ -575,6 +575,16 @@ public final class AppSettings {
         store.set(value, forKey: key.rawValue)
     }
 
+    /// The mode of the read aloud of a selection — upstream
+    /// `AppConfig.contentSelectSpeakMod` (the key is "contentReadAloudMod").
+    ///
+    /// 0 reads the selected text, 1 reads aloud from the selection until the
+    /// end of the chapter (`ReadBookActivity.kt:848`).
+    public var contentSelectSpeakMod: Int {
+        get { int(.contentReadAloudMod, default: 0) }
+        set { set(newValue, for: .contentReadAloudMod) }
+    }
+
     // MARK: - Appearance
 
     /// The theme mode — upstream `AppConfig.themeMode` ("0" system, "1" light,

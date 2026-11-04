@@ -49,6 +49,10 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     @Published public var errorMessage: String?
     /// Whether the reader is busy.
     @Published public var isLoading = false
+    /// The fraction of the page turn that has been travelled (0…1) — upstream
+    /// `HorizontalPageDelegate.onDraw` redraws the pages with the offset of
+    /// the drag.
+    @Published public var pageTurnProgress: Double = 0
 
     /// The chapter the reader opens at.
     public var startChapterIndex: Int?
@@ -689,6 +693,26 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     /// that is being left behind.
     public var pageTurnDirection: PageTurnDirection = .next
 
+    /// The laid-out lines of the page that the turn reveals — the next page
+    /// when the page is turned forward, the previous page otherwise.
+    ///
+    /// The upstream draws the revealed page under the page that is turned
+    /// away (`CoverPageDelegate.onDraw` → `nextRecorder.draw`); the port does
+    /// the same.
+    public var revealedPageLines: [TextLine] {
+        guard let chapter = readBook.curTextChapter else { return [] }
+        switch pageTurnDirection {
+        case .next:
+            let index = readBook.pageIndex + 1
+            guard index < chapter.pageSize else { return [] }
+            return chapter.page(at: index)?.lines ?? []
+        case .previous:
+            let index = readBook.pageIndex - 1
+            guard index >= 0 else { return [] }
+            return chapter.page(at: index)?.lines ?? []
+        }
+    }
+
     /// Starts the read aloud of the current chapter.
     ///
     /// Upstream `ReadAloud.play(pageIndex, startPos)` reads the chapter that
@@ -1008,6 +1032,10 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
         readBook.curTextChapter?.effectiveReplaceRules ?? []
     }
 
+    /// The bookmark that is edited — upstream `ReadBookActivity.menu_bookmark`
+    /// → `showDialogFragment(BookmarkDialog(bookmark))`.
+    @Published public var pendingBookmark: Bookmark?
+
     private func addBookmark() async {
         let chapter = chapters.indices.contains(readBook.durChapterIndex)
             ? chapters[readBook.durChapterIndex]
@@ -1023,7 +1051,7 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
             bookText: chapter.title,
             content: chapter.url
         )
-        try? environment.store.insert(bookmark)
+        pendingBookmark = bookmark
     }
 
     /// Adds a bookmark for the selected text — upstream
@@ -1043,7 +1071,7 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
             bookText: selectedText.isEmpty ? chapter.title : selectedText,
             content: selectedText.isEmpty ? chapter.url : selectedText
         )
-        try? environment.store.insert(bookmark)
+        pendingBookmark = bookmark
     }
 
     /// Toggles the replace rules of the book — upstream
@@ -1461,16 +1489,79 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
         }
     }
 
+    /// Toggles the read aloud of a selection — upstream
+    /// `TextActionMenu.kt:200-209` (the long press on the 朗读 action).
+    ///
+    /// 0 reads the selected text, 1 reads aloud from the selection to the end
+    /// of the chapter.
+    public func toggleReadAloudMode() {
+        let mode = environment.settings.contentSelectSpeakMod
+        let newMode = mode == 0 ? 1 : 0
+        environment.settings.contentSelectSpeakMod = newMode
+        selection.message = newMode == 1
+            ? "切换为从选择的地方开始一直朗读"
+            : "切换为朗读选择内容"
+    }
+
     /// Reads the selected text aloud — upstream `aloudStartSelect` /
-    /// `speak(selectedText)`.
+    /// `speak(selectedText)`.    ///
+    /// The upstream's preference `contentSelectSpeakMod` decides what the
+    /// 朗读 action of the selection menu does
+    /// (`ReadBookActivity.kt:848-854`): 0 reads the selected text alone, 1
+    /// reads aloud from the selection to the end of the chapter
+    /// (`ReadView.aloudStartSelect`).
     public func readAloud(selectedText: String) {
         guard !selectedText.isEmpty else { return }
+        if environment.settings.contentSelectSpeakMod == 1 {
+            Task { await readAloudFromSelection() }
+            return
+        }
         readAloud.play(
             paragraphs: [
                 ReadAloudParagraph(index: 0, text: selectedText, start: 0, end: selectedText.count)
             ],
             chapterIndex: readBook.durChapterIndex
         )
+    }
+
+    /// The chapter position of the current selection.
+    ///
+    /// Upstream `ReadView.aloudStartSelect` uses the position of the
+    /// selection inside the chapter.
+    public var selectionChapterPosition: Int? {
+        guard let selection = selection.selection else { return nil }
+        guard let chapter = readBook.curTextChapter else { return nil }
+        let index = readBook.pageIndex
+        guard let page = chapter.page(at: index) else { return nil }
+        return page.chapterPosition(atPageOffset: selection.range.lowerBound)
+    }
+
+    /// Reads aloud from the selection to the end of the chapter — upstream
+    /// `ReadView.aloudStartSelect` → `ReadBook.readAloud(startPos)`.
+    public func readAloudFromSelection() async {
+        let index = readBook.durChapterIndex
+        guard chapters.indices.contains(index) else { return }
+        guard let position = selectionChapterPosition else {
+            let text = selection.selectedText
+            guard !text.isEmpty else { return }
+            readAloud.play(
+                paragraphs: [
+                    ReadAloudParagraph(index: 0, text: text, start: 0, end: text.count)
+                ],
+                chapterIndex: readBook.durChapterIndex
+            )
+            return
+        }
+        let chapter = chapters[index]
+        guard let content = try? await contentProvider.chapterContent(book: book, chapter: chapter),
+              !content.isEmpty else {
+            return
+        }
+        let paragraphs = ReadAloudSplitter.paragraphs(in: content)
+        // The paragraph that holds the selection.
+        let startIndex = paragraphs.firstIndex { $0.start <= position && position < $0.end } ?? 0
+        readAloud.chapterTitle = chapter.title
+        readAloud.play(paragraphs: paragraphs, chapterIndex: index, startIndex: startIndex)
     }
 
     // MARK: - The inline images
@@ -1781,10 +1872,22 @@ public struct ReaderView: View {
                                                     await controller.previousPage()
                                                 }
                                             }
+                                        },
+                                        // The drag drives the animation — upstream
+                                        // `HorizontalPageDelegate.onDraw` redraws the
+                                        // pages with the offset of the finger.
+                                        onProgress: { progress in
+                                            controller.pageTurnProgress = progress
+                                        },
+                                        // The direction of the drag decides which
+                                        // page is revealed by the turn.
+                                        onDirection: { direction in
+                                            controller.pageTurnDirection = direction
                                         }
                                     ) {
                                         PageTurnView(
                                             lines: controller.pageLines,
+                                            revealedLines: controller.revealedPageLines,
                                             titleFont: controller.resolvedFonts.title.swiftUIFont,
                                             bodyFont: controller.resolvedFonts.body.swiftUIFont,
                                             style: controller.pageTurnStyle,
@@ -1794,7 +1897,9 @@ public struct ReaderView: View {
                                                     for: controller.displayMode
                                                 ),
                                                 fallback: .primary
-                                            )
+                                            ),
+                                            progress: controller.pageTurnProgress,
+                                            viewWidth: Double(proxy.size.width)
                                         )
                                     }
                                 }
@@ -1879,6 +1984,9 @@ public struct ReaderView: View {
                         },
                         onReadAloud: { text in
                             controller.readAloud(selectedText: text)
+                        },
+                        onToggleReadAloudMode: {
+                            controller.toggleReadAloudMode()
                         },
                         onDictionary: { text in
                             controller.lookupDictionary(text)
@@ -1999,6 +2107,14 @@ public struct ReaderView: View {
             .sheet(isPresented: $controller.isImageMenuPresented) {
                 if let src = controller.imageMenuSrc {
                     ImageMenuView(controller: controller, src: src)
+                }
+            }
+            // The bookmark editor — upstream `ReadBookActivity.menu_bookmark`
+            // → `showDialogFragment(BookmarkDialog(bookmark))`.
+            .sheet(item: $controller.pendingBookmark) { bookmark in
+                BookmarkEditView(bookmark: bookmark) { edited in
+                    try? controller.environment.store.insert(edited)
+                    controller.model?.reloadBookmarks()
                 }
             }
             // Upstream `ReadBookActivity.sureSyncProgress` — the remote

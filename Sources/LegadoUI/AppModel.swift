@@ -80,6 +80,9 @@ public final class LegadoAppModel: ObservableObject {
     @Published public var reader: ReaderController?
     /// Whether the reader is presented.
     @Published public var isReaderPresented = false
+    /// The book that the reader asks about when it is closed and the book is
+    /// not on the shelf — upstream `ReadBookActivity.finish()`.
+    @Published public var pendingShelfBook: Book?
     /// The manga reader (upstream `ReadMangaActivity`).
     @Published public var mangaReader: MangaReaderController?
     /// Whether the manga reader is presented.
@@ -593,6 +596,16 @@ public final class LegadoAppModel: ObservableObject {
     public func deleteBookmark(_ bookmark: Bookmark) {
         do {
             try environment.store.deleteBookmark(bookmark)
+            reloadBookmarks()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Inserts or updates a bookmark — upstream `BookmarkDao.insert`.
+    public func saveBookmark(_ bookmark: Bookmark) {
+        do {
+            try environment.store.insert(bookmark)
             reloadBookmarks()
         } catch {
             errorMessage = error.localizedDescription
@@ -1267,6 +1280,43 @@ public final class LegadoAppModel: ObservableObject {
         guard environment.settings.bool(.defaultToRead, default: false) else { return }
         guard let book = try? environment.bookshelf().lastReadBook() else { return }
         await openReader(for: book)
+    }
+
+    // MARK: - The shelf question of the reader
+
+    /// Asks whether the book that was read should be put on the shelf.
+    ///
+    /// Upstream `ReadBookActivity.finish()` (`ReadBookActivity.kt:1592-1613`):
+    /// when the reader is closed and the book is not on the shelf, the app
+    /// asks "是否将《书名》加入书架？"; the answer "no" removes the book
+    /// again (`ReadBookViewModel.removeFromBookshelf` → `book.delete()`).
+    /// The preference `showAddToShelfAlert` skips the question.
+    public func readerDidClose() {
+        guard let book = reader?.book, !book.isOnShelf else { return }
+        if environment.settings.showAddToShelfAlert {
+            pendingShelfBook = book
+        } else {
+            try? environment.deleteBook(book)
+            reloadBookshelf()
+        }
+    }
+
+    /// The user accepted the question of the reader — the book goes on the
+    /// shelf (upstream: the `notShelf` flag is cleared and the book is
+    /// saved).
+    public func addPendingBookToShelf() {
+        guard let book = pendingShelfBook else { return }
+        pendingShelfBook = nil
+        try? environment.saveToShelf(book)
+        reloadBookshelf()
+    }
+
+    /// The user declined the question of the reader — the book is removed.
+    public func declinePendingBook() {
+        guard let book = pendingShelfBook else { return }
+        pendingShelfBook = nil
+        try? environment.deleteBook(book)
+        reloadBookshelf()
     }
 
     // MARK: - Settings

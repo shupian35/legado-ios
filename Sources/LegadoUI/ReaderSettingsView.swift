@@ -283,6 +283,23 @@ public struct ReaderPageRows: View {
                 Text(type.displayName).tag(type.rawValue)
             }
         }
+        // `TipConfigDialog.kt:187-220` — the colour of the tips and the
+        // colour of the divider.
+        ReaderTipColorField(
+            title: "提示文字颜色",
+            value: $config.tipColor,
+            options: [
+                ReaderTipColorField.Option(name: "与正文同色", value: 0)
+            ]
+        )
+        ReaderTipColorField(
+            title: "分割线颜色",
+            value: $config.tipDividerColor,
+            options: [
+                ReaderTipColorField.Option(name: "默认", value: -1),
+                ReaderTipColorField.Option(name: "与正文同色", value: 0)
+            ]
+        )
     }
 
     /// The binding of a tip slot — the repeated tips are cleared first.

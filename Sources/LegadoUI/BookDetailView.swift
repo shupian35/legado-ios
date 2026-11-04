@@ -228,15 +228,28 @@ public struct BookDetailView: View {
                 AppLogView()
             }
         }
-        .alert("上传到远程", isPresented: $isUploadConfirmed) {
-            Button("取消", role: .cancel) {}
-            Button("确定") {
-                uploadToRemote()
+        .alert(alertTitle, isPresented: alertBinding) {
+            if isUploadConfirmed {
+                Button("取消", role: .cancel) {}
+                Button("确定") {
+                    uploadToRemote()
+                }
+            } else {
+                // Upstream `ReadBookActivity.finish()` — the question when the
+                // reader is closed and the book is not on the shelf.
+                Button("不加入", role: .cancel) {
+                    model.declinePendingBook()
+                }
+                Button("加入书架") {
+                    model.addPendingBookToShelf()
+                }
             }
         } message: {
-            Text("确定要上传这本书到远程服务器吗？")
+            Text(alertMessage)
         }
-        .sheet(isPresented: $model.isReaderPresented) {
+        .sheet(isPresented: $model.isReaderPresented, onDismiss: {
+            model.readerDidClose()
+        }) {
             if let reader = model.reader {
                 NavigationStack {
                     ReaderView(controller: reader)
@@ -256,6 +269,33 @@ public struct BookDetailView: View {
     }
 
     // MARK: - Parts
+
+    /// The title of the alert — only one alert can be attached to a view, so
+    /// the questions of the screen share one.
+    private var alertTitle: String {
+        isUploadConfirmed ? "上传到远程" : "加入书架"
+    }
+
+    /// The message of the alert.
+    private var alertMessage: String {
+        if isUploadConfirmed {
+            return "确定要上传这本书到远程服务器吗？"
+        }
+        return "是否将《\(model.pendingShelfBook?.name ?? "")》加入书架？"
+    }
+
+    /// Whether the alert is shown.
+    private var alertBinding: Binding<Bool> {
+        Binding(
+            get: { isUploadConfirmed || model.pendingShelfBook != nil },
+            set: { newValue in
+                if !newValue {
+                    isUploadConfirmed = false
+                    model.pendingShelfBook = nil
+                }
+            }
+        )
+    }
 
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {

@@ -362,9 +362,18 @@ public final class TextPage {
         return length
     }
 
+    /// The chapter position of a character offset of the page.
+    ///
+    /// Upstream `ReadView.aloudStartSelect` maps the selection onto the
+    /// chapter with `TextPage.getPosByLineColumn(line, column)`; the port adds
+    /// the start of the page, because the upstream's helper returns the
+    /// offset inside the page.
+    public func chapterPosition(atPageOffset offset: Int) -> Int {
+        chapterPosition + max(offset, 0)
+    }
+
     /// Whether the character offset is on this page — upstream `containPos`.
-    public func contains(position chapterPos: Int) -> Bool {
-        guard let first = lines.first else { return false }
+    public func contains(position chapterPos: Int) -> Bool {        guard let first = lines.first else { return false }
         let startPos = first.chapterPosition
         return chapterPos >= startPos && chapterPos < startPos + charSize
     }

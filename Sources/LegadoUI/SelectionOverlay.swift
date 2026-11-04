@@ -100,6 +100,9 @@ public struct ReaderSelectionOverlay: View {
     var onBookmark: (String) -> Void = { _ in }
     /// The 朗读 action — upstream `aloudStartSelect` / `speak`.
     var onReadAloud: (String) -> Void = { _ in }
+    /// The long press on the 朗读 action toggles the read aloud mode —
+    /// upstream `TextActionMenu.kt:200-209`.
+    var onToggleReadAloudMode: () -> Void = { }
     /// The 词典 action — upstream `DictDialog`.
     var onDictionary: (String) -> Void = { _ in }
     /// The 搜索正文 action — upstream `openSearchActivity`.
@@ -111,11 +114,16 @@ public struct ReaderSelectionOverlay: View {
     /// Whether all the actions are shown at once — upstream `expandTextMenu`.
     var isExpanded: Bool = false
 
+    /// Whether a long press is in progress — the tap of the button must not
+    /// run then.
+    @State private var isLongPressing = false
+
     public init(
         controller: ReaderSelectionController,
         onReplace: @escaping (String) -> Void = { _ in },
         onBookmark: @escaping (String) -> Void = { _ in },
         onReadAloud: @escaping (String) -> Void = { _ in },
+        onToggleReadAloudMode: @escaping () -> Void = { },
         onDictionary: @escaping (String) -> Void = { _ in },
         onSearchContent: @escaping (String) -> Void = { _ in },
         onBrowser: @escaping (String) -> Void = { _ in },
@@ -126,6 +134,7 @@ public struct ReaderSelectionOverlay: View {
         self.onReplace = onReplace
         self.onBookmark = onBookmark
         self.onReadAloud = onReadAloud
+        self.onToggleReadAloudMode = onToggleReadAloudMode
         self.onDictionary = onDictionary
         self.onSearchContent = onSearchContent
         self.onBrowser = onBrowser
@@ -159,9 +168,25 @@ public struct ReaderSelectionOverlay: View {
             HStack(spacing: 12) {
                 ForEach(visibleActions, id: \.id) { action in
                     Button(action.rawValue) {
+                        // A long press on the 朗读 action toggles the read
+                        // aloud mode — the tap must not run then.
+                        guard !isLongPressing else { return }
                         perform(action)
                     }
                     .font(.system(size: 13))
+                    .onLongPressGesture(
+                        minimumDuration: 0.5,
+                        maximumDistance: 10,
+                        pressing: { isPressing in
+                            if !isPressing { isLongPressing = false }
+                        },
+                        perform: {
+                            isLongPressing = true
+                            if action == .readAloud {
+                                onToggleReadAloudMode()
+                            }
+                        }
+                    )
                 }
                 Spacer()
             }

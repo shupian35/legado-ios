@@ -849,6 +849,11 @@ public struct Bookmark: Equatable {
     }
 }
 
+/// The identity of a bookmark — the time it was created.
+extension Bookmark: Identifiable {
+    public var id: Int64 { time }
+}
+
 /// The read history — upstream `data/entities/ReadRecord.kt`.
 public struct ReadRecord: Equatable {
     public var deviceId: String
