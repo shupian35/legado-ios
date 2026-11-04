@@ -329,6 +329,10 @@ public actor CacheBookManager {
     public let storage: BookCacheStorage
     public var configuration: Configuration
 
+    /// The sink of the download progress notifications — upstream
+    /// `CacheBookService` posts them through `NotificationService`.
+    public var notificationSink: NotificationPosting?
+
     /// Keyed by `bookUrl + chapterUrl` — upstream `successDownloadSet`.
     public private(set) var succeeded: Set<String> = []
     /// Keyed by `bookUrl + chapterUrl` — upstream `errorDownloadMap`.
@@ -343,13 +347,15 @@ public actor CacheBookManager {
         contentFetcher: @escaping ContentFetcher = { source, book, chapter in
             try await WebBook.getContent(bookSource: source, book: book, bookChapter: chapter)
         },
-        imageFetcher: ImageFetcher? = nil
+        imageFetcher: ImageFetcher? = nil,
+        notificationSink: NotificationPosting? = nil
     ) {
         self.storage = storage
         self.configuration = configuration
         self.chapterLoader = chapterLoader
         self.contentFetcher = contentFetcher
         self.imageFetcher = imageFetcher
+        self.notificationSink = notificationSink
     }
 
     public func setConfiguration(_ configuration: Configuration) {
@@ -476,7 +482,7 @@ public actor CacheBookManager {
 
         do {
             let text = try await fetchAndStore(book: book, source: source, chapter: chapter)
-            recordSuccess(chapter: chapter)
+            recordSuccess(chapter: chapter, book: book)
             return text
         } catch {
             recordFailure(chapter: chapter, error: error)
@@ -528,12 +534,12 @@ public actor CacheBookManager {
         // A volume chapter has no content — upstream posts SAVE_CONTENT to
         // fix the download counters and moves on.
         if chapter.isVolume {
-            recordSuccess(chapter: chapter)
+            recordSuccess(chapter: chapter, book: book)
             return
         }
         // Fully cached (text + every image).
         if storage.hasImageContent(book: book, chapter: chapter) {
-            recordSuccess(chapter: chapter)
+            recordSuccess(chapter: chapter, book: book)
             return
         }
         // Text is cached but images are missing: only fetch the images.
@@ -542,7 +548,7 @@ public actor CacheBookManager {
                let text = storage.content(book: book, chapter: chapter) {
                 await saveImages(book: book, source: source, chapter: chapter, content: text)
             }
-            recordSuccess(chapter: chapter)
+            recordSuccess(chapter: chapter, book: book)
             return
         }
 
@@ -553,7 +559,7 @@ public actor CacheBookManager {
                 if configuration.cacheImages {
                     await saveImages(book: book, source: source, chapter: chapter, content: text)
                 }
-                recordSuccess(chapter: chapter)
+                recordSuccess(chapter: chapter, book: book)
                 return
             } catch {
                 let key = chapter.bookUrl + chapter.url
@@ -600,11 +606,29 @@ public actor CacheBookManager {
         }
     }
 
-    private func recordSuccess(chapter: BookChapter) {
+    private func recordSuccess(chapter: BookChapter, book: Book? = nil) {
         let key = chapter.bookUrl + chapter.url
         succeeded.insert(key)
         failureCounts.removeValue(forKey: key)
         failures.removeValue(forKey: key)
+        if let book {
+            postProgress(book: book, chapter: chapter)
+        }
+    }
+
+    /// Posts the progress of the download — upstream
+    /// `CacheBookService.sendNotification`.
+    private func postProgress(book: Book, chapter: BookChapter) {
+        guard let sink = notificationSink else { return }
+        let total = max(book.totalChapterNum, 1)
+        let done = succeeded.filter { $0.hasPrefix(book.bookUrl) }.count
+        sink.post(
+            NotificationContent.download(
+                bookName: book.name,
+                progress: Double(done) / Double(total),
+                chapterTitle: chapter.title
+            )
+        )
     }
 
     private func recordFailure(chapter: BookChapter, error: Error) {

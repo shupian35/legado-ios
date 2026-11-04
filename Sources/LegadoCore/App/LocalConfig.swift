@@ -45,6 +45,16 @@ public final class LocalConfig {
         set { store.set(newValue, forKey: "privacyPolicyOk") }
     }
 
+    /// The version code of the app that was used the last time — upstream
+    /// `LocalConfig.versionCode` (the key is `appVersionCode`).
+    ///
+    /// The startup sequence uses it to decide whether the changelog has to be
+    /// shown.
+    public var versionCode: Int {
+        get { store.int(forKey: "appVersionCode") ?? 0 }
+        set { store.set(newValue, forKey: "appVersionCode") }
+    }
+
     /// The time of the last backup — upstream `LocalConfig.lastBackup`.
     public var lastBackup: Date? {
         get {
@@ -99,4 +109,29 @@ public final class LocalConfig {
         get { ReadRecordSort(rawValue: store.int(forKey: "readRecordSort") ?? 0) ?? .name }
         set { store.set(newValue.rawValue, forKey: "readRecordSort") }
     }
+
+    /// The bearer token of the local web service.
+    ///
+    /// The upstream `web/HttpServer.kt` has **no** authentication at all, which
+    /// means every web page the user visits can read the whole bookshelf and
+    /// rewrite the book sources. The port requires a token instead; it is
+    /// generated once and injected into the served web page
+    /// (`WebAssets.accessToken`).
+    ///
+    /// It lives in the local configuration — not in the app preferences —
+    /// because a backup must not carry a secret.
+    public var webServiceToken: String {
+        get {
+            if let token = store.string(forKey: LocalConfig.webServiceTokenKey), !token.isEmpty {
+                return token
+            }
+            let token = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+            store.set(token, forKey: LocalConfig.webServiceTokenKey)
+            return token
+        }
+        set { store.set(newValue, forKey: LocalConfig.webServiceTokenKey) }
+    }
+
+    /// The key of the token of the local web service.
+    public static let webServiceTokenKey = "webServiceToken"
 }

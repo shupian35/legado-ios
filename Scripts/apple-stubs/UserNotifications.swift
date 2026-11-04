@@ -123,9 +123,78 @@ open class UNNotificationCategory: NSObject {
 
 // MARK: - The center
 
+/// `UserNotifications.UNNotificationPresentationOptions`.
+public struct UNNotificationPresentationOptions: OptionSet {
+    public let rawValue: UInt
+    public init(rawValue: UInt) { self.rawValue = rawValue }
+    public static let badge = UNNotificationPresentationOptions(rawValue: 1 << 0)
+    public static let sound = UNNotificationPresentationOptions(rawValue: 1 << 1)
+    public static let alert = UNNotificationPresentationOptions(rawValue: 1 << 2)
+    public static let list = UNNotificationPresentationOptions(rawValue: 1 << 3)
+    public static let banner = UNNotificationPresentationOptions(rawValue: 1 << 4)
+}
+
+/// `UserNotifications.UNNotification`.
+open class UNNotification: NSObject {
+    open var request: UNNotificationRequest = UNNotificationRequest(
+        identifier: "",
+        content: UNMutableNotificationContent(),
+        trigger: nil
+    )
+    open var date: Date = Date()
+    public override init() { super.init() }
+}
+
+/// `UserNotifications.UNNotificationResponse`.
+open class UNNotificationResponse: NSObject {
+    open var notification: UNNotification = UNNotification()
+    open var actionIdentifier: String = ""
+    public override init() { super.init() }
+}
+
+/// `UserNotifications.UNNotificationDefaultActionIdentifier`.
+public let UNNotificationDefaultActionIdentifier = "com.apple.UNNotificationDefaultActionIdentifier"
+
+/// `UserNotifications.UNNotificationDismissActionIdentifier`.
+public let UNNotificationDismissActionIdentifier = "com.apple.UNNotificationDismissActionIdentifier"
+
+/// `UserNotifications.UNUserNotificationCenterDelegate`.
+public protocol UNUserNotificationCenterDelegate: AnyObject {
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    )
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    )
+}
+
+public extension UNUserNotificationCenterDelegate {
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([])
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        completionHandler()
+    }
+}
+
 /// `UserNotifications.UNUserNotificationCenter`.
 open class UNUserNotificationCenter: NSObject {
     open class func current() -> UNUserNotificationCenter { UNUserNotificationCenter() }
+
+    open weak var delegate: (any UNUserNotificationCenterDelegate)?
 
     open func setNotificationCategories(_ categories: Set<UNNotificationCategory>) {}
     open func getNotificationCategories(completionHandler: @escaping (Set<UNNotificationCategory>) -> Void) { completionHandler([]) }

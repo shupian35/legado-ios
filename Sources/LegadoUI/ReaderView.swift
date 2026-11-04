@@ -955,12 +955,34 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
             self?.readAloud.stop()
         }
         mediaCommands = bridge
+        // The buttons of the transport notification do the same — upstream
+        // `BaseReadAloudService` handles the six actions of the notification.
+        NotificationService.shared.actionHandler = { [weak self] identifier in
+            guard let self else { return }
+            switch identifier {
+            case "prevChapter":
+                Task { await self.readBook.moveToPrevChapter() }
+            case "prevParagraph":
+                self.readAloud.previousParagraph()
+            case "toggle":
+                self.toggleReadAloud()
+            case "nextParagraph":
+                self.readAloud.nextParagraph()
+            case "nextChapter":
+                Task { await self.readBook.moveToNextChapter() }
+            case "stop":
+                self.readAloud.stop()
+            default:
+                break
+            }
+        }
     }
 
     /// Removes the lock-screen and headset buttons.
     public func deactivateMediaCommands() {
         mediaCommands?.clearNowPlaying()
         mediaCommands = nil
+        NotificationService.shared.actionHandler = nil
     }
 
     /// Pauses or continues the read aloud.

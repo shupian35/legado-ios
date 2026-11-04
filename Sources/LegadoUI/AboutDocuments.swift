@@ -173,50 +173,65 @@ public struct MarkdownView: View {
 
     public var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(Array(Markdown.parse(source).enumerated()), id: \.offset) { _, block in
-                    switch block {
-                    case .heading(let level, let text):
-                        Text(text)
-                            .font(headingFont(level))
-                            .bold()
-                    case .paragraph(let text):
+            MarkdownBody(markdown: source)
+        }
+        .navigationTitle(title)
+    }
+}
+
+/// The body of a Markdown document — the blocks of the upstream's
+/// `TextDialog.Mode.MD` without the surrounding scroll view.
+public struct MarkdownBody: View {
+
+    private let source: String
+
+    public init(markdown: String) {
+        self.source = markdown
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(Array(Markdown.parse(source).enumerated()), id: \.offset) { _, block in
+                switch block {
+                case .heading(let level, let text):
+                    Text(text)
+                        .font(headingFont(level))
+                        .bold()
+                case .paragraph(let text):
+                    Text(text)
+                        .font(.system(size: 14))
+                case .bullet(let text):
+                    HStack(alignment: .top, spacing: 6) {
+                        Text("•")
                         Text(text)
                             .font(.system(size: 14))
-                    case .bullet(let text):
-                        HStack(alignment: .top, spacing: 6) {
-                            Text("•")
-                            Text(text)
-                                .font(.system(size: 14))
-                        }
-                    case .numbered(let number, let text):
-                        HStack(alignment: .top, spacing: 6) {
-                            Text("\(number).")
-                            Text(text)
-                                .font(.system(size: 14))
-                        }
-                    case .quote(let text):
+                    }
+                case .numbered(let number, let text):
+                    HStack(alignment: .top, spacing: 6) {
+                        Text("\(number).")
                         Text(text)
                             .font(.system(size: 14))
-                            .padding(.leading, 10)
-                    case .code(let text):
+                    }
+                case .quote(let text):
+                    Text(text)
+                        .font(.system(size: 14))
+                        .padding(.leading, 10)
+                case .code(let text):
+                    Text(text)
+                        .font(.system(size: 13, design: .monospaced))
+                        .padding(8)
+                case .divider:
+                    Divider()
+                case .link(let text, let url):
+                    Link(destination: URL(string: url) ?? URL(string: "https://github.com/gedoor/legado")!) {
                         Text(text)
-                            .font(.system(size: 13, design: .monospaced))
-                            .padding(8)
-                    case .divider:
-                        Divider()
-                    case .link(let text, let url):
-                        Link(destination: URL(string: url) ?? URL(string: "https://github.com/gedoor/legado")!) {
-                            Text(text)
-                                .font(.system(size: 14))
-                        }
+                            .font(.system(size: 14))
                     }
                 }
             }
-            .padding()
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .navigationTitle(title)
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func headingFont(_ level: Int) -> Font {

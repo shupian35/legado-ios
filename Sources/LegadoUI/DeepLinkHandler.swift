@@ -172,6 +172,45 @@ public struct LegadoRootScene: View {
                         handler.handle(url, model: model)
                     }
                 }
+                // The startup sequence — upstream `MainActivity.onPostCreate()`.
+                .task {
+                    await model.runStartup()
+                }
+                // The help of the app on the first run, the changelog after an
+                // update — upstream `MainActivity.upVersion()`.
+                .sheet(
+                    isPresented: Binding(
+                        get: {
+                            if case .document = model.startupPhase { return true }
+                            return false
+                        },
+                        set: { if !$0 { model.dismissStartupDocument() } }
+                    )
+                ) {
+                    if case .document(let document) = model.startupPhase {
+                        StartupDocumentSheet(document: document) {
+                            model.dismissStartupDocument()
+                        }
+                    }
+                }
+                // The crash of the reader — upstream
+                // `MainActivity.notifyAppCrash()`.
+                .alert(
+                    "提示",
+                    isPresented: Binding(
+                        get: { model.startupPhase == .crashPrompt },
+                        set: { if !$0 { model.answerCrashPrompt(showLogs: false) } }
+                    )
+                ) {
+                    Button("否") {
+                        model.answerCrashPrompt(showLogs: false)
+                    }
+                    Button("是") {
+                        model.answerCrashPrompt(showLogs: true)
+                    }
+                } message: {
+                    Text("检测到阅读发生了崩溃，是否打开崩溃日志以便报告问题？")
+                }
             if isWelcomePresented {
                 WelcomeView(settings: model.environment.settings) {
                     isWelcomePresented = false
@@ -186,6 +225,27 @@ public struct LegadoRootScene: View {
             // The local password — the key of the encrypted backup entries.
             if model.isLocalPasswordPresented {
                 LocalPasswordView(model: model, allowsCancel: true)
+            }
+            // The startup sequence — upstream `MainActivity.onPostCreate()`:
+            // the privacy policy has to be accepted before the app is used.
+            if model.startupPhase == .privacyPolicy {
+                PrivacyPolicyGateView(
+                    onAccept: { model.acceptPrivacyPolicy() },
+                    onRefuse: { model.refusePrivacyPolicy() }
+                )
+            }
+            // The crash log of the reader.
+            if model.isCrashLogPresented {
+                NavigationStack {
+                    CrashLogView(model: model)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("关闭") {
+                                    model.isCrashLogPresented = false
+                                }
+                            }
+                        }
+                }
             }
             // The source verification — the captcha dialog or the
             // anti-scraping page (upstream `VerificationCodeActivity`).

@@ -30,13 +30,13 @@ import PackageDescription
 // true, so the shim is not even declared and never ships inside the app.
 #if os(macOS)
 let uiShimTarget: Target? = nil
-let uiDependencies: [Target.Dependency] = ["LegadoCore"]
+let uiDependencies: [Target.Dependency] = ["LegadoCore", "LegadoServer"]
 #else
 let uiShimTarget: Target? = .target(
     name: "LegadoUIShim",
     swiftSettings: [.swiftLanguageMode(.v5)]
 )
-let uiDependencies: [Target.Dependency] = ["LegadoCore", "LegadoUIShim"]
+let uiDependencies: [Target.Dependency] = ["LegadoCore", "LegadoServer", "LegadoUIShim"]
 #endif
 
 var targets: [Target] = [

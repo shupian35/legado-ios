@@ -22,6 +22,7 @@ import LegadoUIShim
 
 import Foundation
 import LegadoCore
+import LegadoServer
 
 /// The state of the application shell.
 public final class LegadoAppModel: ObservableObject {
@@ -477,7 +478,12 @@ public final class LegadoAppModel: ObservableObject {
             environment: environment,
             themeManager: themeManager,
             localImporter: localImporter,
-            cacheManager: environment.makeCacheManager(storage: cacheStorage),
+            // The download progress is posted as a notification — upstream
+            // `CacheBookService.sendNotification`.
+            cacheManager: environment.makeCacheManager(
+                storage: cacheStorage,
+                notificationSink: NotificationService.shared
+            ),
             verification: verification
         )
         // The rule scripts park on a background thread; the request has to
@@ -1517,5 +1523,234 @@ public final class LegadoAppModel: ObservableObject {
         if themeManager.themes.indices.contains(index) {
             themeManager.applyConfig(themeManager.themes[index], to: environment.settings)
         }
+    }
+
+    // MARK: - The startup sequence
+
+    /// The phase of the startup sequence — upstream
+    /// `MainActivity.onPostCreate()`.
+    public enum StartupPhase: Equatable {
+        /// Nothing to do.
+        case idle
+        /// The privacy policy has to be accepted.
+        case privacyPolicy
+        /// The help of the app or the changelog has to be shown.
+        case document(StartupDocument)
+        /// The reader crashed and the user should be offered the crash log.
+        case crashPrompt
+        /// The startup sequence is finished.
+        case done
+    }
+
+    /// The phase of the startup sequence.
+    @Published public var startupPhase: StartupPhase = .idle
+
+    /// Whether the crash log is shown — upstream `CrashLogsDialog`.
+    @Published public var isCrashLogPresented = false
+
+    /// Whether the startup sequence already ran.
+    private var hasStartedStartup = false
+
+    /// Runs the startup sequence — upstream `MainActivity.onPostCreate()`.
+    ///
+    /// The privacy policy comes first: while it has not been accepted the app
+    /// must not be used, so the sequence stops there and continues when the
+    /// user agrees.
+    public func runStartup() async {
+        guard !hasStartedStartup else { return }
+        hasStartedStartup = true
+        // The local web service — upstream `WebService.start(context)` is
+        // called when the preference is on.
+        if environment.settings.webServiceEnabled {
+            startWebService()
+        }
+        if StartupService.needsPrivacyPolicy(localConfig: environment.localConfig) {
+            startupPhase = .privacyPolicy
+            return
+        }
+        await continueStartup()
+    }
+
+    /// The user accepted the privacy policy.
+    public func acceptPrivacyPolicy() {
+        environment.localConfig.privacyPolicyAccepted = true
+        startupPhase = .idle
+        Task { await continueStartup() }
+    }
+
+    /// The user refused the privacy policy.
+    ///
+    /// The upstream closes the app (`MainActivity.privacyPolicy()`); an iOS
+    /// app must never close itself, so the gate stays.
+    public func refusePrivacyPolicy() {
+        startupPhase = .privacyPolicy
+    }
+
+    /// The startup document was read.
+    public func dismissStartupDocument() {
+        startupPhase = .idle
+        Task { await continueStartup() }
+    }
+
+    /// The user answered the crash question.
+    public func answerCrashPrompt(showLogs: Bool) {
+        startupPhase = .done
+        if showLogs {
+            isCrashLogPresented = true
+        }
+        finishStartup()
+    }
+
+    private func continueStartup() async {
+        // The version check — the help of the app on the first run, the
+        // changelog after an update.
+        if let document = StartupService.startupDocument(
+            localConfig: environment.localConfig,
+            versionCode: Self.appVersionCode
+        ) {
+            startupPhase = .document(document)
+            return
+        }
+        // A crash of the reader is reported.
+        if StartupService.needsCrashPrompt(localConfig: environment.localConfig) {
+            startupPhase = .crashPrompt
+            return
+        }
+        startupPhase = .done
+        finishStartup()
+    }
+
+    /// The last steps of the startup sequence — the automatic update of the
+    /// books (upstream `viewModel.upAllBookToc()`).
+    private func finishStartup() {
+        guard environment.settings.autoRefreshBook else { return }
+        Task { await updateAllBooks() }
+    }
+
+    /// The version code of the app — upstream `appInfo.versionCode`.
+    static var appVersionCode: Int {
+        if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
+           let code = Int(version) {
+            return code
+        }
+        return 1
+    }
+
+    // MARK: - The local web service
+
+    /// The state of the local web service — upstream `WebService.isRun`.
+    @Published public var webServiceStatus: LegadoServer.Status?
+
+    /// The running server.
+    private var webService: LegadoServer?
+
+    /// The address of the local web service — upstream `WebService.hostAddress`.
+    ///
+    /// The loopback address comes first so that the user can open it on the
+    /// device itself.
+    public var webServiceAddress: String? {
+        webServiceStatus?.addresses.first
+    }
+
+    /// Starts the local web service — upstream `WebService.start(context)`.
+    ///
+    /// The upstream starts it when the preference changes
+    /// (`MyFragment.onSharedPreferenceChanged`) and stops it when the
+    /// preference is switched off.
+    public func startWebService() {
+        guard webService == nil else {
+            webServiceStatus = webService?.status
+            return
+        }
+        let configuration = LegadoAPIConfiguration(
+            token: environment.localConfig.webServiceToken,
+            port: environment.settings.webPort,
+            bookshelfSort: environment.settings.bookshelfSort
+        )
+        let server = LegadoServer(configuration: configuration)
+        // The API works on the real database, not on an in-memory one.
+        server.sharedStore = environment.store
+        server.contentProvider = { [weak self] book, chapter in
+            guard let self else { return nil }
+            return await self.webServiceContent(book: book, chapter: chapter)
+        }
+        server.chapterListProvider = { [weak self] source, book in
+            guard let self else { return [] }
+            let result = try? await WebBook.getChapterList(
+                bookSource: source,
+                book: book,
+                dependencies: self.environment.dependencies()
+            )
+            return result?.chapters ?? []
+        }
+        server.imageProvider = { [weak self] url in
+            guard let self else { return nil }
+            return await self.webServiceImage(url: url)
+        }
+        do {
+            try server.start()
+            webService = server
+            webServiceStatus = server.status
+            // The upstream posts a notification when the service starts
+            // (`WebService.kt:196-213`).
+            if let address = server.status.addresses.first {
+                NotificationService.shared.post(
+                    NotificationContent.webService(address: address, port: server.status.httpPort)
+                )
+            }
+        } catch {
+            webService = nil
+            webServiceStatus = nil
+            errorMessage = "本地服务启动失败：\(error.localizedDescription)"
+        }
+    }
+
+    /// Stops the local web service — upstream `WebService.stop(context)`.
+    public func stopWebService() {
+        webService?.stop()
+        webService = nil
+        webServiceStatus = nil
+    }
+
+    /// Starts or stops the service when the preference changes.
+    public func setWebServiceEnabled(_ enabled: Bool) {
+        environment.settings.webServiceEnabled = enabled
+        if enabled {
+            startWebService()
+        } else {
+            stopWebService()
+        }
+    }
+
+    /// Restarts the service when it is running — the port changed.
+    public func restartWebServiceIfRunning() {
+        guard webService != nil else { return }
+        stopWebService()
+        startWebService()
+    }
+
+    /// The content of a chapter for the local API — upstream
+    /// `BookController.getBookContent`.
+    private func webServiceContent(book: Book, chapter: BookChapter) async -> String? {
+        // The cached content comes first — the upstream serves the cache too.
+        if let cached = environment.cacheStorage?.content(book: book, chapter: chapter), !cached.isEmpty {
+            return cached
+        }
+        guard let source = try? environment.source(for: book) else { return nil }
+        let dependencies = environment.dependencies()
+        return try? await WebBook.getContent(
+            bookSource: source,
+            book: book,
+            bookChapter: chapter,
+            dependencies: dependencies
+        )
+    }
+
+    /// The bytes of an image for the local API — upstream
+    /// `BookController.getCover` / `getImage`.
+    private func webServiceImage(url: String) async -> Data? {
+        guard let absolute = URL(string: url), absolute.scheme != nil else { return nil }
+        let response = try? await environment.httpClient.send(HttpRequest(url: url, method: "GET"))
+        return response?.data
     }
 }

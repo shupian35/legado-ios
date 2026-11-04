@@ -28,6 +28,14 @@ struct LegadoAppIOS: App {
 
     @StateObject private var model = LegadoAppModel.makeDefault()
 
+    init() {
+        // The notification channels and the categories of the read-aloud
+        // transport notification have to be registered before the first
+        // notification is posted — upstream `App.kt:179-222` does it when
+        // the application is created.
+        Task { await NotificationService.shared.prepare() }
+    }
+
     var body: some Scene {
         WindowGroup {
             LegadoRootScene(model: model)

@@ -24,6 +24,7 @@ import UniformTypeIdentifiers
 import LegadoUIShim
 #endif
 
+import Foundation
 import LegadoCore
 
 /// The settings tab.
@@ -36,6 +37,8 @@ public struct SettingsView: View {
     @State private var exportText: String = ""
     @State private var isExportPresented = false
     @State private var isFontImporterPresented = false
+    @State private var isBrowserPresented = false
+    @State private var browserURL: URL?
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -186,11 +189,37 @@ public struct SettingsView: View {
                     }
                     Toggle("启用本地服务", isOn: Binding(
                         get: { settings.webServiceEnabled },
-                        set: { settings.webServiceEnabled = $0 }
+                        set: { model.setWebServiceEnabled($0) }
                     ))
+                    // The address of the running service — upstream
+                    // `WebService.hostAddress` (`MyFragment.kt:95-104`).
+                    if let address = model.webServiceAddress {
+                        HStack {
+                            Text("服务地址 \(address)")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                                .onTapGesture {
+                                    UIPasteboardShim.copy(address)
+                                    model.backupMessage = "已复制服务地址"
+                                }
+                            Spacer()
+                            // The upstream opens the address in the browser
+                            // (`MyFragment.kt:90`).
+                            Button("浏览器打开") {
+                                browserURL = URL(string: address)
+                                isBrowserPresented = true
+                            }
+                            .font(.system(size: 12))
+                        }
+                    }
                     TextField("服务端口", text: Binding(
                         get: { String(settings.webPort) },
-                        set: { settings.webPort = Int($0) ?? 1122 }
+                        set: {
+                            settings.webPort = Int($0) ?? 1122
+                            // The service listens on the new port — upstream
+                            // restarts it when the preference changes.
+                            model.restartWebServiceIfRunning()
+                        }
                     ))
                 }
 
@@ -260,6 +289,12 @@ public struct SettingsView: View {
                     NavigationLink("文件管理") {
                         FileManageView(model: model)
                     }
+                    NavigationLink("使用帮助") {
+                        MarkdownView(
+                            title: StartupDocument.appHelp.title,
+                            markdown: AppHelpDocuments.appHelp
+                        )
+                    }
                     NavigationLink("关于") {
                         AboutView(model: model)
                     }
@@ -290,6 +325,11 @@ public struct SettingsView: View {
             .sheet(isPresented: $isBackupPresented) {
                 NavigationStack {
                     BackupView(model: model)
+                }
+            }
+            .sheet(isPresented: $isBrowserPresented) {
+                if let url = browserURL {
+                    InAppBrowserView(url: url.absoluteString)
                 }
             }
             .fileImporter(

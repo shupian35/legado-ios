@@ -95,7 +95,10 @@ public final class AppEnvironment {
     ///
     /// The queue needs a chapter loader that reads the chapter list from the
     /// store, so it is created here instead of in the initialiser.
-    public func makeCacheManager(storage: BookCacheStorage) -> CacheBookManager {
+    public func makeCacheManager(
+        storage: BookCacheStorage,
+        notificationSink: NotificationPosting? = nil
+    ) -> CacheBookManager {
         let loader = StoreChapterLoader(store: store)
         return CacheBookManager(
             storage: storage,
@@ -104,7 +107,8 @@ public final class AppEnvironment {
             ),
             chapterLoader: { bookUrl, index in
                 try loader.chapter(bookUrl: bookUrl, index: index)
-            }
+            },
+            notificationSink: notificationSink
         )
     }
 
