@@ -1182,8 +1182,14 @@ public final class LegadoAppModel: ObservableObject {
     }
 
     /// Selects another theme of the list.
+    ///
+    /// Upstream `ThemeConfig.applyConfig` — the colours of the theme are
+    /// copied into the day or the night preferences.
     public func selectTheme(index: Int) {
         themeManager.select(index: index)
         themeManager.save()
+        if themeManager.themes.indices.contains(index) {
+            themeManager.applyConfig(themeManager.themes[index], to: environment.settings)
+        }
     }
 }

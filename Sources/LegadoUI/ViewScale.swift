@@ -26,3 +26,16 @@ public func scaled<V: View>(_ view: V, by factor: Double) -> some View {
     return view.scaleEffect(factor)
     #endif
 }
+
+/// Blurs a view — `blur(radius:)` expects a `CGFloat` on Apple.
+///
+/// Upstream reference: `base/BaseActivity.kt:162-174` (`upBackgroundImage`) and
+/// `help/config/ThemeConfig.kt:79-100` (`getBgImage`).
+@inline(__always)
+public func blurred<V: View>(_ view: V, radius: Double) -> some View {
+    #if canImport(CoreGraphics)
+    return view.blur(radius: CGFloat(radius))
+    #else
+    return view.blur(radius: radius)
+    #endif
+}

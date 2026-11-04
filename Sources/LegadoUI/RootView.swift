@@ -30,29 +30,34 @@ public struct RootView: View {
     }
 
     public var body: some View {
-        TabView {
-            BookshelfView(model: model)
-                .tabItem {
-                    Label("书架", systemImage: "books.vertical")
-                }
-            // The upstream hides the discovery and the RSS tabs with the
-            // `showDiscovery` / `showRSS` preferences (`AppConfig.kt`).
-            if model.environment.settings.showDiscovery {
-                DiscoverView(model: model)
+        ZStack {
+            // Upstream `BaseActivity.upBackgroundImage` — the background
+            // image of the day or the night theme behind the whole window.
+            ShellBackgroundView(model: model)
+            TabView {
+                BookshelfView(model: model)
                     .tabItem {
-                        Label("发现", systemImage: "safari")
+                        Label("书架", systemImage: "books.vertical")
+                    }
+                // The upstream hides the discovery and the RSS tabs with the
+                // `showDiscovery` / `showRSS` preferences (`AppConfig.kt`).
+                if model.environment.settings.showDiscovery {
+                    DiscoverView(model: model)
+                        .tabItem {
+                            Label("发现", systemImage: "safari")
+                        }
+                }
+                if model.environment.settings.showRSS {
+                    RSSView(model: model)
+                        .tabItem {
+                            Label("订阅", systemImage: "newspaper")
+                        }
+                }
+                SettingsView(model: model)
+                    .tabItem {
+                        Label("我的", systemImage: "gearshape")
                     }
             }
-            if model.environment.settings.showRSS {
-                RSSView(model: model)
-                    .tabItem {
-                        Label("订阅", systemImage: "newspaper")
-                    }
-            }
-            SettingsView(model: model)
-                .tabItem {
-                    Label("我的", systemImage: "gearshape")
-                }
         }
         .background(model.currentTheme.background)
         // The login of a source is requested from several places (the book

@@ -166,7 +166,12 @@ public struct ThemeListView: View {
             message = "请输入主题名称"
             return
         }
-        guard model.themeManager.saveCurrentTheme(name: name, isNightTheme: isNight) else {
+        let colors = model.environment.settings.themeColors(isNight: isNight)
+        guard model.themeManager.saveCurrentTheme(
+            name: name,
+            isNightTheme: isNight,
+            colors: colors
+        ) else {
             message = "格式不对,添加失败"
             return
         }

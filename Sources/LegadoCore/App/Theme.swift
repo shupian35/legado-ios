@@ -212,27 +212,43 @@ public final class ThemeManager {
     ///
     /// The upstream reads the colours out of the preferences; the port keeps
     /// them in the theme list, so the current theme of the requested mode is
-    /// copied into a new entry.
+    /// copied into a new entry. When the caller passes the colours of the
+    /// preferences (the active theme), they win.
     ///
     /// - Parameters:
     ///   - name: the name of the new theme.
     ///   - isNightTheme: whether the night colours are saved.
+    ///   - colors: the colours of the active theme.
     @discardableResult
-    public func saveCurrentTheme(name: String, isNightTheme: Bool) -> Bool {
+    public func saveCurrentTheme(
+        name: String,
+        isNightTheme: Bool,
+        colors: ThemeColors? = nil
+    ) -> Bool {
         // The upstream keeps the day colours and the night colours in two
         // separate sets of preferences; the port keeps them in the two
         // entries of the theme list.
-        let current = themes.first { $0.isNightTheme == isNightTheme }
-            ?? currentTheme(isSystemDark: isNightTheme)
+        let current = colors.map { ThemeColors(theme: $0.theme) }
+            ?? themes.first { $0.isNightTheme == isNightTheme }.map { ThemeColors(theme: $0) }
+            ?? ThemeColors(theme: currentTheme(isSystemDark: isNightTheme))
         let theme = AppTheme(
             themeName: name,
             isNightTheme: isNightTheme,
-            primaryColor: current.primaryColor,
-            accentColor: current.accentColor,
-            backgroundColor: current.backgroundColor,
+            primaryColor: current.primary,
+            accentColor: current.accent,
+            backgroundColor: current.background,
             bottomBackground: current.bottomBackground
         )
         return add(theme)
+    }
+
+    /// Copies the colours of a theme into the preferences — upstream
+    /// `ThemeConfig.applyConfig` (L169-191).
+    ///
+    /// The colours go into the day or the night preferences, depending on
+    /// `theme.isNightTheme`.
+    public func applyConfig(_ theme: AppTheme, to settings: AppSettings) {
+        settings.applyThemeColors(ThemeColors(theme: theme), isNight: theme.isNightTheme)
     }
 
     /// Deletes a theme (upstream `delConfig`).
