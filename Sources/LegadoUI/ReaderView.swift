@@ -304,6 +304,9 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
             contentRules: (try? environment.store.replaceRulesForContent(name: book.name, origin: book.origin)) ?? [],
             configProvider: { [configBox] in configBox.config },
             layoutProvider: { [layoutBox] in layoutBox.layout },
+            // Upstream `PreferKey.preDownloadNum` — the number of chapters
+            // that are prefetched after the current one.
+            preDownloadCount: environment.settings.preDownloadNumber,
             chineseConversionMode: ChineseConversionMode(
                 rawValue: environment.settings.chineseConverterType
             ) ?? .off
@@ -1272,11 +1275,15 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     }
 
     /// The WebDAV service of the reader — upstream `AppWebDav`.
+    ///
+    /// The upstream keeps the account of the app in the preferences
+    /// (`PreferKey.webDavUrl` / `webDavAccount` / `webDavPassword`) and not
+    /// in the `servers` table.
     private func webDavService() -> WebDavService? {
-        guard let credentials = try? environment.store.webDavCredentials(),
-              credentials.isConfigured else { return nil }
+        let account = environment.settings.appWebDav
+        guard account.isConfigured else { return nil }
         return WebDavService(
-            configuration: credentials.serviceConfiguration(),
+            configuration: account.serviceConfiguration,
             httpClient: environment.httpClient
         )
     }
@@ -1364,6 +1371,61 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
         )
     }
 
+    // MARK: - The inline images
+
+    /// The source of the image that is previewed — upstream `PhotoDialog`.
+    @Published public var previewImageSrc: String?
+    /// Whether the image preview is shown.
+    @Published public var isImagePreviewPresented = false
+    /// The source of the image whose menu is shown — upstream
+    /// `ReadBookActivity.onImageLongPress`.
+    @Published public var imageMenuSrc: String?
+    /// Whether the image menu is shown.
+    @Published public var isImageMenuPresented = false
+
+    /// Opens the preview of an image — upstream `PhotoDialog(src)`.
+    public func previewImage(src: String) {
+        previewImageSrc = src
+        isImagePreviewPresented = true
+    }
+
+    /// Downloads the image again — upstream `ReadBookViewModel.refreshImage`.
+    public func refreshImage(src: String) async {
+        guard let storage = environment.cacheStorage else { return }
+        let absolute = NetworkUtils.absoluteURL(base: book.tocUrl, src)
+        storage.deleteImage(book: book, src: absolute)
+        _ = try? await contentProvider.chapterImages(
+            book: book,
+            chapter: currentChapter,
+            sources: [src]
+        )
+        await readBook.reloadCurrentChapter()
+        refreshPage()
+    }
+
+    /// Saves the image into a file — upstream `ReadBookViewModel.saveImage`.
+    @discardableResult
+    public func saveImage(src: String, to url: URL) -> Bool {
+        let absolute = NetworkUtils.absoluteURL(base: book.tocUrl, src)
+        guard let data = environment.cacheStorage?.image(book: book, src: absolute) else {
+            return false
+        }
+        do {
+            try data.write(to: url)
+            return true
+        } catch {
+            AppLog.shared.put("保存图片失败", error: error)
+            return false
+        }
+    }
+
+    /// The chapter that is on screen.
+    private var currentChapter: BookChapter {
+        chapters.indices.contains(readBook.durChapterIndex)
+            ? chapters[readBook.durChapterIndex]
+            : BookChapter(url: "", title: "")
+    }
+
     // MARK: - ReadBookDelegate
 
     public func readBook(_ readBook: ReadBook, didLoad chapter: TextChapter, position: Int) {
@@ -1378,6 +1440,67 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
 
     public func readBook(_ readBook: ReadBook, didFail error: Error) {
         errorMessage = error.localizedDescription
+        // Upstream `ReadBookViewModel.autoChangeSource` — the reader changes
+        // the source when the content of the chapter cannot be loaded.
+        Task { await autoChangeSourceIfNeeded() }
+    }
+
+    // MARK: - The automatic source change
+
+    /// Whether the source is being changed automatically.
+    @Published public var isChangingSource = false
+
+    /// Changes the source when the book has no source (or when the content
+    /// cannot be loaded) — upstream `ReadBookViewModel.autoChangeSource`
+    /// (`ReadBookViewModel.kt:293-327`).
+    ///
+    /// The upstream searches every enabled text source for the book, loads the
+    /// detail page, the chapter list and the content of the current chapter,
+    /// and switches to the first source that works.
+    public func autoChangeSourceIfNeeded() async {
+        guard environment.settings.autoChangeSource else { return }
+        guard let model, !book.isLocal else { return }
+        // The upstream only changes the source when the book has no source at
+        // all (`ReadBook.bookSource == null`).
+        guard (try? model.environment.source(for: book)) == nil else { return }
+        guard !isChangingSource else { return }
+        isChangingSource = true
+        defer { isChangingSource = false }
+        do {
+            let sources = try model.environment.sources(enabledOnly: true)
+            guard let candidate = await ChangeSourceService.autoChangeSource(
+                book: book,
+                sources: sources,
+                chapterIndex: readBook.durChapterIndex,
+                dependencies: model.environment.dependencies()
+            ) else {
+                return
+            }
+            guard let toc = candidate.toc else { return }
+            let switched = try ChangeSourceService.switchSource(
+                oldBook: book,
+                newBook: candidate.book,
+                toc: toc
+            )
+            try model.environment.store.update(switched)
+            // The replacement rules depend on the origin of the book — they
+            // are rebuilt when the source changes.
+            readBook.titleRules = (try? model.environment.store.replaceRulesForTitle(
+                name: switched.name,
+                origin: switched.origin
+            )) ?? []
+            readBook.contentRules = (try? model.environment.store.replaceRulesForContent(
+                name: switched.name,
+                origin: switched.origin
+            )) ?? []
+            book = switched
+            chapters = toc
+            await readBook.replaceBook(switched, chapters: toc)
+            refreshPage()
+            model.reloadBookshelf()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 
@@ -1430,6 +1553,52 @@ final class AppChapterContentProvider: ChapterContentProviding {
     func removesSameTitle(book: Book, chapter: BookChapter) -> Bool {
         guard let storage = environment.cacheStorage else { return true }
         return storage.isSameTitleRemoved(book: book, chapter: chapter)
+    }
+
+    /// Resolves the inline images of the chapter — upstream `ImageProvider`.
+    ///
+    /// The upstream downloads the image with Glide and caches it in the book
+    /// cache folder (`BookHelp.writeImage`); the port reads the cache first and
+    /// downloads the missing images with the HTTP client of the environment.
+    ///
+    /// The dictionary is keyed by the *raw* `src` of the tag, because that is
+    /// what the layout engine looks up.
+    func chapterImages(
+        book: Book,
+        chapter: BookChapter,
+        sources: [String]
+    ) async -> [String: ReaderImage] {
+        guard !sources.isEmpty else { return [:] }
+        var images: [String: ReaderImage] = [:]
+        let storage = environment.cacheStorage
+        for raw in sources {
+            let absolute = NetworkUtils.absoluteURL(base: chapter.url, raw)
+            // The cache first — upstream `BookHelp.isImageExist`.
+            if let storage, let data = storage.image(book: book, src: absolute) {
+                if let size = ImageSizeDetector.size(of: data) {
+                    images[raw] = ReaderImage(src: absolute, size: size, data: data)
+                }
+                continue
+            }
+            guard let data = await downloadImage(url: absolute, book: book),
+                  let size = ImageSizeDetector.size(of: data) else { continue }
+            try? storage?.saveImage(book: book, src: absolute, data: data)
+            images[raw] = ReaderImage(src: absolute, size: size, data: data)
+        }
+        return images
+    }
+
+    /// Downloads an image — upstream `ImageProvider.getImage`.
+    private func downloadImage(url: String, book: Book) async -> Data? {
+        guard !url.isEmpty, let parsed = URL(string: url), parsed.scheme != nil else { return nil }
+        var request = HttpRequest(url: url)
+        // The headers of the book source are used for the image as well.
+        if let source = try? environment.source(for: book) {
+            request.headers = source.headerMap(hasLoginHeader: false)
+        }
+        guard let response = try? await environment.httpClient.send(request),
+              response.isSuccessful else { return nil }
+        return response.data
     }
 }
 
@@ -1554,17 +1723,26 @@ public struct ReaderView: View {
                                         from: controller.environment.settings
                                     ),
                                     lines: controller.pageLines,
-                                    lineOffsets: controller.pageLineOffsets
+                                    lineOffsets: controller.pageLineOffsets,
+                                    // A tap on an image opens the preview —
+                                    // upstream `AppConfig.previewImageByClick`.
+                                    previewImageByClick: controller.environment.settings.previewImageByClick
                                 ) { action in
                                     controller.performClickAction(action)
                                 } onLongPress: { offset in
                                     // The long press starts the text
                                     // selection — upstream
                                     // `ReadView.onLongPress`.
+                                    guard controller.environment.settings.textSelectAble else { return }
                                     controller.selection.selectParagraph(
                                         around: offset,
                                         in: controller.pageText
                                     )
+                                } onTapImage: { src in
+                                    controller.previewImage(src: src)
+                                } onLongPressImage: { src in
+                                    controller.imageMenuSrc = src
+                                    controller.isImageMenuPresented = true
                                 }
                             }
                             .onChange(of: proxy.size) { _, size in
@@ -1697,6 +1875,18 @@ public struct ReaderView: View {
                     ) { title, content in
                         controller.saveEditedContent(title: title, content: content)
                     }
+                }
+            }
+            // The preview of an image — upstream `PhotoDialog(src)`.
+            .sheet(isPresented: $controller.isImagePreviewPresented) {
+                if let src = controller.previewImageSrc {
+                    ImagePreviewView(controller: controller, src: src)
+                }
+            }
+            // The menu of an image — upstream `ReadBookActivity.onImageLongPress`.
+            .sheet(isPresented: $controller.isImageMenuPresented) {
+                if let src = controller.imageMenuSrc {
+                    ImageMenuView(controller: controller, src: src)
                 }
             }
             // Upstream `ReadBookActivity.sureSyncProgress` — the remote

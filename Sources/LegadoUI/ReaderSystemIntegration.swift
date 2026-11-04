@@ -75,13 +75,17 @@ public final class ReaderSystemIntegration: ObservableObject {
         }
 
         // The brightness: the upstream applies `brightness` in the day mode and
-        // `nightBrightness` in the night mode (`ReadBookActivity.kt:699`).
-        let night = settings.isDarkTheme
-        let value = night ? settings.nightBrightness : settings.brightness
-        if previousBrightness == nil {
-            previousBrightness = Double(UIScreen.main.brightness)
+        // `nightBrightness` in the night mode (`ReadBookActivity.kt:699`) —
+        // but only when the brightness does not follow the system
+        // (`ReadMenu.setScreenBrightness`).
+        if !brightnessAuto {
+            let night = settings.isDarkTheme
+            let value = night ? settings.nightBrightness : settings.brightness
+            if previousBrightness == nil {
+                previousBrightness = Double(UIScreen.main.brightness)
+            }
+            UIScreen.main.brightness = CGFloat(min(max(Double(value) / 100.0, 0), 1))
         }
-        UIScreen.main.brightness = CGFloat(min(max(Double(value) / 100.0, 0), 1))
 
         // The orientation.
         switch settings.screenOrientation {
@@ -123,7 +127,8 @@ public final class ReaderSystemIntegration: ObservableObject {
     /// screen brightness).
     ///
     /// The value is a percentage (`0...100`); the setting is stored so the
-    /// reader opens with it again.
+    /// reader opens with it again. When the brightness follows the system, the
+    /// upstream disables the slider — the port does the same.
     @MainActor
     public func setBrightness(percent: Int) {
         let value = min(max(percent, 0), 100)
@@ -134,6 +139,20 @@ public final class ReaderSystemIntegration: ObservableObject {
         }
         UIScreen.main.brightness = CGFloat(Double(value) / 100.0)
         #endif
+    }
+
+    /// Whether the brightness follows the system — upstream
+    /// `ReadMenu.brightnessAuto()`:
+    /// `context.getPrefBoolean("brightnessAuto", true) || !showBrightnessView`.
+    public var brightnessAuto: Bool {
+        settings.bool(.brightnessAuto, default: true)
+            || !settings.bool(.showBrightnessView, default: true)
+    }
+
+    /// Turns the "the brightness follows the system" mode on or off — upstream
+    /// `ReadMenu.kt:380` (`context.putPrefBoolean("brightnessAuto", …)`).
+    public func setBrightnessAuto(_ enabled: Bool) {
+        settings.set(enabled, for: .brightnessAuto)
     }
 
     /// The current screen brightness as a percentage (`0...100`).

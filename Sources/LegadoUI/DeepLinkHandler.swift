@@ -173,7 +173,7 @@ public struct LegadoRootScene: View {
                     }
                 }
             if isWelcomePresented {
-                WelcomeView {
+                WelcomeView(settings: model.environment.settings) {
                     isWelcomePresented = false
                     // The upstream opens the last-read book directly after the
                     // splash when the preference `defaultToRead` is on.

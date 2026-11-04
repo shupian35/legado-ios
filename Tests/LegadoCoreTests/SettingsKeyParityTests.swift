@@ -219,6 +219,8 @@ final class SettingsKeyParityTests: XCTestCase {
         "systemMediaControlCompatibilityChange",
         "themeList",
         "welcomeStyle",
+        // `ReadMenu.kt:320` — the brightness follows the system.
+        "brightnessAuto",
     ]
 
     func testEveryUpstreamPreferenceIsRepresented() {

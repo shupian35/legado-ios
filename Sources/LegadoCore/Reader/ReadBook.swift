@@ -80,8 +80,14 @@ public final class ReadBook {
     private let contentProvider: ReadBookContentProvider
     private let measurer: TextMeasuring
     private let scriptEngine: RuleScriptEngine?
-    private let titleRules: [ReplaceRule]
-    private let contentRules: [ReplaceRule]
+    /// The replacement rules of the title.
+    ///
+    /// They are replaced when the source of the book changes (the rules
+    /// depend on the origin of the book — upstream `ReadBookViewModel`
+    /// rebuilds the view model).
+    public var titleRules: [ReplaceRule]
+    /// The replacement rules of the content — see `titleRules`.
+    public var contentRules: [ReplaceRule]
     private let configProvider: () -> ReaderConfig
     private let layoutProvider: () -> ReaderLayout
     /// The Chinese converter of the content.
@@ -177,7 +183,8 @@ public final class ReadBook {
             config: configProvider(),
             layout: layoutProvider(),
             measurer: measurer,
-            chineseConversionMode: chineseConversionMode
+            chineseConversionMode: chineseConversionMode,
+            imageStyle: Self.imageStyle(of: book)
         )
         loadedChapters[index] = textChapter
         return textChapter
@@ -248,6 +255,26 @@ public final class ReadBook {
     public func replaceChapterList(_ chapters: [BookChapter]) async {
         chapterList = chapters
         book.totalChapterNum = Int64(chapters.count)
+        loadedChapters.removeAll()
+        curTextChapter = nil
+        prevTextChapter = nil
+        nextTextChapter = nil
+        loadingLock = false
+        await loadCurrentChapter()
+    }
+
+    /// Replaces the book and the chapter list — upstream
+    /// `ReadBookViewModel.changeTo(book, toc)` (the automatic source change
+    /// and the manual source change both go through it).
+    ///
+    /// The reading progress is kept: the chapter index is clamped into the
+    /// new chapter list.
+    public func replaceBook(_ book: Book, chapters: [BookChapter]) async {
+        var newBook = book
+        newBook.totalChapterNum = Int64(chapters.count)
+        self.book = newBook
+        chapterList = chapters
+        durChapterIndex = max(0, min(durChapterIndex, max(0, chapters.count - 1)))
         loadedChapters.removeAll()
         curTextChapter = nil
         prevTextChapter = nil
@@ -346,5 +373,16 @@ public final class ReadBook {
         }
         return Double(chapter.position) / Double(chapter.chaptersSize)
             + 1.0 / Double(chapter.chaptersSize) * Double(pageIndex + 1) / Double(chapter.pageSize)
+    }
+
+    // MARK: - The image style
+
+    /// The image style of the book — upstream `Book.getImageStyle()`.
+    ///
+    /// The upstream reads the per-book read configuration and falls back to
+    /// `imgStyleDefault` when the value is missing or unknown.
+    public static func imageStyle(of book: Book) -> BookImageStyle {
+        guard let raw = book.readConfigBox.imageStyle, !raw.isEmpty else { return .standard }
+        return BookImageStyle(rawValue: raw) ?? .standard
     }
 }

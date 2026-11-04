@@ -25,6 +25,7 @@ import LegadoUIShim
 #endif
 
 import LegadoCore
+import Foundation
 
 /// The RSS tab.
 public struct RSSView: View {
@@ -56,6 +57,12 @@ public struct RSSView: View {
     @State private var sorts: [RssSort] = []
     /// The index of the selected sort.
     @State private var selectedSortIndex: Int = 0
+    /// The read records — upstream `ui/rss/article/ReadRecordDialog`.
+    @State private var isReadRecordPresented = false
+    /// The editor of the source — upstream `RssSourceEditActivity`.
+    @State private var isSourceEditorPresented = false
+    /// The variables of the source — upstream `ui/widget/dialog/VariableDialog`.
+    @State private var isVariablePresented = false
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -90,6 +97,40 @@ public struct RSSView: View {
                         isRuleSubPresented = true
                     }
                 }
+                // The menu of the article screen — upstream
+                // `ui/rss/article/RssSortActivity` (`res/menu/rss_articles`).
+                ToolbarItem(placement: .secondaryAction) {
+                    Menu {
+                        if let source = selectedSource {
+                            if let loginUrl = source.loginUrl, !loginUrl.isEmpty {
+                                Button("登录") {
+                                    model.presentLogin(for: source)
+                                }
+                            }
+                            Button("刷新排序") {
+                                refreshSorts()
+                            }
+                            Button("源变量") {
+                                isVariablePresented = true
+                            }
+                            Button("编辑源") {
+                                isSourceEditorPresented = true
+                            }
+                            Button("切换布局") {
+                                switchLayout()
+                            }
+                            Button("阅读记录") {
+                                isReadRecordPresented = true
+                            }
+                            Button("清除") {
+                                model.clearRssArticles(source: source)
+                                articles = []
+                            }
+                        }
+                    } label: {
+                        Text("更多")
+                    }
+                }
             }
             .sheet(isPresented: $isRuleSubPresented) {
                 NavigationStack {
@@ -104,6 +145,34 @@ public struct RSSView: View {
             .sheet(isPresented: $isFavoritesPresented) {
                 NavigationStack {
                     RssFavoritesView(model: model)
+                }
+            }
+            .sheet(isPresented: $isReadRecordPresented) {
+                NavigationStack {
+                    RssReadRecordView(model: model)
+                }
+            }
+            .sheet(isPresented: $isSourceEditorPresented) {
+                NavigationStack {
+                    if let source = selectedSource {
+                        RssSourceEditView(source: source) { updated in
+                            model.saveRssSource(updated)
+                            loadSorts(updated)
+                        }
+                    }
+                }
+            }
+            .sheet(isPresented: $isVariablePresented) {
+                NavigationStack {
+                    if let source = selectedSource {
+                        VariableEditorView(
+                            title: "源变量",
+                            comment: "源变量可在js中通过source.getVariable()获取",
+                            value: BookSourceVariables.sourceVariables(source.key) ?? "{}"
+                        ) { value in
+                            saveVariables(value, for: source)
+                        }
+                    }
                 }
             }
             .sheet(item: $openedArticle) { item in
@@ -212,13 +281,23 @@ public struct RSSView: View {
 
     /// The groups of the RSS sources — upstream `RssSourceViewModel`.
     private var groups: [RssLibrary.Group] {
-        RssLibrary.sourceGroups(model.rssSources)
+        RssLibrary.sourceGroups(model.rssSources.filter(\.enabled))
     }
 
     /// The sources of the selected group.
+    ///
+    /// Upstream `RssSourceDao.flowAll` — the sources whose subscription is
+    /// enabled (`RssSource.enabled`).
     private var filteredSources: [RssSource] {
-        guard let selectedGroup else { return model.rssSources }
-        return model.rssSources.filter { RssLibrary.splitGroups($0.sourceGroup).contains(selectedGroup) }
+        let enabled = model.rssSources.filter(\.enabled)
+        guard let selectedGroup else { return enabled }
+        return enabled.filter { RssLibrary.splitGroups($0.sourceGroup).contains(selectedGroup) }
+    }
+
+    /// The layout of the articles — upstream `RssSource.articleStyle`
+    /// (0 = the list, 1 = the compact row, 2 = the grid).
+    private var articleStyle: Int {
+        Int(selectedSource?.articleStyle ?? 0)
     }
 
     @ViewBuilder
@@ -228,22 +307,75 @@ public struct RSSView: View {
         } else if articles.isEmpty {
             EmptyState(text: "没有文章")
         } else {
-            List {
-                ForEach(articles, id: \.link) { article in
-                    HStack(alignment: .top, spacing: 8) {
-                        Button {
-                            open(article)
-                        } label: {
+            switch articleStyle {
+            case 1:
+                compactArticleList
+            case 2:
+                gridArticleList
+            default:
+                defaultArticleList
+            }
+        }
+    }
+
+    /// The default list — upstream `RssArticlesAdapter`
+    /// (`item_rss_article.xml`: the title, the description and the date).
+    private var defaultArticleList: some View {
+        List {
+            ForEach(articles, id: \.link) { article in
+                HStack(alignment: .top, spacing: 8) {
+                    Button {
+                        open(article)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(article.title)
+                                .font(.system(size: 16))
+                                .lineLimit(2)
+                                .foregroundColor(isRead(article) ? .secondary : .primary)
+                            if let description = article.description, !description.isEmpty {
+                                Text(description)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(3)
+                            }
+                            if let pubDate = article.pubDate, !pubDate.isEmpty {
+                                Text(pubDate)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    Button(model.isStarred(article) ? "★" : "☆") {
+                        model.toggleStar(article)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .font(.system(size: 18))
+                }
+            }
+            loadMoreSection
+        }
+        .listStyle(PlainListStyle())
+    }
+
+    /// The compact list — upstream `RssArticlesAdapter1`
+    /// (`item_rss_article_1.xml`: the image on the left, the title and the
+    /// date on the right).
+    private var compactArticleList: some View {
+        List {
+            ForEach(articles, id: \.link) { article in
+                HStack(alignment: .top, spacing: 8) {
+                    Button {
+                        open(article)
+                    } label: {
+                        HStack(alignment: .top, spacing: 8) {
+                            articleImage(article, width: 110, height: 150)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(article.title)
                                     .font(.system(size: 16))
-                                    .lineLimit(2)
-                                if let description = article.description, !description.isEmpty {
-                                    Text(description)
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(3)
-                                }
+                                    .lineLimit(3)
+                                    .foregroundColor(isRead(article) ? .secondary : .primary)
                                 if let pubDate = article.pubDate, !pubDate.isEmpty {
                                     Text(pubDate)
                                         .font(.system(size: 11))
@@ -252,36 +384,103 @@ public struct RSSView: View {
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .buttonStyle(PlainButtonStyle())
-                        Button(model.isStarred(article) ? "★" : "☆") {
-                            model.toggleStar(article)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        .font(.system(size: 18))
                     }
-                }
-                // The "load more" button — upstream `RssArticlesFragment` puts a
-                // `LoadMoreView` below the articles.
-                if nextURL != nil {
-                    Section {
-                        Button {
-                            loadMore()
-                        } label: {
-                            HStack {
-                                Spacer()
-                                if isLoadingMore {
-                                    ProgressView("加载中")
-                                } else {
-                                    Text("加载更多")
-                                }
-                                Spacer()
-                            }
-                        }
-                        .disabled(isLoadingMore)
+                    .buttonStyle(PlainButtonStyle())
+                    Button(model.isStarred(article) ? "★" : "☆") {
+                        model.toggleStar(article)
                     }
+                    .buttonStyle(PlainButtonStyle())
+                    .font(.system(size: 18))
                 }
             }
-            .listStyle(PlainListStyle())
+            loadMoreSection
+        }
+        .listStyle(PlainListStyle())
+    }
+
+    /// The grid — upstream `RssArticlesAdapter2` (the image on the top, the
+    /// title and the date below, two columns).
+    private var gridArticleList: some View {
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                ForEach(articles, id: \.link) { article in
+                    Button {
+                        open(article)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            articleImage(article, width: 0, height: 160)
+                            Text(article.title)
+                                .font(.system(size: 14))
+                                .lineLimit(3)
+                                .foregroundColor(isRead(article) ? .secondary : .primary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            if let pubDate = article.pubDate, !pubDate.isEmpty {
+                                Text(pubDate)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+            .padding(8)
+            loadMoreButton
+        }
+    }
+
+    /// The image of an article — upstream `ImageLoader.load(context, item.image)`
+    /// (the URL is relative to the address of the source).
+    @ViewBuilder
+    private func articleImage(_ article: RssArticle, width: Double, height: Double) -> some View {
+        if let image = article.image, !image.isEmpty,
+           let url = URL(string: NetworkUtils.absoluteURL(base: article.origin, image)) {
+            AsyncImage(url: url) { phase in
+                if case let .success(value) = phase {
+                    return AnyView(value.resizable().aspectRatio(contentMode: .fill))
+                }
+                return AnyView(Color.gray.opacity(0.15))
+            }
+            .frame(width: width > 0 ? width : nil, height: height)
+            .cornerRadius(4)
+            .clipped()
+        } else {
+            Color.gray.opacity(0.15)
+                .frame(width: width > 0 ? width : nil, height: height)
+                .cornerRadius(4)
+        }
+    }
+
+    /// Whether an article was read — upstream `RssArticle.read`.
+    private func isRead(_ article: RssArticle) -> Bool {
+        model.rssReadRecords.contains { $0.record == article.link }
+    }
+
+    /// The "load more" row — upstream `RssArticlesFragment` puts a
+    /// `LoadMoreView` below the articles.
+    private var loadMoreSection: some View {
+        Section {
+            loadMoreButton
+        }
+    }
+
+    @ViewBuilder
+    private var loadMoreButton: some View {
+        if nextURL != nil {
+            Button {
+                loadMore()
+            } label: {
+                HStack {
+                    Spacer()
+                    if isLoadingMore {
+                        ProgressView("加载中")
+                    } else {
+                        Text("加载更多")
+                    }
+                    Spacer()
+                }
+            }
+            .disabled(isLoadingMore)
         }
     }
 
@@ -349,6 +548,41 @@ public struct RSSView: View {
             scriptEngine: model.environment.scriptEngine
         )
         selectedSortIndex = 0
+    }
+
+    /// Re-reads the sorts of the source — upstream
+    /// `RssSortViewModel.clearSortCache` (the upstream caches the sorts of a
+    /// JS `sortUrl`, the port evaluates it on demand).
+    private func refreshSorts() {
+        guard let source = selectedSource else { return }
+        loadSorts(source)
+        load()
+    }
+
+    /// Switches the layout of the articles — upstream
+    /// `RssSortViewModel.switchLayout` (0 → 1 → 2 → 0).
+    private func switchLayout() {
+        guard let source = selectedSource else { return }
+        var updated = source
+        updated.articleStyle = source.articleStyle < 2 ? source.articleStyle + 1 : 0
+        model.saveRssSource(updated)
+        selectedSource = updated
+    }
+
+    /// Saves the variables of the source — upstream
+    /// `RssSortActivity.setVariable`.
+    private func saveVariables(_ text: String, for source: RssSource) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let value = try? JSONValue.parse(trimmed),
+              let members = value.objectValue else {
+            BookSourceVariables.clearSourceVariables(source.key)
+            return
+        }
+        var variables: [String: String] = [:]
+        for (name, member) in members {
+            variables[name] = member.textValue
+        }
+        BookSourceVariables.setVariables(variables, for: source.key)
     }
 
     /// Opens the reader of an article — upstream `ReadRssActivity`.
@@ -531,5 +765,62 @@ public struct RssFavoritesView: View {
     private func source(of article: RssArticle) -> RssSource {
         model.rssSources.first { $0.sourceUrl == article.origin }
             ?? RssSource(sourceUrl: article.origin, sourceName: article.origin)
+    }
+}
+
+// MARK: - The read records
+
+/// The read records of the RSS articles — upstream
+/// `ui/rss/article/ReadRecordDialog`.
+///
+/// The upstream lists the title and the link of every article that was read
+/// and offers a "clear" button that asks for a confirmation.
+public struct RssReadRecordView: View {
+
+    @ObservedObject var model: LegadoAppModel
+
+    /// Whether the confirmation of the clear is shown.
+    @State private var showsClearConfirmation = false
+
+    public init(model: LegadoAppModel) {
+        self.model = model
+    }
+
+    public var body: some View {
+        Group {
+            if model.rssReadRecords.isEmpty {
+                EmptyState(text: "没有阅读记录")
+            } else {
+                List(model.rssReadRecords, id: \.record) { record in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(record.title ?? record.record)
+                            .font(.system(size: 16))
+                        Text(record.record)
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .listStyle(PlainListStyle())
+            }
+        }
+        .navigationTitle("阅读记录")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                // Upstream `menu_clear`.
+                Button("清除") {
+                    showsClearConfirmation = true
+                }
+                .disabled(model.rssReadRecords.isEmpty)
+            }
+        }
+        .alert("清除", isPresented: $showsClearConfirmation) {
+            Button("取消", role: .cancel) {}
+            Button("确定", role: .destructive) {
+                model.deleteAllRssReadRecords()
+            }
+        } message: {
+            Text("确定要删除\n\(model.rssReadRecords.count) 条阅读记录吗？")
+        }
     }
 }

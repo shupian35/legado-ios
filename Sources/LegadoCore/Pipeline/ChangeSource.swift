@@ -321,6 +321,70 @@ public enum ChangeSourceService {
         book.type = book.type & ~BookType.updateError
         return book
     }
+
+    /// The automatic change of the source — upstream
+    /// `ReadBookViewModel.autoChangeSource` (`ReadBookViewModel.kt:293-327`).
+    ///
+    /// The upstream searches every enabled text source for the book, loads
+    /// the detail page when the chapter URL is missing, loads the chapter
+    /// list and reads the content of the current chapter; the first source
+    /// that works wins.
+    public static func autoChangeSource(
+        book: Book,
+        sources: [BookSource],
+        chapterIndex: Int = 0,
+        dependencies: AnalyzeUrlDependencies = AnalyzeUrlDependencies()
+    ) async -> ChangeSourceCandidate? {
+        for source in sources {
+            do {
+                var candidate = try await WebBook.preciseSearch(
+                    bookSource: source,
+                    name: book.name,
+                    author: book.author,
+                    dependencies: dependencies
+                )
+                if candidate.tocUrl.isEmpty {
+                    candidate = try await WebBook.getBookInfo(
+                        bookSource: source,
+                        book: candidate,
+                        dependencies: dependencies
+                    )
+                }
+                let result = try await WebBook.getChapterList(
+                    bookSource: source,
+                    book: candidate,
+                    dependencies: dependencies
+                )
+                let toc = result.chapters
+                guard !toc.isEmpty else { continue }
+                // The upstream reads the content of the current chapter to
+                // make sure that the source really works.
+                let index = min(max(0, chapterIndex), toc.count - 1)
+                let chapter = toc[index]
+                let next = toc.indices.contains(index + 1) ? toc[index + 1] : toc[0]
+                _ = try await WebBook.getContent(
+                    bookSource: source,
+                    book: result.book,
+                    bookChapter: chapter,
+                    nextChapterUrl: next.url,
+                    dependencies: dependencies
+                )
+                return ChangeSourceCandidate(
+                    book: result.book,
+                    sourceUrl: source.bookSourceUrl,
+                    sourceName: source.bookSourceName,
+                    originOrder: source.customOrder,
+                    chapterWordCount: -1,
+                    toc: toc
+                )
+            } catch {
+                // A broken source is skipped (the upstream swallows every
+                // throwable of a source).
+                continue
+            }
+        }
+        return nil
+    }
 }
 
 /// The mapping of the reading progress onto a new chapter list.

@@ -56,6 +56,11 @@ public struct BookshelfManageView: View {
     /// `BookAdapter.checkSelectedInterval`).
     @State private var rangeAnchor: String?
     @State private var isReordering = false
+    /// The group manager — upstream `menu_group_manage`.
+    @State private var isGroupManagePresented = false
+    /// The book whose information is opened by tapping the title — upstream
+    /// `BookAdapter.openBook`.
+    @State private var openedBook: Book?
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -94,13 +99,19 @@ public struct BookshelfManageView: View {
                     }
                     Divider()
                     Button("分组管理") {
-                        isGroupPickerPresented = false
+                        isGroupManagePresented = true
                     }
                     Button("导出用到的书源") {
                         exportUsedSources()
                     }
+                    // Upstream `menu_open_book_info_by_click_title` — a
+                    // checkable item that toggles `AppConfig.openBookInfoByClickTitle`
+                    // (the default is true).
                     Button("点击书名打开书籍详情") {
-                        model.environment.settings.bool(.openBookInfoByClickTitle, default: false)
+                        model.environment.settings.set(
+                            !model.environment.settings.bool(.openBookInfoByClickTitle, default: true),
+                            for: .openBookInfoByClickTitle
+                        )
                     }
                 } label: {
                     Text("更多")
@@ -169,6 +180,16 @@ public struct BookshelfManageView: View {
         .onAppear {
             reload()
         }
+        .sheet(isPresented: $isGroupManagePresented) {
+            NavigationStack {
+                GroupManageView(model: model)
+            }
+        }
+        .sheet(item: $openedBook) { book in
+            NavigationStack {
+                BookDetailView(model: model, book: book)
+            }
+        }
     }
 
     /// One row of the list.
@@ -181,7 +202,18 @@ public struct BookshelfManageView: View {
                     .font(.system(size: 18))
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(book.name)
+                // Upstream `BookAdapter`: the title opens the book information
+                // when `AppConfig.openBookInfoByClickTitle` is on.
+                if model.environment.settings.bool(.openBookInfoByClickTitle, default: true) {
+                    Button {
+                        openedBook = book
+                    } label: {
+                        Text(book.name)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                } else {
+                    Text(book.name)
+                }
                 Text(book.author)
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
@@ -257,13 +289,13 @@ public struct BookshelfManageView: View {
         rangeAnchor = nil
     }
 
-    /// Selects the books between the anchor and the tapped book — upstream
-    /// `BookAdapter.checkSelectedInterval`.
+    /// Selects the books between the first and the last selected book —
+    /// upstream `BookAdapter.checkSelectedInterval` (the minimum and the
+    /// maximum POSITION of the selection).
     private func selectInterval() {
-        guard let first = selection.first,
-              let start = books.firstIndex(where: { $0.bookUrl == first }) else { return }
-        let end = books.count - 1
-        selection = Set(books[start...end].map(\.bookUrl))
+        let positions = books.indices.filter { selection.contains(books[$0].bookUrl) }
+        guard let first = positions.first, let last = positions.last, first <= last else { return }
+        selection = Set(books[first...last].map(\.bookUrl))
     }
 
     private var selectedBooks: [Book] {

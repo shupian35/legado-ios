@@ -62,12 +62,15 @@ public final class TextColumn: ReaderColumn {
 public final class ImageColumn: ReaderColumn {
     public var start: Double
     public var end: Double
+    /// The source of the image — upstream `ImageColumn.src`.
+    public let src: String
     public let imageData: Data?
     public weak var textLine: TextLine?
 
-    public init(start: Double, end: Double, imageData: Data?) {
+    public init(start: Double, end: Double, src: String = "", imageData: Data? = nil) {
         self.start = start
         self.end = end
+        self.src = src
         self.imageData = imageData
     }
 }

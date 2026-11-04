@@ -869,6 +869,11 @@ public struct ReadRecord: Equatable {
 
 // MARK: - The simulated reading
 
+extension Book: Identifiable {
+    /// The identity of a book — its address.
+    public var id: String { bookUrl }
+}
+
 extension Book {
 
     /// The date format of the simulation — upstream

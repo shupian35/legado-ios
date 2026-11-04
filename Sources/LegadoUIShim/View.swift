@@ -218,6 +218,13 @@ public struct SecureField: View {
 public struct Slider: View {
     public init(value: Binding<Double>, in bounds: ClosedRange<Double>, step: Double? = nil) {}
     public init(value: Binding<Double>, in bounds: ClosedRange<Double>) {}
+    /// The slider that reports the start and the end of the drag — the real
+    /// API is `init(value:in:onEditingChanged:)`.
+    public init(
+        value: Binding<Double>,
+        in bounds: ClosedRange<Double>,
+        onEditingChanged: @escaping (Bool) -> Void = { _ in }
+    ) {}
     public var body: Never { fatalError("Slider has no body") }
 }
 

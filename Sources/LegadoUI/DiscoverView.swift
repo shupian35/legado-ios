@@ -284,10 +284,14 @@ public struct DiscoverView: View {
 
     /// The sources of the list — the enabled ones that have an exploration
     /// rule, filtered by the search text and the group.
+    ///
+    /// Upstream `BookSourceDao.flowExplore` — the sources with
+    /// `enabledExplore = 1` and an exploration rule; the search matches the
+    /// name AND the group.
     private var filteredSources: [BookSource] {
         let key = sourceFilter.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let all = model.sources
-            .filter { !($0.exploreUrl ?? "").isEmpty }
+            .filter { $0.enabledExplore && !($0.exploreUrl ?? "").isEmpty }
             .sorted { $0.customOrder < $1.customOrder }
         let grouped = groupFilter.isEmpty
             ? all
@@ -296,14 +300,18 @@ public struct DiscoverView: View {
         return grouped.filter { source in
             source.bookSourceName.lowercased().contains(key)
                 || source.bookSourceUrl.lowercased().contains(key)
+                || source.groups.contains { $0.lowercased().contains(key) }
         }
     }
 
-    /// The groups of the sources — upstream `BookSource.bookSourceGroup`.
+    /// The groups of the sources — upstream
+    /// `BookSourceDao.flowExploreGroupsUnProcessed`: the groups of the
+    /// sources whose exploration is allowed and that have an exploration
+    /// rule.
     private var allGroups: [String] {
         var names: [String] = []
-        for source in model.sources {
-            for group in source.groups where !names.contains(group) {
+        for source in model.sources where source.enabledExplore && !(source.exploreUrl ?? "").isEmpty {
+            for group in source.groups where !group.isEmpty && !names.contains(group) {
                 names.append(group)
             }
         }

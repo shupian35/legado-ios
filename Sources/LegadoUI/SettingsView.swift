@@ -164,6 +164,11 @@ public struct SettingsView: View {
                     Text(settings.string(.fontFolder) ?? "使用系统字体")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
+                    // Upstream `ReadConfigFragment` — the reading preferences
+                    // of the app (the screen built from `pref_config_read.xml`).
+                    NavigationLink("阅读设置") {
+                        ReaderPreferencesView(model: model)
+                    }
                 }
 
                 Section("网络") {

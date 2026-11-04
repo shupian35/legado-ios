@@ -137,6 +137,10 @@ public struct BookDetailView: View {
                     // Upstream `BookInfoActivity.menu_copy_toc_url` — the
                     // address of the table of contents.
                     Button("复制目录链接") {
+                        UIPasteboardShim.copy(current.tocUrl)
+                    }
+                    // Upstream `BookInfoActivity.menu_copy_book_url`.
+                    Button("复制书籍地址") {
                         UIPasteboardShim.copy(current.bookUrl)
                     }
                     // Upstream `BookInfoActivity.menu_clear_cache`.

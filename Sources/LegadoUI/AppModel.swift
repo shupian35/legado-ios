@@ -45,7 +45,13 @@ public final class LegadoAppModel: ObservableObject {
     public let themeManager: ThemeManager
 
     /// Whether the system is in dark mode; the shell keeps it up to date.
-    @Published public var isSystemDark = false
+    @Published public var isSystemDark = false {
+        didSet {
+            // The settings need it to know whether the night mode is used
+            // (the welcome screen, the reader, the theme).
+            environment.settings.isSystemDark = isSystemDark
+        }
+    }
 
     /// The visible book groups (upstream `BookGroupDao.show`).
     @Published public var groups: [BookGroup] = []
@@ -76,7 +82,11 @@ public final class LegadoAppModel: ObservableObject {
     /// Whether the manga reader is presented.
     @Published public var isMangaPresented = false
     /// The source whose login dialog is presented (upstream `SourceLoginActivity`).
-    @Published public var loginSource: BookSource?
+    ///
+    /// The upstream opens the same dialog for the book sources and for the
+    /// RSS sources (`SourceLoginActivity` with the type "rssSource"), so the
+    /// port stores the protocol.
+    @Published public var loginSource: LoginCapable?
     /// Whether the login dialog is presented.
     @Published public var isLoginPresented = false
 
@@ -189,7 +199,7 @@ public final class LegadoAppModel: ObservableObject {
     }
 
     /// Presents the login dialog of a source.
-    public func presentLogin(for source: BookSource) {
+    public func presentLogin(for source: LoginCapable) {
         loginSource = source
         isLoginPresented = true
     }
@@ -606,6 +616,27 @@ public final class LegadoAppModel: ObservableObject {
     /// Whether an article is a favourite.
     public func isStarred(_ article: RssArticle) -> Bool {
         RssLibrary.star(of: article, in: rssStars) != nil
+    }
+
+    /// Deletes the articles of an RSS source — upstream
+    /// `RssSortViewModel.clearArticles`.
+    public func clearRssArticles(source: RssSource) {
+        do {
+            try environment.store.deleteRssArticles(origin: source.sourceUrl)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Deletes every RSS read record — upstream
+    /// `RssSortViewModel.deleteAllRecord`.
+    public func deleteAllRssReadRecords() {
+        do {
+            try environment.store.deleteAllRssReadRecords()
+            rssReadRecords = try environment.store.allRssReadRecords()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     /// Reloads everything.

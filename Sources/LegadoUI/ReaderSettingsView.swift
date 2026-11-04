@@ -444,6 +444,144 @@ public struct ReaderConverterRow: View {
 
 // MARK: - The screens
 
+/// The reading preferences of the app — upstream `pref_config_read.xml`.
+///
+/// Every row of the upstream's preference screen is reproduced: the screen
+/// orientation, the screen timeout, the hidden bars, the layout switches, the
+/// paging switches, the progress bar, the behaviour switches and the click
+/// regions.
+public struct ReaderPreferenceRows: View {
+
+    /// The settings of the app — the rows write into them directly (the
+    /// upstream writes the preferences on every change).
+    let settings: AppSettings
+
+    public init(settings: AppSettings) {
+        self.settings = settings
+    }
+
+    public var body: some View {
+        // `pref_config_read.xml` — the screen.
+        Picker("屏幕方向", selection: Binding(
+            get: { settings.readerScreenDirection },
+            set: { settings.readerScreenDirection = $0 }
+        )) {
+            ForEach(ReaderScreenDirection.allCases) { direction in
+                Text(direction.displayName).tag(direction.rawValue)
+            }
+        }
+        Picker("屏幕常亮", selection: Binding(
+            get: { settings.keepLight },
+            set: { settings.keepLight = $0 }
+        )) {
+            ForEach(ReaderScreenTimeout.allCases) { timeout in
+                Text(timeout.displayName).tag(timeout.rawValue)
+            }
+        }
+        Toggle("隐藏状态栏", isOn: Binding(
+            get: { settings.hideStatusBar },
+            set: { settings.hideStatusBar = $0 }
+        ))
+        Toggle("隐藏导航栏", isOn: Binding(
+            get: { settings.hideNavigationBar },
+            set: { settings.hideNavigationBar = $0 }
+        ))
+        Toggle("避开刘海屏", isOn: Binding(
+            get: { settings.paddingDisplayCutouts },
+            set: { settings.paddingDisplayCutouts = $0 }
+        ))
+        // The layout.
+        Toggle("文字对齐到左边", isOn: Binding(
+            get: { settings.readBodyToLh },
+            set: { settings.readBodyToLh = $0 }
+        ))
+        Picker("双页显示", selection: Binding(
+            get: { settings.doublePageHorizontal },
+            set: { settings.doublePageHorizontal = $0 }
+        )) {
+            ForEach(ReaderDoublePageMode.allCases) { mode in
+                Text(mode.displayName).tag(mode.rawValue)
+            }
+        }
+        Toggle("中文排版", isOn: Binding(
+            get: { settings.useZhLayout },
+            set: { settings.useZhLayout = $0 }
+        ))
+        Toggle("底部对齐", isOn: Binding(
+            get: { settings.textBottomJustify },
+            set: { settings.textBottomJustify = $0 }
+        ))
+        // The paging.
+        Picker("进度条行为", selection: Binding(
+            get: { settings.progressBarBehavior },
+            set: { settings.progressBarBehavior = $0 }
+        )) {
+            ForEach(ReaderProgressBarBehavior.allCases) { behavior in
+                Text(behavior.displayName).tag(behavior.rawValue)
+            }
+        }
+        Toggle("鼠标滚轮翻页", isOn: Binding(
+            get: { settings.mouseWheelPage },
+            set: { settings.mouseWheelPage = $0 }
+        ))
+        Toggle("音量键翻页", isOn: Binding(
+            get: { settings.volumeKeyPage },
+            set: { settings.volumeKeyPage = $0 }
+        ))
+        Toggle("朗读时音量键翻页", isOn: Binding(
+            get: { settings.volumeKeyPageOnPlay },
+            set: { settings.volumeKeyPageOnPlay = $0 }
+        ))
+        Toggle("长按按键翻页", isOn: Binding(
+            get: { settings.keyPageOnLongPress },
+            set: { settings.keyPageOnLongPress = $0 }
+        ))
+        Stepper(value: Binding(
+            get: { Double(settings.pageTouchSlop) },
+            set: { settings.pageTouchSlop = max(0, Int($0)) }
+        ), in: 0...100, step: 5) {
+            Text("翻页触摸阈值 \(settings.pageTouchSlop)")
+        }
+        Toggle("滚动翻页无动画", isOn: Binding(
+            get: { settings.noAnimScrollPage },
+            set: { settings.noAnimScrollPage = $0 }
+        ))
+        Toggle("点击预览图片", isOn: Binding(
+            get: { settings.previewImageByClick },
+            set: { settings.previewImageByClick = $0 }
+        ))
+        Toggle("优化渲染", isOn: Binding(
+            get: { settings.optimizeRender },
+            set: { settings.optimizeRender = $0 }
+        ))
+        // The behaviour.
+        Toggle("自动换源", isOn: Binding(
+            get: { settings.autoChangeSource },
+            set: { settings.autoChangeSource = $0 }
+        ))
+        Toggle("允许选择文字", isOn: Binding(
+            get: { settings.textSelectAble },
+            set: { settings.textSelectAble = $0 }
+        ))
+        Toggle("显示亮度调节", isOn: Binding(
+            get: { settings.showBrightnessView },
+            set: { settings.showBrightnessView = $0 }
+        ))
+        Toggle("展开更多菜单", isOn: Binding(
+            get: { settings.expandTextMenu },
+            set: { settings.expandTextMenu = $0 }
+        ))
+        Toggle("显示阅读标题附加", isOn: Binding(
+            get: { settings.showReadTitleAddition },
+            set: { settings.showReadTitleAddition = $0 }
+        ))
+        Toggle("阅读栏样式跟随页面", isOn: Binding(
+            get: { settings.readBarStyleFollowPage },
+            set: { settings.readBarStyleFollowPage = $0 }
+        ))
+    }
+}
+
 /// The more settings of the reader — upstream `MoreConfigDialog`.
 ///
 /// The upstream builds the screen from `pref_config_read.xml`
@@ -484,6 +622,10 @@ public struct ReaderSettingsView: View {
                 NavigationLink("点击区域设置") {
                     ClickRegionEditorView(settings: controller.environment.settings)
                 }
+            }
+            // Upstream `pref_config_read.xml` — the whole preference screen.
+            Section("阅读偏好") {
+                ReaderPreferenceRows(settings: controller.environment.settings)
             }
             // Upstream `pref_config_read.xml` — the switch
             // `disableReturnKey` (the back key does nothing while the reader
@@ -545,6 +687,15 @@ public struct ReaderPreferencesView: View {
                 ReaderConverterRow(selection: store.chineseConverterType) { mode in
                     store.chineseConverterType = mode.rawValue
                     model.environment.settings.chineseConverterType = mode.rawValue
+                }
+            }
+            // Upstream `pref_config_read.xml` — the whole preference screen.
+            Section("阅读偏好") {
+                ReaderPreferenceRows(settings: model.environment.settings)
+            }
+            Section("点击区域") {
+                NavigationLink("点击区域设置") {
+                    ClickRegionEditorView(settings: model.environment.settings)
                 }
             }
         }

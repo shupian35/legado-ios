@@ -177,6 +177,13 @@ public final class BookCacheStorage: @unchecked Sendable {
         try data.write(to: file, options: .atomic)
     }
 
+    /// Deletes the cached image — the "refresh the image" action of the image
+    /// menu (upstream `ReadBookViewModel.refreshImage`) needs it.
+    public func deleteImage(book: Book, src: String) {
+        let file = layout.imageFile(book: book, src: src)
+        try? fileManager.removeItem(at: file)
+    }
+
     /// Upstream `BookHelp.hasImageContent`: the chapter is cached *and* every
     /// `<img src>` in it has a file on disk.
     public func hasImageContent(book: Book, chapter: BookChapter) -> Bool {

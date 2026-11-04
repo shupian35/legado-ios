@@ -233,6 +233,8 @@ public enum Visibility: Hashable, Sendable {
 /// `SwiftUI.CoordinateSpace`.
 public struct CoordinateSpace: Hashable, Sendable {
     public static let global = CoordinateSpace()
+    /// The local coordinate space of the view — `SwiftUI.CoordinateSpace.local`.
+    public static let local = CoordinateSpace()
     public static func named(_ name: String) -> CoordinateSpace { CoordinateSpace() }
     public init() {}
 }

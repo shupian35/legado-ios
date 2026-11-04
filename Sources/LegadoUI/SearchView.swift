@@ -210,15 +210,48 @@ public struct SearchView: View {
         } else if results.isEmpty {
             EmptyState(text: "没有结果")
         } else {
-            List(results, id: \.bookUrl) { book in
-                NavigationLink {
-                    BookDetailView(model: model, book: book.toBook())
-                } label: {
-                    resultRow(book)
+            List {
+                ForEach(results, id: \.bookUrl) { book in
+                    NavigationLink {
+                        BookDetailView(model: model, book: book.toBook())
+                    } label: {
+                        resultRow(book)
+                    }
+                }
+                // Upstream `SearchActivity.scrollToBottom` — the next page is
+                // loaded when the list reaches its end.
+                if hasMore {
+                    loadMoreRow
                 }
             }
             .listStyle(PlainListStyle())
         }
+    }
+
+    /// The row that loads the next page of the results.
+    ///
+    /// Upstream `SearchActivity.scrollToBottom` loads the next page when the
+    /// list reaches its end; the port offers the same as a button — like
+    /// `DiscoverView` does.
+    private var loadMoreRow: some View {
+        HStack {
+            Spacer(minLength: 0)
+            if isLoading {
+                ProgressView()
+                    .padding(.trailing, 6)
+                Text("加载中")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+            } else {
+                Button("加载更多") {
+                    loadMore()
+                }
+                .font(.system(size: 13))
+                .buttonStyle(PlainButtonStyle())
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 10)
     }
 
     /// A result of the search — upstream `SearchAdapter`.

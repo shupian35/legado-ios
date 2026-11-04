@@ -66,6 +66,9 @@ public struct ReaderMenuView: View {
     /// Whether the import and the export of the reader style are shown —
     /// upstream `BgTextConfigDialog` (导入配置 / 导出配置).
     @State private var isStyleArchivePresented = false
+    /// The more settings of the running reader — upstream
+    /// `ReadMenu.llSetting` → `MoreConfigDialog`.
+    @State private var isMoreSettingsPresented = false
     /// The address the built-in browser shows.
     @State private var browserURL = ""
     /// The character set that the user picked.
@@ -185,6 +188,11 @@ public struct ReaderMenuView: View {
                     ReaderStyleArchiveView(controller: controller)
                 }
             }
+            .sheet(isPresented: $isMoreSettingsPresented) {
+                NavigationStack {
+                    ReaderSettingsView(controller: controller)
+                }
+            }
         }
     }
 
@@ -244,22 +252,84 @@ public struct ReaderMenuView: View {
     // MARK: - The sections
 
     /// The page seek bar — upstream `binding.seekReadPage`.
+    ///
+    /// The upstream switches between the page slider and the chapter slider
+    /// with the `progressBarBehavior` preference (`ReadMenu.upSeekBar`); the
+    /// chapter slider asks for a confirmation before it jumps
+    /// (`ReadMenu.kt:410-430`).
     private var progressSection: some View {
         Section {
             VStack(alignment: .leading) {
                 Text("\(controller.chapterIndex + 1) / \(controller.chapters.count)")
                     .font(.system(size: 12))
-                Slider(
-                    value: Binding(
-                        get: { Double(controller.pageIndex) },
-                        set: { controller.jump(toPage: Int($0)) }
-                    ),
-                    in: 0...Double(max(0, controller.pageSize - 1))
-                )
-                Text("本章 \(controller.pageIndex + 1) / \(max(1, controller.pageSize)) 页")
-                    .font(.system(size: 12))
+                if isChapterMode {
+                    Slider(
+                        value: Binding(
+                            get: { Double(controller.chapterIndex) },
+                            set: { pendingChapterIndex = Int($0) }
+                        ),
+                        in: 0...Double(max(0, controller.chapters.count - 1)),
+                        onEditingChanged: { editing in
+                            if !editing { confirmChapterJump() }
+                        }
+                    )
+                    Text("章节 \(controller.chapterIndex + 1) / \(controller.chapters.count)")
+                        .font(.system(size: 12))
+                } else {
+                    Slider(
+                        value: Binding(
+                            get: { Double(controller.pageIndex) },
+                            set: { controller.jump(toPage: Int($0)) }
+                        ),
+                        in: 0...Double(max(0, controller.pageSize - 1))
+                    )
+                    Text("本章 \(controller.pageIndex + 1) / \(max(1, controller.pageSize)) 页")
+                        .font(.system(size: 12))
+                }
             }
         }
+        .alert("章节跳转确认", isPresented: $isSkipConfirmPresented) {
+            Button("确定") {
+                confirmSkipToChapter = true
+                if let index = pendingChapterIndex {
+                    Task { await controller.jump(toChapter: index) }
+                }
+                pendingChapterIndex = nil
+            }
+            Button("取消") {
+                pendingChapterIndex = nil
+            }
+        } message: {
+            Text("确定要跳转章节吗？")
+        }
+    }
+
+    /// Whether the seek bar switches between the pages and the chapters —
+    /// upstream `AppConfig.progressBarBehavior`.
+    private var isChapterMode: Bool {
+        controller.environment.settings.progressBarBehavior == ReaderProgressBarBehavior.chapter.rawValue
+    }
+
+    /// The chapter the user dragged to — upstream `seekReadPage`.
+    @State private var pendingChapterIndex: Int?
+
+    /// Whether the chapter jump was confirmed — upstream
+    /// `ReadMenu.confirmSkipToChapter`.
+    @State private var confirmSkipToChapter = false
+
+    /// Whether the confirmation is shown.
+    @State private var isSkipConfirmPresented = false
+
+    /// Asks for the confirmation and jumps — upstream
+    /// `ReadMenu.kt:410-430`.
+    private func confirmChapterJump() {
+        guard let index = pendingChapterIndex else { return }
+        if confirmSkipToChapter {
+            pendingChapterIndex = nil
+            Task { await controller.jump(toChapter: index) }
+            return
+        }
+        isSkipConfirmPresented = true
     }
 
     /// The chapter list — upstream `openChapterList`.
@@ -474,24 +544,36 @@ public struct ReaderMenuView: View {
 
     /// The brightness — upstream `binding.seekBrightness` (the screen
     /// brightness, not the reader background).
+    ///
+    /// The whole section is hidden when the brightness follows the system —
+    /// upstream `ReadMenu.kt:124` (`binding.llBrightness.visible(showBrightnessView)`).
     private var brightnessSection: some View {
         Section("亮度") {
-            Slider(
-                value: Binding(
-                    get: { Double(controller.system.brightnessPercent) / 100.0 },
-                    set: { value in
-                        // The screen brightness is a main-actor API on Apple;
-                        // the hop keeps the call valid on every platform.
-                        Task { @MainActor in
-                            controller.system.setBrightness(percent: Int((value * 100).rounded()))
+            if controller.environment.settings.bool(.showBrightnessView, default: true) {
+                Slider(
+                    value: Binding(
+                        get: { Double(controller.system.brightnessPercent) / 100.0 },
+                        set: { value in
+                            // The screen brightness is a main-actor API on Apple;
+                            // the hop keeps the call valid on every platform.
+                            Task { @MainActor in
+                                controller.system.setBrightness(percent: Int((value * 100).rounded()))
+                            }
                         }
-                    }
-                ),
-                in: 0...1
-            )
-            Text("\(controller.system.brightnessPercent) %")
-                .font(.system(size: 12))
-                .foregroundColor(.secondary)
+                    ),
+                    in: 0...1
+                )
+                .disabled(controller.system.brightnessAuto)
+                Text("\(controller.system.brightnessPercent) %")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                // Upstream `ReadMenu.kt:379` — the brightness follows the
+                // system (the slider is disabled then).
+                Toggle("亮度跟随系统", isOn: Binding(
+                    get: { controller.system.brightnessAuto },
+                    set: { controller.system.setBrightnessAuto($0) }
+                ))
+            }
         }
     }
 
@@ -529,6 +611,12 @@ public struct ReaderMenuView: View {
     /// can offer.
     private var moreSection: some View {
         Section("更多") {
+            // Upstream `ReadMenu.llSetting` — the "更多设置" button of the
+            // bottom bar opens `MoreConfigDialog` (the screen built from
+            // `pref_config_read.xml`).
+            Button("更多设置") {
+                isMoreSettingsPresented = true
+            }
             // Upstream `ReadMenu.menu_search_content` — the search of the
             // content of the book.
             Button("搜索正文") {

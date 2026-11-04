@@ -17,10 +17,14 @@ import Foundation
 import LegadoCore
 
 /// The login form of a source — upstream `SourceLoginDialog`.
+///
+/// The upstream opens it for the book sources **and** for the RSS sources
+/// (`SourceLoginActivity` with the type "rssSource"), so the port takes the
+/// `LoginCapable` protocol.
 public struct SourceLoginView: View {
 
     /// The source that is logged in.
-    public let source: BookSource
+    public let source: LoginCapable
     /// The login service.
     @ObservedObject var model: LegadoAppModel
 
@@ -29,7 +33,7 @@ public struct SourceLoginView: View {
     @State private var isWorking = false
     @State private var showsWebLogin = false
 
-    public init(source: BookSource, model: LegadoAppModel) {
+    public init(source: LoginCapable, model: LegadoAppModel) {
         self.source = source
         self.model = model
     }

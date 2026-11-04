@@ -612,6 +612,11 @@ public final class LegadoStore {
         try tables.insert(articles.map { $0.row }, into: "rssArticles")
     }
 
+    /// Deletes the articles of an RSS source — upstream `RssArticleDao.delete`.
+    public func deleteRssArticles(origin: String) throws {
+        try tables.delete(from: "rssArticles", where: .equals(column: "origin", value: .text(origin)))
+    }
+
     /// Inserts or replaces a starred article.
     public func insert(_ star: RssStar) throws {
         try tables.insert(star.row, into: "rssStars")
@@ -656,6 +661,11 @@ public final class LegadoStore {
             .rows(in: "rssReadRecords", where: .equals(column: "record", value: .text(record)), orderBy: [])
             .first
             .map { RssReadRecord(row: $0) }
+    }
+
+    /// Deletes every RSS read record — upstream `RssReadRecordDao.deleteAllRecord`.
+    public func deleteAllRssReadRecords() throws {
+        try tables.deleteAll(from: "rssReadRecords")
     }
 
     // MARK: - Misc

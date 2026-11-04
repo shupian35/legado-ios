@@ -32,6 +32,10 @@ public struct BackupView: View {
     @State private var webDavUrl: String = ""
     @State private var webDavAccount: String = ""
     @State private var webDavPassword: String = ""
+    /// The root folder on the server — upstream `PreferKey.webDavDir`.
+    @State private var webDavDirectory: String = ""
+    /// The name of the device — upstream `PreferKey.webDavDeviceName`.
+    @State private var webDavDeviceName: String = ""
     /// Whether the folder picker is open — upstream `selectBackupPath`.
     @State private var isSelectingDirectory = false
     /// Whether the old-data picker is open — upstream `import_old`.
@@ -79,6 +83,11 @@ public struct BackupView: View {
                 TextField("地址", text: $webDavUrl)
                 TextField("账号", text: $webDavAccount)
                 SecureField("密码", text: $webDavPassword)
+                TextField("根目录", text: $webDavDirectory)
+                TextField("设备名称", text: $webDavDeviceName)
+                Button("保存") {
+                    saveWebDav()
+                }
                 Button("上传备份到 WebDAV") {
                     uploadToWebDav()
                 }
@@ -109,9 +118,12 @@ public struct BackupView: View {
         }
         .navigationTitle("备份与恢复")
         .onAppear {
-            webDavUrl = model.environment.settings.webDavUrl ?? ""
-            webDavAccount = model.environment.settings.webDavAccount ?? ""
-            webDavPassword = model.environment.settings.webDavPassword ?? ""
+            let account = model.environment.settings.appWebDav
+            webDavUrl = account.url
+            webDavAccount = account.account
+            webDavPassword = account.password
+            webDavDirectory = account.directory
+            webDavDeviceName = account.deviceName
             loadLocalBackups()
         }
         .fileImporter(
@@ -420,20 +432,37 @@ public struct BackupView: View {
     }
 
     /// The WebDAV client built from the settings.
+    ///
+    /// The upstream stores the account in the preferences and rebuilds the
+    /// client whenever one of the keys changes
+    /// (`BackupConfigFragment.kt:179-186` → `AppWebDav.upConfig`); the port
+    /// therefore saves the fields before every use.
     private func webDavService() -> WebDavService {
-        let configuration = WebDavConfiguration(
-            url: webDavUrl,
-            username: webDavAccount,
-            password: webDavPassword,
-            backupDirectory: "",
-            bookProgressDirectory: "bookProgress/",
-            booksDirectory: "books/",
-            backgroundDirectory: "background/"
-        )
+        saveWebDav()
+        let account = model.environment.settings.appWebDav
         return WebDavService(
-            configuration: configuration,
+            configuration: account.serviceConfiguration,
             httpClient: model.environment.httpClient
         )
+    }
+
+    /// Saves the WebDAV account in the preferences — upstream
+    /// `AppWebDav.upConfig`.
+    private func saveWebDav() {
+        var account = model.environment.settings.appWebDav
+        account.url = webDavUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        account.account = webDavAccount.trimmingCharacters(in: .whitespacesAndNewlines)
+        account.password = webDavPassword
+        account.directory = webDavDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        account.deviceName = webDavDeviceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        model.environment.settings.appWebDav = account
+        // The server row of the `servers` table holds the servers the user
+        // added for the remote books — the app's own account is not one of
+        // them, so the row is only written when it already exists.
+        let credentials = account.credentials
+        if (try? model.environment.store.webDavServer()) != nil {
+            try? model.environment.store.saveWebDavCredentials(credentials)
+        }
     }
 }
 

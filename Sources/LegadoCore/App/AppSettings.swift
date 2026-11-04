@@ -275,6 +275,87 @@ public enum SettingsKey: String, CaseIterable, Sendable {
     /// The restore of the old backups — upstream
     /// `BackupConfigFragment.kt:238`.
     case importOld = "import_old"
+    /// Whether the brightness follows the system — upstream
+    /// `ReadMenu.kt:320` (`context.getPrefBoolean("brightnessAuto", true)`).
+    case brightnessAuto = "brightnessAuto"
+}
+
+// MARK: - The welcome screen
+
+public extension AppSettings {
+
+    /// Whether the welcome screen uses its own image — upstream
+    /// `WelcomeActivity.kt:50` (`PreferKey.customWelcome`).
+    var customWelcome: Bool {
+        get { bool(.customWelcome, default: false) }
+        set { set(newValue, for: .customWelcome) }
+    }
+
+    /// The path of the day image of the welcome screen — upstream
+    /// `PreferKey.welcomeImage`.
+    var welcomeImagePath: String? {
+        get { string(.welcomeImagePath) }
+        set { set(newValue, for: .welcomeImagePath) }
+    }
+
+    /// The path of the night image of the welcome screen — upstream
+    /// `PreferKey.welcomeImageDark`.
+    var welcomeImagePathDark: String? {
+        get { string(.welcomeImagePathDark) }
+        set { set(newValue, for: .welcomeImagePathDark) }
+    }
+
+    /// Whether the text of the welcome screen is shown — upstream
+    /// `AppConfig.welcomeShowText`.
+    var welcomeShowText: Bool {
+        get { bool(.welcomeShowText, default: true) }
+        set { set(newValue, for: .welcomeShowText) }
+    }
+
+    /// Whether the night text of the welcome screen is shown — upstream
+    /// `AppConfig.welcomeShowTextDark`.
+    var welcomeShowTextDark: Bool {
+        get { bool(.welcomeShowTextDark, default: true) }
+        set { set(newValue, for: .welcomeShowTextDark) }
+    }
+
+    /// Whether the icon of the welcome screen is shown — upstream
+    /// `AppConfig.welcomeShowIcon`.
+    var welcomeShowIcon: Bool {
+        get { bool(.welcomeShowIcon, default: true) }
+        set { set(newValue, for: .welcomeShowIcon) }
+    }
+
+    /// Whether the night icon of the welcome screen is shown — upstream
+    /// `AppConfig.welcomeShowIconDark`.
+    var welcomeShowIconDark: Bool {
+        get { bool(.welcomeShowIconDark, default: true) }
+        set { set(newValue, for: .welcomeShowIconDark) }
+    }
+
+    /// The image of the welcome screen of the current mode — upstream
+    /// `WelcomeActivity.upBackgroundImage`.
+    ///
+    /// The night mode uses the dark image; the port falls back to the day
+    /// image when there is none.
+    var welcomeImage: String? {
+        if isNightTheme {
+            if let path = welcomeImagePathDark, !path.isEmpty { return path }
+        }
+        if let path = welcomeImagePath, !path.isEmpty { return path }
+        return nil
+    }
+
+    /// Whether the text and the icon of the welcome screen are shown in the
+    /// current mode — upstream `WelcomeActivity.kt:56-69`.
+    var welcomeShowsText: Bool {
+        isNightTheme ? welcomeShowTextDark : welcomeShowText
+    }
+
+    /// Whether the icon of the welcome screen is shown in the current mode.
+    var welcomeShowsIcon: Bool {
+        isNightTheme ? welcomeShowIconDark : welcomeShowIcon
+    }
 }
 
 /// A minimal key/value store — upstream `SharedPreferences`.
@@ -508,6 +589,26 @@ public final class AppSettings {
     /// `true` when the dark theme is used — upstream `AppConfig.isDarkTheme`.
     public var isDarkTheme: Bool {
         themeMode == "2"
+    }
+
+    /// Whether the system is in the dark mode — upstream
+    /// `AppConfig.isSystemDark`.
+    ///
+    /// The upstream follows the system when the theme mode is "0"; the flag
+    /// is not persisted (the upstream reads it from the configuration), so
+    /// the UI keeps it up to date.
+    public var isSystemDark: Bool = false
+
+    /// Whether the night mode is used — upstream `ThemeConfig.getTheme()`.
+    ///
+    /// The theme mode "0" follows the system, "1" is the light theme, "2" the
+    /// dark one and "3" the e-ink one (which is dark).
+    public var isNightTheme: Bool {
+        switch themeMode {
+        case "2", "3": return true
+        case "1": return false
+        default: return isSystemDark
+        }
     }
 
     /// The font scale preference — upstream `PreferKey.fontScale`.
@@ -899,6 +1000,31 @@ public final class AppSettings {
     public var webDavDeviceName: String? {
         get { string(.webDavDeviceName) }
         set { set(newValue, for: .webDavDeviceName) }
+    }
+
+    /// The whole WebDAV account — upstream `AppWebDav`.
+    ///
+    /// The upstream keeps the account in the preferences (and not in the
+    /// `servers` table, which holds the servers the user added for the remote
+    /// books) and rebuilds the WebDAV client whenever one of the keys
+    /// changes (`BackupConfigFragment.kt:179-186` → `AppWebDav.upConfig`).
+    public var appWebDav: AppWebDavAccount {
+        get {
+            AppWebDavAccount(
+                url: string(.webDavUrl) ?? "",
+                account: string(.webDavAccount) ?? "",
+                password: string(.webDavPassword) ?? "",
+                directory: string(.webDavDir) ?? "",
+                deviceName: string(.webDavDeviceName) ?? ""
+            )
+        }
+        set {
+            set(newValue.url, for: .webDavUrl)
+            set(newValue.account, for: .webDavAccount)
+            set(newValue.password, for: .webDavPassword)
+            set(newValue.directory, for: .webDavDir)
+            set(newValue.deviceName, for: .webDavDeviceName)
+        }
     }
 
     // MARK: - Web service

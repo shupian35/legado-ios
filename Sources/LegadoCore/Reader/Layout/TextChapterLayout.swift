@@ -28,19 +28,30 @@ public final class TextChapterLayout {
     public let layout: ReaderLayout
     /// The text measurer.
     public let measurer: TextMeasuring
+    /// The inline images of the chapter, keyed by the raw `src` of the tag.
+    ///
+    /// Upstream `ChapterProvider.setTypeImage` asks `ImageProvider` for the
+    /// size of every image; the port resolves the images before the layout.
+    public var images: [String: ReaderImage]
+    /// How the images are displayed — upstream `Book.getImageStyle()`.
+    public var imageStyle: BookImageStyle
 
     public init(
         chapter: TextChapter,
         content: String,
         config: ReaderConfig,
         layout: ReaderLayout,
-        measurer: TextMeasuring
+        measurer: TextMeasuring,
+        images: [String: ReaderImage] = [:],
+        imageStyle: BookImageStyle = .standard
     ) {
         self.chapter = chapter
         self.content = content
         self.config = config
         self.layout = layout
         self.measurer = measurer
+        self.images = images
+        self.imageStyle = imageStyle
     }
 
     /// The title of the chapter, when the title mode shows it.
@@ -95,34 +106,66 @@ public final class TextChapterLayout {
         }
 
         // The body.
-        let paragraphs = content.components(separatedBy: "\n")
-        for (paragraphIndex, paragraph) in paragraphs.enumerated() {
-            let measuredLines = measurer.lines(
-                of: paragraph,
-                style: config.contentStyle,
-                maxWidth: layout.visibleWidth,
-                useZhLayout: config.useZhLayout
-            )
-            for (lineIndex, measured) in measuredLines.enumerated() {
-                let isLastLineOfParagraph = lineIndex == measuredLines.count - 1
-                let line = makeLine(
-                    text: measured.text,
-                    measured: measured,
-                    style: config.contentStyle,
-                    isTitle: false,
-                    paragraphNum: paragraphIndex + 1,
+        //
+        // Upstream `ChapterProvider.setType` splits the content on
+        // `AppPattern.imgPattern`: the text between the images is laid out as
+        // text and every image becomes a line of its own
+        // (`ChapterProvider.setTypeImage`, :345-463). The `TEXT` image style
+        // replaces the image with ▣ and lays it out as text (:200-228).
+        let segments: [ChapterImageSplitter.Segment]
+        if imageStyle == .text {
+            segments = [.text(ChapterImageSplitter.textEmbedded(content))]
+        } else {
+            segments = ChapterImageSplitter.split(content)
+        }
+        var paragraphIndex = 0
+        for segment in segments {
+            switch segment {
+            case .text(let text):
+                for paragraph in text.components(separatedBy: "\n") {
+                    paragraphIndex += 1
+                    let measuredLines = measurer.lines(
+                        of: paragraph,
+                        style: config.contentStyle,
+                        maxWidth: layout.visibleWidth,
+                        useZhLayout: config.useZhLayout
+                    )
+                    for (lineIndex, measured) in measuredLines.enumerated() {
+                        let isLastLineOfParagraph = lineIndex == measuredLines.count - 1
+                        let line = makeLine(
+                            text: measured.text,
+                            measured: measured,
+                            style: config.contentStyle,
+                            isTitle: false,
+                            paragraphNum: paragraphIndex,
+                            chapterPosition: chapterPosition,
+                            y: y,
+                            x: layout.paddingLeft
+                        )
+                        line.isParagraphEnd = isLastLineOfParagraph
+                        // Upstream counts the paragraph end as one more character
+                        // (ChapterProvider.kt:631).
+                        chapterPosition += measured.text.count + (isLastLineOfParagraph ? 1 : 0)
+                        y += layout.contentTextHeight + layout.lineSpacingExtra
+                        if isLastLineOfParagraph {
+                            y += layout.paragraphSpacing
+                        }
+                        if !append(line, to: &currentPage, pages: &pages, pageIndex: &pageIndex, y: &y) {
+                            return finish(pages: pages, currentPage: currentPage, pageIndex: pageIndex)
+                        }
+                    }
+                }
+            case .image(let src):
+                guard let line = makeImageLine(
+                    src: src,
                     chapterPosition: chapterPosition,
                     y: y,
                     x: layout.paddingLeft
-                )
-                line.isParagraphEnd = isLastLineOfParagraph
-                // Upstream counts the paragraph end as one more character
-                // (ChapterProvider.kt:631).
-                chapterPosition += measured.text.count + (isLastLineOfParagraph ? 1 : 0)
-                y += layout.contentTextHeight + layout.lineSpacingExtra
-                if isLastLineOfParagraph {
-                    y += layout.paragraphSpacing
-                }
+                ) else { continue }
+                // The upstream appends a space to the page text for an image so
+                // that the index arithmetic stays right (ChapterProvider.kt:459).
+                chapterPosition += 1
+                y += line.height
                 if !append(line, to: &currentPage, pages: &pages, pageIndex: &pageIndex, y: &y) {
                     return finish(pages: pages, currentPage: currentPage, pageIndex: pageIndex)
                 }
@@ -169,6 +212,12 @@ public final class TextChapterLayout {
         // counts as one more character, exactly like the chapter position
         // accounting does.
         currentPage.text += line.text
+        if line.isImage {
+            // The upstream appends a space for an image so that the page text
+            // and the chapter position stay in sync
+            // (ChapterProvider.kt:459).
+            currentPage.text += " "
+        }
         if line.isParagraphEnd {
             currentPage.text += "\n"
         }
@@ -196,6 +245,67 @@ public final class TextChapterLayout {
             chapter.addPage(page)
         }
         return result
+    }
+
+    /// Builds the line of an inline image — upstream `ChapterProvider.setTypeImage`
+    /// (`ChapterProvider.kt:345-463`).
+    ///
+    /// The size of the image comes from the resolved image; the style decides
+    /// how it is scaled:
+    /// - `FULL` — the image fills the width of the page,
+    /// - `SINGLE` — the image fills the width and is clamped to the page,
+    /// - the default — the image keeps its size but never exceeds the page.
+    private func makeImageLine(
+        src: String,
+        chapterPosition: Int,
+        y: Double,
+        x: Double
+    ) -> TextLine? {
+        guard let image = images[src] else { return nil }
+        let size = image.size
+        guard size.width > 0, size.height > 0 else { return nil }
+        var width = size.width
+        var height = size.height
+        switch imageStyle {
+        case .full:
+            width = layout.visibleWidth
+            height = size.height * layout.visibleWidth / size.width
+        case .single:
+            width = layout.visibleWidth
+            height = size.height * layout.visibleWidth / size.width
+            if height > layout.visibleHeight {
+                width = width * layout.visibleHeight / height
+                height = layout.visibleHeight
+            }
+        case .text:
+            return nil
+        case .standard:
+            if width > layout.visibleWidth {
+                height = height * layout.visibleWidth / width
+                width = layout.visibleWidth
+            }
+            if height > layout.visibleHeight {
+                width = width * layout.visibleHeight / height
+                height = layout.visibleHeight
+            }
+        }
+        let line = TextLine(isTitle: false)
+        line.text = ""
+        line.isImage = true
+        line.chapterPosition = chapterPosition
+        line.startX = x
+        line.lineTop = layout.paddingTop + y
+        line.lineBottom = line.lineTop + height
+        line.lineBase = line.lineBottom
+        // The image is centred in the page.
+        let inset = width < layout.visibleWidth ? (layout.visibleWidth - width) / 2 : 0
+        line.addColumn(ImageColumn(
+            start: x + inset,
+            end: x + inset + width,
+            src: image.src,
+            imageData: image.data
+        ))
+        return line
     }
 
     /// Builds one line with its columns.

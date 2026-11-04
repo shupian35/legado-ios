@@ -31,10 +31,28 @@ public protocol ChapterContentProviding: AnyObject {
     ///
     /// The default keeps the removal on (the upstream behaviour).
     func removesSameTitle(book: Book, chapter: BookChapter) -> Bool
+
+    /// The inline images of the chapter, keyed by the raw `src` of the tag.
+    ///
+    /// Upstream `ChapterProvider.setTypeImage` asks `ImageProvider` for the
+    /// size of every image while the page is laid out; the port resolves the
+    /// images before the layout, so the provider loads them here. The default
+    /// implementation returns no image (the layout then skips them).
+    func chapterImages(
+        book: Book,
+        chapter: BookChapter,
+        sources: [String]
+    ) async -> [String: ReaderImage]
 }
 
 public extension ChapterContentProviding {
     func removesSameTitle(book: Book, chapter: BookChapter) -> Bool { true }
+
+    func chapterImages(
+        book: Book,
+        chapter: BookChapter,
+        sources: [String]
+    ) async -> [String: ReaderImage] { [:] }
 }
 
 public enum ChapterProviderError: Error, Equatable {
@@ -81,7 +99,8 @@ public enum ChapterProvider {
         measurer: TextMeasuring,
         chineseConversionMode: ChineseConversionMode = .off,
         converter: ChineseConverting = DefaultChineseConverter(),
-        removeSameTitle: Bool? = nil
+        removeSameTitle: Bool? = nil,
+        imageStyle: BookImageStyle = .standard
     ) async throws -> TextChapter {
         let raw = try await contentProvider.chapterContent(book: book, chapter: chapter) ?? ""
         let removesSameTitle = removeSameTitle ?? contentProvider.removesSameTitle(book: book, chapter: chapter)
@@ -118,12 +137,21 @@ public enum ChapterProvider {
             effectiveReplaceRules: processed.effectiveReplaceRules
         )
 
+        // The inline images — upstream `ChapterProvider.setTypeImage`.
+        let images = await contentProvider.chapterImages(
+            book: book,
+            chapter: chapter,
+            sources: ChapterImageSplitter.sources(in: processed.contents.joined(separator: "\n"))
+        )
+
         let layoutEngine = TextChapterLayout(
             chapter: textChapter,
             content: processed.contents.joined(separator: "\n"),
             config: config,
             layout: layout,
-            measurer: measurer
+            measurer: measurer,
+            images: images,
+            imageStyle: imageStyle
         )
         // `paginate()` appends the pages to the chapter it was created with.
         _ = layoutEngine.paginate()

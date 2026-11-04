@@ -255,12 +255,17 @@ majority of them (the tables above name the file that closes each row). The
 closed with the reason named in its row. Only the **deliberate deviations**
 are left: they are the Android-only behaviours that have no iOS equivalent.
 
+> The four **fresh** audits of 2026-11-04 (the reports are in `Plan/audits/`)
+> re-walked the four areas and found a **second wave** of gaps that the first
+> wave had missed — §8.7 lists them. They are the real work list now.
+
 | # | The remaining gap | The upstream | Why it is not ported / where it lives |
 |---|---|---|---|
 | 1 | The **volume keys** — the hardware volume buttons turn the pages | `ui/book/read/BaseReadBookActivity.kt:377-391` | *Deliberate deviation* — a SwiftUI app cannot install a `UIApplication` subclass, so the volume keys are not intercepted (`LegadoUI/ReaderSystemIntegration.swift`) |
 | 2 | The **custom page key** (`customPageKey`) — the user picks the hardware key codes that turn the page | `MoreConfigDialog.kt:181` → `PageKeyDialog` | *Deliberate deviation* — iOS has no hardware key codes to pick; the preference keys themselves exist (`Core/App/AppSettings.swift`) |
 | 3 | The **system TTS settings** (`sysTtsConfig`) — the screen of the system's text-to-speech engine | `ReadAloudConfigDialog.kt:107` → `IntentHelp.openTTSSetting()` | *Deliberate deviation* — iOS has no equivalent system screen; the engine is configured inside the app (`LegadoUI/ReaderAloudDialogView.swift`) |
 | 4 | The **media button on exit** (`mediaButtonOnExit`) — the media key wakes the app | `AppConfig.kt:467` + `MediaButtonReceiver.kt:103` | *Deliberate deviation* — the app is foreground-only on iOS; the preference exists and is honoured by `LegadoUI/MediaCommandBridge.swift` |
+| 5 | The **`optimizeRender`** preference — the Android canvas recorder | `AppConfig.kt:41-42, 92-93` | *Deliberate deviation* — the API is Android-only (API 29+); the preference exists and the reader draws with SwiftUI |
 
 **Closed since the audits** (they were in the tables above, the list is kept
 here so that the remainder is easy to see):
@@ -341,7 +346,61 @@ here so that the remainder is easy to see):
   is the upstream `BgTextConfigDialog` with its 导入配置 / 导出配置);
 - the **RSS source editor** — the audit row was stale: the port's
   `LegadoUI/RssSourceManagementView.swift` already has the three tabs of the
-  upstream `RssSourceEditActivity` (基础 / 列表 / WEB_VIEW) with every field.
+  upstream `RssSourceEditActivity` (基础 / 列表 / WEB_VIEW) with every field;
+- the **reader's preference screen** — the audit found that `ReaderSettingsView`
+  / `ReaderPreferencesView` / `ClickRegionEditorView` were **dead code**, so
+  the whole upstream `pref_config_read.xml` (28 preferences) had no UI. It is
+  now reachable from the reader's 更多设置 and from the app's 阅读设置
+  (`LegadoUI/ReaderSettingsView.swift` → `ReaderPreferenceRows` +
+  `Core/App/ReaderPreferences.swift` — the enums and the accessors);
+- the **inline images of the reader** — the upstream splits the content on
+  `AppPattern.imgPattern` and lays every image out as its own line
+  (`ChapterProvider.setTypeImage`); the port now does the same
+  (`Core/Reader/Images.swift` — `ChapterImageSplitter` + `ImageSizeDetector` +
+  the `ImageColumn.src`) and draws them (`LegadoUI/PagedReader.swift` →
+  `ReaderInlineImageView`, the bytes from `AppChapterContentProvider.chapterImages`),
+  with the four image styles (撑满宽度 / 适应边框 / 文字嵌入 / 默认);
+- the **image preview + the image long-press menu** — the upstream
+  `ContentTextView.click` / `.longPress` open the photo dialog and the
+  显示 / 刷新 / 保存 / 菜单 / 选择文件夹 popup (`LegadoUI/ReaderImageViews.swift`);
+- the **automatic source change** — the upstream `ReadBookViewModel.autoChangeSource`
+  looks for a working source when the book's source is gone
+  (`Core/Pipeline/ChangeSource.swift` → `ChangeSourceService.autoChangeSource`
+  + `ReadBook.replaceBook`);
+- the **brightness that follows the system** — the upstream `ReadMenu.brightnessAuto()`
+  (`LegadoUI/ReaderSystemIntegration.swift` + the toggle in
+  `LegadoUI/ReaderMenuView.swift`; the whole brightness view is hidden when
+  `showBrightnessView` is off, exactly like `ReadMenu.kt:124`);
+- the **seek bar that adjusts the chapters** — the upstream `ReadMenu.upSeekBar`
+  switches between the page slider and the chapter slider with
+  `progressBarBehavior` and asks for a confirmation before the chapter jump
+  (`LegadoUI/ReaderMenuView.swift`);
+- the **ten functional bugs** the fresh audits found (the WebDAV credentials
+  were never persisted, the welcome image was never applied, the search
+  pagination was dead code, the pre-download count was hard-coded to 1, the
+  discover ignored `enabledExplore`, the RSS list showed the disabled sources,
+  the RSS sources could not log in, the RSS article screen had no menu, the
+  RSS read records were never listed, the bookshelf management had a dead
+  toggle and a no-op button) — all of them are fixed, the reports name the
+  files.
+
+### 8.7 The second wave of the audits (2026-11-04) — the open items
+
+The four fresh audits (`Plan/audits/2026-11-04-{bookshelf-toc,settings-sources,rss-search}.md`
++ the reader audit) walked the same four areas again — this time with the port
+as it is now. They reported **≈130** items that are still missing or only
+partly implemented. The list below is the work list; the reports hold the
+upstream file + line evidence for each one.
+
+| The area | The open items |
+|---|---|
+| The reader | the read-style dialog is a partial inline panel (the 字重 / 下划线 / 字间距 / 段落缩进 / 标题位置 / 边距 / 页眉页脚 / 中文排版 / 双页 / 底部对齐 rows live in the dead `ReaderStyleRows` / `ReaderPageRows` / `ReaderFontRows`), the tip config has no colour pickers and no `clearRepeat` rule, the background styles cannot be added / renamed / deleted and there is no custom background image, the progress bar has no "chapter" mode in the manga reader, the reader has no book-info entry, the 仿真 page turn renders exactly like 覆盖, the "read aloud from the selection" mode is missing, the bookmark cannot be edited, the "add to the shelf" prompt is missing, the in-reader search results screen is unreachable, the whole-book search only sees the cached chapters, the 编辑内容 tap action is a stub |
+| The manga | 换源 is wired to the book info instead of the source list, the auto page / auto scroll toggles are inert, the horizontal scroll is a vertical `ScrollView`, the pinch zoom does nothing, the e-paper threshold has no editor |
+| The local import | there is no in-app file browser (the upstream `ImportBookActivity`: the folder tree, the multi-select, 全选 / 反选, 批量加入书架, the sort by 名称 / 大小 / 时间, 扫描文件夹, the file-name template, the search), there is no zip / cbz archive import, there is no batch import, an imported book cannot be opened from the import screen |
+| The RSS | the favourite title / group cannot be edited, the import has no preview dialog, the source debugger has no UI, the editor's toolbar has only 保存, the article row has no image / grid / read state, the source list has no search and no long-press menu |
+| The discover + the search | the dynamic scope quick-switch menu, 日志, the 精准搜索 toggle does not re-run the search, the empty-result dialog's second branch, the shelf-book suggestion chips, the search row has no cover / origin count / latest chapter / kind |
+| The bookshelf + the TOC | the group filter submenu, the per-row group button, the delete-local-file checkbox, the batch 换源 without `migrateTo`, the group cover (not in the model), the 64-group limit, the bookmark export / edit, the full-screen cover, the cover grid, the 拆分长章节, the log in the book-info menu, the cache screen's export options |
+| The settings + the sources | the about documents (贡献者 / 更新日志 / 隐私政策 / 开源许可 / 免责声明), the update body as Markdown, the read-record screen, the theme background + the colour keys, 清除网页数据 / 压缩数据库 / 缓存大小 / 图片保留数, the WebDAV directory + the device name + 自动检查新备份, the source manager's drag reorder / 检查所选区间 / 搜索该源, the source editor's 书源类型 / coverDecodeJs / bookUrlPattern / the unsaved-changes confirmation |
 
 Two upstream items are deliberately **not** ported because the upstream manifest
 does not register them either: the app widgets and the home-screen shortcuts.
