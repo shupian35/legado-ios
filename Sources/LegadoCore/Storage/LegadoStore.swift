@@ -232,6 +232,28 @@ public final class LegadoStore {
         return books.map { Book(row: $0) }.filter { $0.isOnShelf }
     }
 
+    /// The local book of a file — upstream `BookDao.getBookByFileName`
+    /// (`select * from books where originName = :fileName`).
+    public func localBook(fileName: String) throws -> Book? {
+        let books = try tables.rows(in: "books", where: .all, orderBy: [])
+        return books
+            .map { Book(row: $0) }
+            .first { $0.originName == fileName }
+    }
+
+    /// Whether a file is already on the shelf — upstream `BookDao.hasFile`:
+    /// the book is a local one and its `originName` is the name of the file
+    /// (or its `origin` ends with the name of the file).
+    public func hasLocalFile(fileName: String) throws -> Bool {
+        let books = try tables.rows(in: "books", where: .bitwiseAndNotZero(column: "type", mask: BookType.local), orderBy: [])
+        return books.contains { row in
+            let originName = row["originName"]?.stringValue ?? ""
+            if originName == fileName { return true }
+            let origin = row["origin"]?.stringValue ?? ""
+            return origin != BookType.localTag && origin.hasSuffix(fileName)
+        }
+    }
+
     /// The audio books — upstream `BookDao.flowAudio`.
     public func audioBooks() throws -> [Book] {
         let books = try tables.rows(in: "books", where: .bitwiseAndNotZero(column: "type", mask: BookType.audio), orderBy: [])

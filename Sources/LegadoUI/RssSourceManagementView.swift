@@ -78,6 +78,9 @@ public struct RssSourceManageView: View {
     /// The file that was written for the export — upstream
     /// `RssSourceViewModel.saveToFile`.
     @State private var exportedFileURL: URL?
+    /// The JSON that is shared as text — upstream
+    /// `RssSourceActivity.menu_share_source`.
+    @State private var shareText: String?
     /// Whether the exported file is shared.
     @State private var isSharePresented = false
 
@@ -146,6 +149,15 @@ public struct RssSourceManageView: View {
                         // Upstream `RssSourceViewModel.saveToFile`.
                         Button("导出") {
                             exportSelection()
+                        }
+                        // Upstream `RssSourceActivity.menu_share_source` —
+                        // the JSON of the selected sources is shared as text.
+                        Button("分享") {
+                            shareSelection()
+                        }
+                        // Upstream `RssSourceAdapter.checkSelectedInterval`.
+                        Button("检查所选区间") {
+                            checkSelectedInterval()
                         }
                         // Upstream `RssSourceActivity.del`.
                         Button("删除", role: .destructive) {
@@ -277,6 +289,8 @@ public struct RssSourceManageView: View {
         .sheet(isPresented: $isSharePresented) {
             if let exportedFileURL {
                 ShareSheet(items: [exportedFileURL])
+            } else if let shareText {
+                ShareSheet(items: [shareText])
             }
         }
         .fileImporter(
@@ -554,18 +568,37 @@ public struct RssSourceManageView: View {
     }
 
     /// Exports the selected sources — upstream `RssSourceViewModel.saveToFile`
-    /// (the file "shareRssSource.json").
+    /// (the file "exportRssSource.json").
     private func exportSelection() {
         let exported = sources.filter { selection.contains($0.sourceUrl) }
         let json = JSONValue.array(exported.map { RssSourceJSONBridge.encode($0) }).jsonString
         guard let data = json.data(using: .utf8) else { return }
         do {
-            exportedFileURL = try DocumentExporter.write(data, fileName: "shareRssSource.json")
+            exportedFileURL = try DocumentExporter.write(data, fileName: "exportRssSource.json")
             isSharePresented = true
             message = "已导出 \(exported.count) 个订阅源"
         } catch {
             message = "导出失败：\(error.localizedDescription)"
         }
+    }
+
+    /// Shares the selected sources — upstream
+    /// `RssSourceActivity.menu_share_source` (`viewModel.saveToFile { share(it) }`):
+    /// the JSON of the selected sources is shared as text.
+    private func shareSelection() {
+        let exported = sources.filter { selection.contains($0.sourceUrl) }
+        let json = JSONValue.array(exported.map { RssSourceJSONBridge.encode($0) }).jsonString
+        exportedFileURL = nil
+        shareText = json
+        isSharePresented = true
+        message = "已分享 \(exported.count) 个订阅源"
+    }
+
+    /// Selects the interval between the first and the last selected source —
+    /// upstream `RssSourceAdapter.checkSelectedInterval`.
+    private func checkSelectedInterval() {
+        let urls = sources.map(\.sourceUrl)
+        selection = SourceSelection.interval(selected: selection, in: urls)
     }
 
     /// Moves a source with a drag — upstream `RssSourceActivity.initRecyclerView`

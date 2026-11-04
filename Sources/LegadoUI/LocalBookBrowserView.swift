@@ -50,6 +50,11 @@ public struct LocalBookBrowserView: View {
     @State private var templateText = ""
     /// The last message.
     @State private var message: String?
+    /// The names of the files that are already on the shelf — upstream
+    /// `ImportBook.isOnBookShelf` (`LocalBook.isOnBookShelf`).
+    @State private var onShelf: Set<String> = []
+    /// The book that is being read — upstream `ImportBookActivity.startRead`.
+    @State private var readingBook: Book?
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -186,6 +191,24 @@ public struct LocalBookBrowserView: View {
             templateText = model.environment.settings.bookImportFileName ?? ""
             reload()
         }
+        // The reader of a file that is already on the shelf — upstream
+        // `ImportBookActivity.startRead`.
+        .sheet(isPresented: $model.isReaderPresented, onDismiss: {
+            model.readerDidClose()
+        }) {
+            if let reader = model.reader {
+                NavigationStack {
+                    ReaderView(controller: reader)
+                }
+            }
+        }
+        .sheet(isPresented: $model.isMangaPresented) {
+            if let manga = model.mangaReader {
+                NavigationStack {
+                    MangaReaderView(controller: manga)
+                }
+            }
+        }
     }
 
     // MARK: - The rows
@@ -204,22 +227,61 @@ public struct LocalBookBrowserView: View {
                 }
             }
         } else {
+            let isOnShelf = onShelf.contains(entry.name)
             HStack {
-                Button {
-                    toggle(entry)
-                } label: {
-                    Text(selected.contains(entry.id) ? "☑" : "☐")
-                        .font(.system(size: 16))
+                if isOnShelf {
+                    // Upstream `ImportBookAdapter.convert`: the file is already
+                    // on the shelf — the icon replaces the check box and the
+                    // row starts the reader.
+                    Image(systemName: "book.closed")
+                        .foregroundColor(.secondary)
+                } else {
+                    Button {
+                        toggle(entry)
+                    } label: {
+                        Text(selected.contains(entry.id) ? "☑" : "☐")
+                            .font(.system(size: 16))
+                    }
                 }
-                VStack(alignment: .leading) {
-                    Text(entry.name)
-                    Text(sizeText(entry.size))
+                Button {
+                    if isOnShelf {
+                        startRead(entry)
+                    } else {
+                        toggle(entry)
+                    }
+                } label: {
+                    VStack(alignment: .leading) {
+                        Text(entry.name)
+                        HStack(spacing: 6) {
+                            Text(tagText(entry))
+                            Text(sizeText(entry.size))
+                            Text(dateText(entry.modified))
+                        }
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
+                    }
                 }
                 Spacer()
             }
         }
+    }
+
+    /// The extension of the file — upstream `tvTag`
+    /// (`item.name.substringAfterLast(".")`).
+    private func tagText(_ entry: LocalBookEntry) -> String {
+        let name = entry.name
+        guard let dot = name.lastIndex(of: "."), dot != name.index(before: name.endIndex) else {
+            return ""
+        }
+        return String(name[name.index(after: dot)...])
+    }
+
+    /// The modification time of the file — upstream `tvDate`
+    /// (`AppConst.dateFormat`).
+    private func dateText(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter.string(from: date)
     }
 
     /// The size of a file — upstream `Formatter.formatFileSize`.
@@ -247,6 +309,35 @@ public struct LocalBookBrowserView: View {
         entries = LocalBookBrowser.sort(filtered, by: sort)
         selected = selected.filter { path in
             filtered.contains { $0.id == path }
+        }
+        refreshShelfState()
+    }
+
+    /// Refreshes the files that are already on the shelf — upstream
+    /// `ImportBook.isOnBookShelf` (`LocalBook.isOnBookShelf(fileName)`).
+    private func refreshShelfState() {
+        var names: Set<String> = []
+        for entry in entries where !entry.isDirectory {
+            if (try? model.environment.store.hasLocalFile(fileName: entry.name)) == true {
+                names.insert(entry.name)
+            }
+        }
+        onShelf = names
+    }
+
+    /// Starts the reader for a file that is already on the shelf — upstream
+    /// `ImportBookActivity.startRead`: the book of the file is looked up and
+    /// its address is replaced with the path of the file.
+    private func startRead(_ entry: LocalBookEntry) {
+        guard let book = try? model.environment.store.localBook(fileName: entry.name) else { return }
+        var updated = book
+        let path = entry.url.absoluteString
+        if updated.bookUrl != path {
+            updated.bookUrl = path
+            try? model.environment.store.update(updated)
+        }
+        Task {
+            await model.openReader(for: updated)
         }
     }
 

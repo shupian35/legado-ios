@@ -899,6 +899,22 @@ public final class LegadoAppModel: ObservableObject {
         }
     }
 
+    /// Sets the cover of a group — upstream `GroupEditDialog` (the `ivCover`
+    /// image picker) and `BookGroupDao.update`.
+    ///
+    /// The path is the copy the app made of the picked image — upstream
+    /// `externalFiles/covers/<md5>.<suffix>`.
+    public func setGroupCover(_ group: BookGroup, cover: String?) {
+        var updated = group
+        updated.cover = cover
+        do {
+            try environment.store.insert(updated)
+            reloadBookshelf()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     /// Sets the sort order of a group — upstream `GroupEditDialog` (the
     /// `spSort` spinner) and `BookGroupDao.updateBookSort`.
     ///
@@ -1126,6 +1142,37 @@ public final class LegadoAppModel: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Moves a source to the top or to the bottom — upstream
+    /// `ChangeBookSourceViewModel.topSource` / `bottomSource`.
+    public func moveSource(_ source: BookSource, toTop: Bool) {
+        do {
+            let all = try environment.sources()
+            var updated = source
+            updated.customOrder = toTop
+                ? SourceOrdering.topOrder(of: all)
+                : SourceOrdering.bottomOrder(of: all)
+            try environment.store.insert(updated)
+            reloadSources()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// The user score of a book in a source — upstream
+    /// `SourceConfig.getBookScore`.
+    public func bookScore(origin: String, name: String, author: String) -> Int {
+        SourceConfig.load(store: environment.store)
+            .bookScore(origin: origin, name: name, author: author)
+    }
+
+    /// Sets the user score of a book in a source — upstream
+    /// `SourceConfig.setBookScore`.
+    public func setBookScore(origin: String, name: String, author: String, score: Int) {
+        var config = SourceConfig.load(store: environment.store)
+        config.setBookScore(origin: origin, name: name, author: author, score: score)
+        SourceConfig.save(config, store: environment.store)
     }
 
     /// Enables or disables several sources at once — upstream

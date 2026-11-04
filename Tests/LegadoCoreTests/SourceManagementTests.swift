@@ -91,4 +91,12 @@ final class SourceManagementTests: XCTestCase {
         let selected = SourceSelection.all(in: sources)
         XCTAssertEqual(selected.count, 4)
     }
+
+    /// The generic form of the interval — the RSS sources use their URL as
+    /// the identity (upstream `RssSourceAdapter.checkSelectedInterval`).
+    func testTheIntervalSelectionWorksWithPlainIdentifiers() {
+        let urls = ["a", "b", "c", "d", "e"]
+        let selected = SourceSelection.interval(selected: ["b", "d"], in: urls)
+        XCTAssertEqual(selected, ["b", "c", "d"])
+    }
 }

@@ -51,6 +51,18 @@ public enum SourceOrdering {
         let orders = Set(sources.map(\.customOrder))
         return orders.count < sources.count
     }
+
+    /// The order a source gets when it is moved to the top — upstream
+    /// `BookSourceDao.minOrder - 1` (`ChangeBookSourceViewModel.topSource`).
+    public static func topOrder(of sources: [BookSource]) -> Int64 {
+        (sources.map(\.customOrder).min() ?? 0) - 1
+    }
+
+    /// The order a source gets when it is moved to the bottom — upstream
+    /// `BookSourceDao.maxOrder + 1` (`ChangeBookSourceViewModel.bottomSource`).
+    public static func bottomOrder(of sources: [BookSource]) -> Int64 {
+        (sources.map(\.customOrder).max() ?? 0) + 1
+    }
 }
 
 /// The selection of the book sources — upstream `BookSourceAdapter`.
@@ -65,15 +77,24 @@ public enum SourceSelection {
     ///
     /// The selection is the set of the source URLs.
     public static func interval(selected: Set<String>, in sources: [BookSource]) -> Set<String> {
-        let positions = sources.enumerated().compactMap { index, source in
-            selected.contains(source.bookSourceUrl) ? index : nil
+        interval(selected: selected, in: sources.map(\.bookSourceUrl))
+    }
+
+    /// Selects every entry between the first and the last selected one — the
+    /// generic form of `checkSelectedInterval`.
+    ///
+    /// The RSS sources use their URL as the identity, the book sources their
+    /// `bookSourceUrl`; both are the same rule of the upstream.
+    public static func interval(selected: Set<String>, in sources: [String]) -> Set<String> {
+        let positions = sources.enumerated().compactMap { index, url in
+            selected.contains(url) ? index : nil
         }
         guard let first = positions.min(), let last = positions.max() else {
             return selected
         }
         var result = selected
         for index in first...last {
-            result.insert(sources[index].bookSourceUrl)
+            result.insert(sources[index])
         }
         return result
     }

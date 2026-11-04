@@ -16,7 +16,13 @@ public final class MangaReaderController: ObservableObject {
     /// The index of the visible page — upstream `MangaMenu.upSeekBar`.
     @Published public var pageIndex: Int = 0
     /// Whether the menu is shown — upstream `MangaMenu.runMenuIn`.
-    @Published public var isMenuVisible = false
+    ///
+    /// The automatic scroll and the automatic page are paused while the menu
+    /// is visible — upstream `ReadMangaActivity.onMenuShown`
+    /// (`mScrollTimer.isEnabled = !menuIsVisible`).
+    @Published public var isMenuVisible = false {
+        didSet { restartAutoTimer() }
+    }
     /// Whether the pages turn automatically — upstream
     /// `ReadMangaActivity.enableAutoScrollPage` (`mScrollTimer.isEnabledPage`).
     ///
@@ -131,6 +137,7 @@ public final class MangaReaderController: ObservableObject {
         isAutoPage = enabled
         if enabled {
             isAutoScroll = false
+            autoScrollOffset = 0
         }
         restartAutoTimer()
     }
@@ -142,6 +149,8 @@ public final class MangaReaderController: ObservableObject {
         isAutoScroll = enabled
         if enabled {
             isAutoPage = false
+        } else {
+            autoScrollOffset = 0
         }
         restartAutoTimer()
     }
@@ -151,24 +160,59 @@ public final class MangaReaderController: ObservableObject {
     /// `mangaAutoPageSpeed` seconds.
     private var autoTask: Task<Void, Never>?
 
+    /// The accumulated offset of the automatic scroll — upstream
+    /// `ScrollTimer.scrollBy(distance)`: the content is moved up by the
+    /// distance, the page is turned when the offset has covered the viewport.
+    @Published public var autoScrollOffset: Double = 0
+
+    /// The height of the visible area — the automatic scroll turns the page
+    /// when the offset has covered it (the upstream's RecyclerView scrolls the
+    /// content and the pager snaps when the page is fully visible).
+    @Published public var viewportHeight: Double = 0
+
     /// Starts or stops the timer — upstream `ScrollTimer.isEnabledPage`.
+    ///
+    /// The automatic scroll uses a much shorter interval: the upstream scrolls
+    /// by a few points whenever the scroll settles, the port scrolls
+    /// continuously.
     private func restartAutoTimer() {
         autoTask?.cancel()
         autoTask = nil
-        guard isAutoPage || isAutoScroll else { return }
+        guard isAutoPage || isAutoScroll, !isMenuVisible else { return }
         let speed = max(1, environment.settings.int(.mangaAutoPageSpeed, default: 3))
+        let interval: UInt64 = isAutoScroll ? 100_000_000 : UInt64(speed) * 1_000_000_000
         autoTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: UInt64(speed) * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: interval)
                 if Task.isCancelled { break }
-                self?.autoTick()
+                if self?.isAutoScroll == true {
+                    self?.autoScrollTick(distance: Double(speed))
+                } else {
+                    self?.autoTick()
+                }
             }
         }
+    }
+
+    /// One tick of the automatic scroll — upstream `ScrollTimer.startScroll`
+    /// (`callback.scrollBy(distance)`): the content moves up by the distance
+    /// and the page is turned when the offset has covered the viewport.
+    public func autoScrollTick(distance: Double) {
+        autoScrollOffset += distance
+        guard viewportHeight > 0, autoScrollOffset >= viewportHeight else { return }
+        autoScrollOffset = 0
+        advancePage()
     }
 
     /// One tick of the timer — upstream `ScrollTimer.startScrollPage`
     /// (`callback.scrollPage()`).
     private func autoTick() {
+        advancePage()
+    }
+
+    /// Turns to the next page, or to the next chapter when the chapter is
+    /// over — upstream `ScrollCallback.scrollPage`.
+    private func advancePage() {
         guard let chapter else { return }
         if pageIndex + 1 < chapter.imageCount {
             pageIndex += 1
@@ -329,17 +373,29 @@ public struct MangaReaderView: View {
                 GeometryReader { proxy in
                     ScrollViewReader { scrollProxy in
                         ScrollView(controller.isHorizontalScroll ? .horizontal : .vertical) {
-                            ForEach(Array(chapter.pages.enumerated()), id: \.offset) { index, page in
-                                MangaPageView(
-                                    page: page,
-                                    zoom: controller.zoom,
-                                    colorFilter: controller.colorFilter,
-                                    isGray: controller.isGray,
-                                    isEInk: controller.isEInk,
-                                    eInkThreshold: controller.eInkThreshold
-                                )
-                                    .id(index)
+                            VStack(spacing: 0) {
+                                ForEach(Array(chapter.pages.enumerated()), id: \.offset) { index, page in
+                                    MangaPageView(
+                                        page: page,
+                                        zoom: controller.zoom,
+                                        colorFilter: controller.colorFilter,
+                                        isGray: controller.isGray,
+                                        isEInk: controller.isEInk,
+                                        eInkThreshold: controller.eInkThreshold
+                                    )
+                                        .id(index)
+                                }
                             }
+                            // The automatic scroll — upstream
+                            // `ScrollTimer.scrollBy(distance)`: the content is
+                            // moved up by the accumulated distance.
+                            .offset(y: -controller.autoScrollOffset)
+                        }
+                        .onAppear {
+                            controller.viewportHeight = Double(proxy.size.height)
+                        }
+                        .onChange(of: proxy.size.height) { _, height in
+                            controller.viewportHeight = Double(height)
                         }
                         .onTapGesture { position in
                             // Upstream `WebtoonFrame` — the middle opens the
@@ -421,15 +477,11 @@ public struct MangaReaderView: View {
 
     /// Scrolls to the page — upstream `ReadManga.scrollToPage`.
     ///
-    /// The automatic scroll scrolls smoothly, the automatic page jumps.
+    /// The jump is always immediate: the smoothness of the automatic scroll
+    /// comes from the continuous offset (`ScrollTimer.scrollBy`), the upstream
+    /// detaches the pager snap helper when it is on.
     private func scrollToPage(_ index: Int, proxy: ScrollViewProxy) {
-        if controller.isAutoScroll {
-            withAnimation(.easeInOut(duration: 0.3)) {
-                proxy.scrollTo(index, anchor: .leading)
-            }
-        } else {
-            proxy.scrollTo(index, anchor: .leading)
-        }
+        proxy.scrollTo(index, anchor: .leading)
     }
 
     private var footer: some View {

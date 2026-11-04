@@ -47,6 +47,14 @@ public struct ThemeEditorView: View {
 
     private var settings: AppSettings { model.environment.settings }
 
+    /// The font scale as a text — upstream `ThemeConfigFragment` shows the
+    /// effective scale (`AppContextWrapper.getFontScale`).
+    private var fontScaleText: String {
+        let preference = settings.fontScalePreference
+        guard preference != 0 else { return "跟随系统" }
+        return String(format: "%.1f", Double(preference) / 10.0)
+    }
+
     public var body: some View {
         Form {
             // Upstream `ThemeConfigFragment.onPreferenceTreeClick` — the
@@ -81,6 +89,24 @@ public struct ThemeEditorView: View {
             Section("名称") {
                 TextField("名称", text: $themeName)
                 Toggle("夜间主题", isOn: $isNightTheme)
+            }
+            // Upstream `ThemeConfigFragment.onPreferenceTreeClick` — the
+            // `barElevation` and the `fontScale` number pickers.
+            Section("外观") {
+                Stepper("工具栏高度：\(settings.barElevation)", value: Binding(
+                    get: { settings.barElevation },
+                    set: { settings.barElevation = $0 }
+                ), in: 0...32)
+                Button("重置工具栏高度") {
+                    settings.barElevation = 4
+                }
+                Stepper("字体缩放：\(fontScaleText)", value: Binding(
+                    get: { settings.fontScalePreference },
+                    set: { settings.fontScalePreference = $0 }
+                ), in: 8...16)
+                Button("重置字体缩放") {
+                    settings.fontScalePreference = 0
+                }
             }
             Section("颜色") {
                 TextField("主色", text: $primaryColor)

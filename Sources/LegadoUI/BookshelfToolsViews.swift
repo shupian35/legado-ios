@@ -37,6 +37,10 @@ public struct GroupManageView: View {
     @State private var newGroupName = ""
     @State private var editingGroup: BookGroup?
     @State private var editName = ""
+    /// The group whose cover is being picked — upstream `GroupEditDialog`'s
+    /// `selectImage` launcher.
+    @State private var coverGroup: BookGroup?
+    @State private var isPickingCover = false
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -62,6 +66,12 @@ public struct GroupManageView: View {
                     isAdding = true
                 }
             }
+        }
+        .fileImporter(isPresented: $isPickingCover, allowedContentTypes: [.image]) { result in
+            if case let .success(url) = result {
+                pickCover(url)
+            }
+            coverGroup = nil
         }
         .alert("添加分组", isPresented: $isAdding) {
             TextField("分组名称", text: $newGroupName)
@@ -91,6 +101,12 @@ public struct GroupManageView: View {
     /// One row of the group list.
     private func row(_ group: BookGroup) -> some View {
         HStack(spacing: 10) {
+            // Upstream `GroupEditDialog` — the group cover.
+            if let cover = group.cover, !cover.isEmpty {
+                Image(systemName: "photo")
+                    .font(.system(size: 14))
+                    .foregroundColor(.secondary)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(group.groupName)
                     .font(.system(size: 15))
@@ -115,6 +131,16 @@ public struct GroupManageView: View {
                     editName = group.groupName
                     editingGroup = group
                 }
+                // Upstream `GroupEditDialog` — the `ivCover` image picker.
+                Button("设置封面") {
+                    coverGroup = group
+                    isPickingCover = true
+                }
+                if let cover = group.cover, !cover.isEmpty {
+                    Button("清除封面", role: .destructive) {
+                        model.setGroupCover(group, cover: nil)
+                    }
+                }
                 // Upstream `GroupEditDialog` — the `spSort` spinner with the
                 // `book_sort` array (the default plus the six sorts).
                 Menu("排序") {
@@ -134,6 +160,18 @@ public struct GroupManageView: View {
                 Text("更多")
                     .font(.system(size: 13))
             }
+        }
+    }
+
+    /// Copies the picked image into the app's own directory and stores its
+    /// path in the group — upstream `GroupEditDialog`'s `selectImage`.
+    private func pickCover(_ url: URL) {
+        guard let group = coverGroup else { return }
+        do {
+            let path = try LocalFileStore.importFile(from: url, into: "covers")
+            model.setGroupCover(group, cover: path)
+        } catch {
+            model.errorMessage = error.localizedDescription
         }
     }
 }

@@ -334,8 +334,10 @@ struct GroupFolderList: View {
                             model.select(groupId: group.groupId)
                         } label: {
                             HStack(spacing: 6) {
-                                Image(systemName: "folder")
-                                    .font(.system(size: 13))
+                                // Upstream `BookGroup.cover` — the group tile
+                                // shows its cover (`BooksAdapterGrid`:
+                                // `ivCover.load(item.cover)`).
+                                GroupCoverIcon(cover: group.cover)
                                 Text(group.groupName)
                                     .font(.system(size: 15))
                                 // Upstream `AppConfig.showWaitUpCount` — the
@@ -364,6 +366,37 @@ struct GroupFolderList: View {
                 .padding(.vertical, 8)
             }
             Divider()
+        }
+    }
+}
+
+/// The cover of a group — upstream `BookGroup.cover`.
+///
+/// The group tile of the shelf shows the cover of the group when it has one
+/// (`BooksAdapterGrid`: `ivCover.load(item.cover)`); otherwise the folder icon
+/// is used.
+struct GroupCoverIcon: View {
+
+    /// The path of the cover file.
+    let cover: String?
+
+    var body: some View {
+        if let cover, !cover.isEmpty {
+            AsyncImage(url: URL(fileURLWithPath: cover)) { phase in
+                if case let .success(image) = phase {
+                    return AnyView(image.resizable().aspectRatio(contentMode: .fill))
+                }
+                return AnyView(
+                    Image(systemName: "folder")
+                        .font(.system(size: 13))
+                )
+            }
+            .frame(width: 18, height: 18)
+            .cornerRadius(3)
+            .clipped()
+        } else {
+            Image(systemName: "folder")
+                .font(.system(size: 13))
         }
     }
 }

@@ -640,6 +640,15 @@ public final class AppSettings {
         return scale
     }
 
+    /// The elevation of the app bar — upstream `PreferKey.barElevation`.
+    ///
+    /// Upstream stores the elevation in points (0…32) and resets it to
+    /// `AppConst.sysElevation` — the Material app bar elevation.
+    public var barElevation: Int {
+        get { int(.barElevation, default: 4) }
+        set { set(newValue, for: .barElevation) }
+    }
+
     /// The screen orientation — upstream `PreferKey.screenOrientation`.
     public var screenOrientation: Int {
         get { int(.screenOrientation, default: 0) }

@@ -35,6 +35,12 @@ public struct ChangeSourceView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var didSearch = false
+    /// The user score of the candidates — upstream `SourceConfig`.
+    @State private var scores: [String: Int] = [:]
+    /// The source that is being edited — upstream `menu_edit_source`.
+    @State private var editingSource: BookSource?
+    /// The source that is about to be deleted — upstream `menu_delete_source`.
+    @State private var deletingSource: BookSource?
 
     public init(model: LegadoAppModel, book: Book) {
         self.model = model
@@ -71,31 +77,137 @@ public struct ChangeSourceView: View {
                 EmptyState(text: "没有找到其他来源")
             }
             List(candidates, id: \.scoreKey) { candidate in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(candidate.sourceName)
-                        .font(.system(size: 15, weight: .medium))
-                    Text(candidate.book.name)
-                        .font(.system(size: 13))
-                        .foregroundColor(.secondary)
-                    HStack {
-                        Text(candidate.book.author)
-                            .font(.system(size: 12))
+                HStack(alignment: .top, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(candidate.sourceName)
+                            .font(.system(size: 15, weight: .medium))
+                        Text(candidate.book.name)
+                            .font(.system(size: 13))
                             .foregroundColor(.secondary)
-                        if let wordCount = candidate.chapterWordCountText {
-                            Text(wordCount)
+                        HStack {
+                            Text(candidate.book.author)
                                 .font(.system(size: 12))
                                 .foregroundColor(.secondary)
+                            if let wordCount = candidate.chapterWordCountText {
+                                Text(wordCount)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+                            }
                         }
                     }
+                    Spacer()
+                    // Upstream `ChangeBookSourceAdapter` — the 好评 / 差评
+                    // buttons of the row.
+                    scoreButtons(candidate)
                 }
                 .onTapGesture {
                     switchSource(candidate)
+                }
+                .contextMenu {
+                    // Upstream `ChangeBookSourceAdapter.showMenu` — the menu
+                    // `res/menu/change_source_item.xml`.
+                    Button("置顶") { moveSource(candidate, toTop: true) }
+                    Button("置底") { moveSource(candidate, toTop: false) }
+                    Button("编辑") { editingSource = source(of: candidate) }
+                    Button("禁用") { disableSource(candidate) }
+                    Button("删除", role: .destructive) { deletingSource = source(of: candidate) }
                 }
             }
             .listStyle(PlainListStyle())
         }
         .padding(16)
         .navigationTitle("换源")
+        .sheet(item: $editingSource) { source in
+            NavigationStack {
+                SourceEditorView(model: model, source: source, onClose: { editingSource = nil })
+            }
+        }
+        .alert("删除", isPresented: deleteAlertBinding) {
+            Button("取消", role: .cancel) { deletingSource = nil }
+            Button("确定", role: .destructive) {
+                if let deletingSource {
+                    model.deleteSource(deletingSource)
+                    candidates.removeAll { $0.sourceUrl == deletingSource.bookSourceUrl }
+                }
+                deletingSource = nil
+            }
+        } message: {
+            Text("确定要删除\n\(deletingSource?.bookSourceName ?? "")")
+        }
+    }
+
+    // MARK: - The score (upstream `SourceConfig`)
+
+    /// The 好评 / 差评 buttons of a row — upstream
+    /// `ChangeBookSourceAdapter.registerListener`.
+    private func scoreButtons(_ candidate: ChangeSourceCandidate) -> some View {
+        let score = scores[candidate.scoreKey] ?? 0
+        return HStack(spacing: 6) {
+            Button {
+                toggleScore(candidate, good: true)
+            } label: {
+                Image(systemName: "hand.thumbsup")
+                    .foregroundColor(score > 0 ? .red : .secondary)
+            }
+            Button {
+                toggleScore(candidate, good: false)
+            } label: {
+                Image(systemName: "hand.thumbsdown")
+                    .foregroundColor(score < 0 ? .blue : .secondary)
+            }
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    /// Toggles the score of a book — upstream
+    /// `ChangeBookSourceAdapter`: the 好评 sets the score to 1 when the book
+    /// is not rated yet (or rated badly) and resets it to 0 otherwise; the
+    /// 差评 is symmetric.
+    private func toggleScore(_ candidate: ChangeSourceCandidate, good: Bool) {
+        let current = scores[candidate.scoreKey] ?? 0
+        let new: Int
+        if good {
+            new = current <= 0 ? 1 : 0
+        } else {
+            new = current >= 0 ? -1 : 0
+        }
+        model.setBookScore(
+            origin: candidate.sourceUrl,
+            name: candidate.book.name,
+            author: candidate.book.author,
+            score: new
+        )
+        scores[candidate.scoreKey] = new
+    }
+
+    // MARK: - The source of a candidate
+
+    /// The source a candidate came from.
+    private func source(of candidate: ChangeSourceCandidate) -> BookSource? {
+        (try? model.environment.sources())?.first { $0.bookSourceUrl == candidate.sourceUrl }
+    }
+
+    /// Moves the source of a candidate to the top or to the bottom — upstream
+    /// `ChangeBookSourceViewModel.topSource` / `bottomSource`.
+    private func moveSource(_ candidate: ChangeSourceCandidate, toTop: Bool) {
+        guard let source = source(of: candidate) else { return }
+        model.moveSource(source, toTop: toTop)
+    }
+
+    /// Disables the source of a candidate — upstream
+    /// `ChangeBookSourceViewModel.disableSource`.
+    private func disableSource(_ candidate: ChangeSourceCandidate) {
+        guard let source = source(of: candidate) else { return }
+        model.setSource(source, enabled: false)
+        candidates.removeAll { $0.sourceUrl == candidate.sourceUrl }
+    }
+
+    /// The binding of the delete confirmation.
+    private var deleteAlertBinding: Binding<Bool> {
+        Binding(
+            get: { deletingSource != nil },
+            set: { if !$0 { deletingSource = nil } }
+        )
     }
 
     private func search() {
@@ -103,6 +215,8 @@ public struct ChangeSourceView: View {
         errorMessage = nil
         didSearch = true
         let settings = model.environment.settings
+        // Upstream `SourceConfig` — the scores the user gave to the books.
+        let config = SourceConfig.load(store: model.environment.store)
         Task {
             do {
                 let sources = try model.environment.sources(enabledOnly: true)
@@ -110,7 +224,9 @@ public struct ChangeSourceView: View {
                     checkAuthor: settings.bool(.changeSourceCheckAuthor, default: false),
                     loadInfo: settings.bool(.changeSourceLoadInfo, default: false),
                     loadToc: settings.bool(.changeSourceLoadToc, default: false),
-                    loadWordCount: settings.bool(.changeSourceLoadWordCount, default: false)
+                    loadWordCount: settings.bool(.changeSourceLoadWordCount, default: false),
+                    bookScores: config.bookScores,
+                    sourceScores: config.sourceScores
                 )
                 let found = try await ChangeSourceService.search(
                     book: book,
@@ -119,6 +235,9 @@ public struct ChangeSourceView: View {
                     dependencies: model.environment.dependencies()
                 )
                 candidates = found
+                scores = Dictionary(
+                    uniqueKeysWithValues: found.map { ($0.scoreKey, config.bookScore(key: $0.scoreKey)) }
+                )
             } catch {
                 errorMessage = error.localizedDescription
             }

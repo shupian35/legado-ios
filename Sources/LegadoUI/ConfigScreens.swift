@@ -41,6 +41,32 @@ public struct CoverConfigView: View {
     @State private var isPickingDarkCover = false
     /// Whether the cover rule sheet is shown.
     @State private var isCoverRulePresented = false
+    /// The default cover that is being deleted — upstream
+    /// `CoverConfigFragment.onPreferenceTreeClick` (the 删除 branch).
+    @State private var deletingCover: DefaultCover?
+
+    /// The two default covers of the app — upstream `PreferKey.defaultCover`
+    /// and `PreferKey.defaultCoverDark`.
+    enum DefaultCover: String, Identifiable {
+        case day
+        case night
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .day: return "日间封面"
+            case .night: return "夜间封面"
+            }
+        }
+
+        var pathKey: SettingsKey {
+            switch self {
+            case .day: return .defaultCover
+            case .night: return .defaultCoverDark
+            }
+        }
+    }
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -51,18 +77,8 @@ public struct CoverConfigView: View {
     public var body: some View {
         Form {
             Section("默认封面") {
-                Button("选择日间封面") {
-                    isPickingCover = true
-                }
-                Text(settings.string(.defaultCover) ?? "未设置")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                Button("选择夜间封面") {
-                    isPickingDarkCover = true
-                }
-                Text(settings.string(.defaultCoverDark) ?? "未设置")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
+                coverRow(.day)
+                coverRow(.night)
                 Toggle("使用默认封面", isOn: Binding(
                     get: { settings.useDefaultCover },
                     set: { settings.useDefaultCover = $0 }
@@ -77,10 +93,13 @@ public struct CoverConfigView: View {
                     get: { settings.bool(.coverShowName, default: true) },
                     set: { settings.set($0, for: .coverShowName) }
                 ))
+                // Upstream `CoverConfigFragment.onCreatePreferences` — the
+                // author toggle is only enabled when the name is shown.
                 Toggle("显示作者", isOn: Binding(
                     get: { settings.bool(.coverShowAuthor, default: true) },
                     set: { settings.set($0, for: .coverShowAuthor) }
                 ))
+                .disabled(!settings.bool(.coverShowName, default: true))
                 Toggle("夜间显示书名", isOn: Binding(
                     get: { settings.bool(.coverShowNameN, default: true) },
                     set: { settings.set($0, for: .coverShowNameN) }
@@ -89,6 +108,7 @@ public struct CoverConfigView: View {
                     get: { settings.bool(.coverShowAuthorN, default: true) },
                     set: { settings.set($0, for: .coverShowAuthorN) }
                 ))
+                .disabled(!settings.bool(.coverShowNameN, default: true))
             }
             Section("封面搜索") {
                 NavigationLink("封面规则") {
@@ -99,13 +119,88 @@ public struct CoverConfigView: View {
         .navigationTitle("封面设置")
         .fileImporter(isPresented: $isPickingCover, allowedContentTypes: [.image]) { result in
             if case let .success(url) = result {
-                settings.set(url.path, for: .defaultCover)
+                store(url, for: .day)
             }
         }
         .fileImporter(isPresented: $isPickingDarkCover, allowedContentTypes: [.image]) { result in
             if case let .success(url) = result {
-                settings.set(url.path, for: .defaultCoverDark)
+                store(url, for: .night)
             }
+        }
+        .alert(
+            "删除封面",
+            isPresented: Binding(
+                get: { deletingCover != nil },
+                set: { if !$0 { deletingCover = nil } }
+            )
+        ) {
+            Button("取消", role: .cancel) {
+                deletingCover = nil
+            }
+            Button("删除", role: .destructive) {
+                if let cover = deletingCover {
+                    let path = settings.string(cover.pathKey)
+                    settings.set("", for: cover.pathKey)
+                    LocalFileStore.removeFile(at: path)
+                }
+                deletingCover = nil
+            }
+        } message: {
+            Text("确定要删除该封面吗？")
+        }
+    }
+
+    /// The row of one of the two default covers.
+    @ViewBuilder
+    private func coverRow(_ cover: DefaultCover) -> some View {
+        let path = settings.string(cover.pathKey) ?? ""
+        if path.isEmpty {
+            Button("选择\(cover.title)") {
+                if cover == .day {
+                    isPickingCover = true
+                } else {
+                    isPickingDarkCover = true
+                }
+            }
+        } else {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(cover.title)
+                        .font(.system(size: 15))
+                    Text(path)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Menu {
+                    Button("重新选择") {
+                        if cover == .day {
+                            isPickingCover = true
+                        } else {
+                            isPickingDarkCover = true
+                        }
+                    }
+                    Button("删除", role: .destructive) {
+                        deletingCover = cover
+                    }
+                } label: {
+                    Text("更多")
+                        .font(.system(size: 13))
+                }
+            }
+        }
+    }
+
+    /// Copies the picked image into the app's own directory and stores its
+    /// path — upstream `CoverConfigFragment.setCoverFromUri` copies the file
+    /// into `externalFiles/covers/<md5>.<suffix>`.
+    private func store(_ url: URL, for cover: DefaultCover) {
+        do {
+            let path = try LocalFileStore.importFile(from: url, into: "covers")
+            settings.set(path, for: cover.pathKey)
+        } catch {
+            model.errorMessage = error.localizedDescription
         }
     }
 }
@@ -198,6 +293,9 @@ public struct WelcomeConfigView: View {
 
     @State private var isPickingImage = false
     @State private var isPickingDarkImage = false
+    /// The image that is being deleted — upstream `WelcomeConfigFragment`'s
+    /// selector with 删除 / 选择图片.
+    @State private var deletingImage: WelcomeImage?
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -205,23 +303,56 @@ public struct WelcomeConfigView: View {
 
     private var settings: AppSettings { model.environment.settings }
 
+    /// The two images of the splash — upstream `PreferKey.welcomeImagePath`
+    /// and `PreferKey.welcomeImagePathDark`.
+    enum WelcomeImage: String, Identifiable {
+        case day
+        case night
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .day: return "日间启动图"
+            case .night: return "夜间启动图"
+            }
+        }
+
+        var pathKey: SettingsKey {
+            switch self {
+            case .day: return .welcomeImagePath
+            case .night: return .welcomeImagePathDark
+            }
+        }
+
+        /// The two switches that are reset when the image is deleted.
+        var showTextKey: SettingsKey {
+            switch self {
+            case .day: return .welcomeShowText
+            case .night: return .welcomeShowTextDark
+            }
+        }
+
+        var showIconKey: SettingsKey {
+            switch self {
+            case .day: return .welcomeShowIcon
+            case .night: return .welcomeShowIconDark
+            }
+        }
+    }
+
     public var body: some View {
         Form {
             Section("启动图") {
-                Button("选择启动图") {
-                    isPickingImage = true
-                }
-                Text(settings.string(.welcomeImagePath) ?? "未设置")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                Button("选择夜间启动图") {
-                    isPickingDarkImage = true
-                }
-                Text(settings.string(.welcomeImagePathDark) ?? "未设置")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
+                // Upstream `PreferKey.customWelcome` — the master switch of
+                // the own splash image.
+                Toggle("使用自定义启动图", isOn: Binding(
+                    get: { settings.customWelcome },
+                    set: { settings.customWelcome = $0 }
+                ))
             }
             Section("日间") {
+                imageRow(.day)
                 Toggle("显示文字", isOn: Binding(
                     get: { settings.bool(.welcomeShowText, default: true) },
                     set: { settings.set($0, for: .welcomeShowText) }
@@ -234,6 +365,7 @@ public struct WelcomeConfigView: View {
                 .disabled((settings.string(.welcomeImagePath) ?? "").isEmpty)
             }
             Section("夜间") {
+                imageRow(.night)
                 Toggle("显示文字", isOn: Binding(
                     get: { settings.bool(.welcomeShowTextDark, default: true) },
                     set: { settings.set($0, for: .welcomeShowTextDark) }
@@ -249,13 +381,95 @@ public struct WelcomeConfigView: View {
         .navigationTitle("启动页样式")
         .fileImporter(isPresented: $isPickingImage, allowedContentTypes: [.image]) { result in
             if case let .success(url) = result {
-                settings.set(url.path, for: .welcomeImagePath)
+                store(url, for: .day)
             }
         }
         .fileImporter(isPresented: $isPickingDarkImage, allowedContentTypes: [.image]) { result in
             if case let .success(url) = result {
-                settings.set(url.path, for: .welcomeImagePathDark)
+                store(url, for: .night)
             }
         }
+        .alert(
+            "删除启动图",
+            isPresented: Binding(
+                get: { deletingImage != nil },
+                set: { if !$0 { deletingImage = nil } }
+            )
+        ) {
+            Button("取消", role: .cancel) {
+                deletingImage = nil
+            }
+            Button("删除", role: .destructive) {
+                if let image = deletingImage {
+                    remove(image)
+                }
+                deletingImage = nil
+            }
+        } message: {
+            Text("确定要删除该启动图吗？")
+        }
+    }
+
+    /// The row of one of the two images.
+    @ViewBuilder
+    private func imageRow(_ image: WelcomeImage) -> some View {
+        let path = settings.string(image.pathKey) ?? ""
+        if path.isEmpty {
+            Button("选择\(image.title)") {
+                if image == .day {
+                    isPickingImage = true
+                } else {
+                    isPickingDarkImage = true
+                }
+            }
+        } else {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(image.title)
+                        .font(.system(size: 15))
+                    Text(path)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Menu {
+                    Button("重新选择") {
+                        if image == .day {
+                            isPickingImage = true
+                        } else {
+                            isPickingDarkImage = true
+                        }
+                    }
+                    Button("删除", role: .destructive) {
+                        deletingImage = image
+                    }
+                } label: {
+                    Text("更多")
+                        .font(.system(size: 13))
+                }
+            }
+        }
+    }
+
+    /// Copies the picked image into the app's own directory and stores its
+    /// path — the path of a picked file is temporary on iOS.
+    private func store(_ url: URL, for image: WelcomeImage) {
+        do {
+            let path = try LocalFileStore.importFile(from: url, into: "welcome")
+            settings.set(path, for: image.pathKey)
+        } catch {
+            model.errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Deletes the image and resets its two switches — upstream
+    /// `WelcomeConfigFragment.onPreferenceTreeClick` (the 删除 branch).
+    private func remove(_ image: WelcomeImage) {
+        let path = settings.string(image.pathKey)
+        settings.set("", for: image.pathKey)
+        LocalFileStore.removeFile(at: path)
+        settings.set(true, for: image.showTextKey)
+        settings.set(true, for: image.showIconKey)
     }
 }

@@ -287,6 +287,26 @@ final class LegadoStoreTests: XCTestCase {
         XCTAssertEqual(try store.chapters(bookUrl: "u1").count, 0)
     }
 
+    /// Upstream `BookDao.hasFile` — a local book whose `originName` is the
+    /// name of the file marks the file as "already on the shelf".
+    func testHasLocalFileMatchesTheUpstreamQuery() throws {
+        let store = try makeStore()
+        try store.insert(Book(bookUrl: "u1", originName: "book.txt", type: BookType.local))
+        try store.insert(Book(bookUrl: "u2", originName: "novel.txt", type: BookType.text))
+        XCTAssertTrue(try store.hasLocalFile(fileName: "book.txt"))
+        XCTAssertFalse(try store.hasLocalFile(fileName: "novel.txt"))
+        XCTAssertFalse(try store.hasLocalFile(fileName: "missing.txt"))
+    }
+
+    /// Upstream `BookDao.getBookByFileName` — the book is found by its
+    /// `originName`.
+    func testLocalBookIsFoundByItsFileName() throws {
+        let store = try makeStore()
+        try store.insert(Book(bookUrl: "u1", originName: "book.txt", type: BookType.local))
+        XCTAssertEqual(try store.localBook(fileName: "book.txt")?.bookUrl, "u1")
+        XCTAssertNil(try store.localBook(fileName: "other.txt"))
+    }
+
     func testChaptersAreOrderedByIndex() throws {
         let store = try makeStore()
         try store.insert(Book(bookUrl: "u1"))
