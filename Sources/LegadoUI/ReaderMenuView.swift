@@ -57,6 +57,11 @@ public struct ReaderMenuView: View {
     /// Whether the source editor is shown — upstream
     /// `ReadBookActivity.menu_edit_source`.
     @State private var isSourceEditorPresented = false
+    /// Whether the built-in browser is shown — upstream
+    /// `ReadMenu.chapterViewClickListener` (`WebViewActivity`).
+    @State private var isBrowserPresented = false
+    /// The address the built-in browser shows.
+    @State private var browserURL = ""
     /// The character set that the user picked.
     @State private var charset = ""
     /// Closes the sheet.
@@ -148,6 +153,11 @@ public struct ReaderMenuView: View {
                     }
                 }
             }
+            .sheet(isPresented: $isBrowserPresented) {
+                NavigationStack {
+                    InAppBrowserView(url: browserURL)
+                }
+            }
         }
     }
 
@@ -155,6 +165,22 @@ public struct ReaderMenuView: View {
     private var source: BookSource? {
         guard let model = controller.model else { return nil }
         return try? model.environment.source(for: controller.book)
+    }
+
+    /// The chapter that is being read — upstream `ReadBook.curTextChapter`.
+    private var currentChapter: BookChapter? {
+        let index = controller.chapterIndex
+        guard controller.chapters.indices.contains(index) else { return nil }
+        return controller.chapters[index]
+    }
+
+    /// The absolute address of a chapter — upstream
+    /// `BookChapter.getAbsoluteURL()`.
+    ///
+    /// A local book has no address — the upstream does not open it.
+    private func chapterURL(_ chapter: BookChapter) -> String {
+        guard !controller.book.isLocal else { return "" }
+        return NetworkUtils.absoluteURL(base: chapter.baseUrl, chapter.url)
     }
 
     /// The character set of a local book — upstream
@@ -212,6 +238,22 @@ public struct ReaderMenuView: View {
     /// The chapter list — upstream `openChapterList`.
     private var chapterSection: some View {
         Section("章节") {
+            // The chapter name and the address of the title bar — upstream
+            // `ReadMenu.tvChapterName` / `ReadMenu.tvChapterUrl`.
+            if let chapter = currentChapter {
+                ChapterLinkView(
+                    title: chapter.title,
+                    url: chapterURL(chapter),
+                    openInSystemBrowser: controller.environment.settings.bool(.readUrlOpenInBrowser, default: false),
+                    onOpenInApp: { url in
+                        browserURL = url
+                        isBrowserPresented = true
+                    },
+                    onChooseBrowser: { useSystemBrowser in
+                        controller.environment.settings.set(useSystemBrowser, for: .readUrlOpenInBrowser)
+                    }
+                )
+            }
             Button("目录") {
                 isChapterListPresented = true
             }

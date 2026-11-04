@@ -18,19 +18,29 @@ public struct AnalyzeUrlDependencies {
     public var scriptEngine: RuleScriptEngine?
     public var userAgent: String
     public var loginHeaderMap: [String: String]?
+    /// Receives the raw HTML of every fetched page — upstream
+    /// `Debug.log(sourceUrl, body, state = 10/20/30/40)`.
+    ///
+    /// The state tells the step: 10 = the search page, 20 = the detail page,
+    /// 30 = the table of contents and 40 = the chapter content. The debugger
+    /// shows the four pages in the "原始HTML" dialogs of the upstream's
+    /// `BookSourceDebugActivity`.
+    public var debugCapture: ((Int, String) -> Void)?
 
     public init(
         httpClient: HttpClient = URLSessionHttpClient(),
         cookieStore: CookieStore = CookieStore(),
         scriptEngine: RuleScriptEngine? = nil,
         userAgent: String = SourceSupport.defaultUserAgent,
-        loginHeaderMap: [String: String]? = nil
+        loginHeaderMap: [String: String]? = nil,
+        debugCapture: ((Int, String) -> Void)? = nil
     ) {
         self.httpClient = httpClient
         self.cookieStore = cookieStore
         self.scriptEngine = scriptEngine
         self.userAgent = userAgent
         self.loginHeaderMap = loginHeaderMap
+        self.debugCapture = debugCapture
     }
 }
 

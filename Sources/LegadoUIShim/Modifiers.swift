@@ -113,6 +113,9 @@ extension View {
         onCompletion: @escaping (Result<[URL], Error>) -> Void
     ) -> some View { ModifiedView(self) }
     public func onTapGesture(count: Int = 1, coordinateSpace: CoordinateSpace = .global, perform action: @escaping (CGPoint) -> Void) -> some View { ModifiedView(self) }
+    /// The long press — the real SwiftUI spells it `onLongPressGesture`, but
+    /// `onLongPress` is a common shortcut for it.
+    public func onLongPress(minimumDuration: Double = 0.5, perform action: @escaping () -> Void) -> some View { ModifiedView(self) }
     public func onLongPressGesture(minimumDuration: Double = 0.5, perform action: @escaping () -> Void) -> some View { ModifiedView(self) }
     public func onLongPressGesture(minimumDuration: Double = 0.5, maximumDistance: Double = 10, pressing: ((Bool) -> Void)? = nil, perform action: @escaping () -> Void) -> some View { ModifiedView(self) }
     public func simultaneousGesture<T: View>(_ gesture: T) -> some View { ModifiedView(self) }

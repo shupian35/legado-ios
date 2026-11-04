@@ -32,6 +32,11 @@ public struct BookshelfView: View {
     @State private var isAddUrlPresented = false
     @State private var isExportPresented = false
     @State private var isImportPresented = false
+    /// Whether the bookshelf configuration is shown — upstream
+    /// `BaseBookshelfFragment.configBookshelf`.
+    @State private var isConfigPresented = false
+    /// Whether the app log is shown — upstream `R.id.menu_log`.
+    @State private var isLogPresented = false
     /// The book whose information is shown (the long press).
     @State private var selectedBook: Book?
 
@@ -42,27 +47,21 @@ public struct BookshelfView: View {
     public var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                GroupSelector(model: model)
+                if model.environment.settings.bookGroupStyle == 1 {
+                    // Upstream `AppConfig.bookGroupStyle == 1` selects the
+                    // second bookshelf style (`BookshelfFragment2`), where the
+                    // groups are shown as the folders of the shelf.
+                    GroupFolderList(model: model)
+                } else {
+                    GroupSelector(model: model)
+                }
                 if model.visibleBooks.isEmpty {
                     EmptyState(text: "书架里还没有书")
                 } else if model.environment.settings.bookshelfLayout == 0 {
                     // Upstream `AppConfig.bookshelfLayout == 0` is the list
                     // style; every other value is a grid with
                     // `bookshelfLayout + 2` columns.
-                    List(model.visibleBooks, id: \.bookUrl) { book in
-                        NavigationLink {
-                            BookDetailView(model: model, book: book)
-                        } label: {
-                            BookRow(
-                                book: book,
-                                showsLastUpdateTime: model.environment.settings.bool(.showLastUpdateTime, default: false)
-                            )
-                        }
-                        .onLongPressGesture {
-                            selectedBook = book
-                        }
-                    }
-                    .listStyle(PlainListStyle())
+                    bookList
                 } else {
                     grid
                 }
@@ -119,6 +118,15 @@ public struct BookshelfView: View {
                         Button("导入书架") {
                             isImportPresented = true
                         }
+                        // Upstream `R.id.menu_bookshelf_config` — the
+                        // configuration of the shelf.
+                        Button("书架布局") {
+                            isConfigPresented = true
+                        }
+                        // Upstream `R.id.menu_log` — the app log.
+                        Button("日志") {
+                            isLogPresented = true
+                        }
                     } label: {
                         Label("更多", systemImage: "ellipsis.circle")
                     }
@@ -164,6 +172,16 @@ public struct BookshelfView: View {
                     ImportBookshelfView(model: model)
                 }
             }
+            .sheet(isPresented: $isConfigPresented) {
+                NavigationStack {
+                    BookshelfConfigView(model: model)
+                }
+            }
+            .sheet(isPresented: $isLogPresented) {
+                NavigationStack {
+                    AppLogView()
+                }
+            }
             .sheet(item: $selectedBook) { book in
                 NavigationStack {
                     BookInfoMenuView(model: model, book: book)
@@ -171,6 +189,39 @@ public struct BookshelfView: View {
             }
             .onAppear {
                 model.reloadBookshelf()
+            }
+        }
+    }
+
+    /// The list style of the shelf — upstream `BooksFragment` with the
+    /// `BooksAdapterList` and the optional fast scroll bar
+    /// (`AppConfig.showBookshelfFastScroller`).
+    private var bookList: some View {
+        ScrollViewReader { proxy in
+            ZStack(alignment: .trailing) {
+                List(model.visibleBooks, id: \.bookUrl) { book in
+                    NavigationLink {
+                        BookDetailView(model: model, book: book)
+                    } label: {
+                        BookRow(
+                            book: book,
+                            showsLastUpdateTime: model.environment.settings.bool(.showLastUpdateTime, default: false),
+                            showsUnread: model.environment.settings.showUnread
+                        )
+                    }
+                    .id(book.bookUrl)
+                    .onLongPressGesture {
+                        selectedBook = book
+                    }
+                }
+                .listStyle(PlainListStyle())
+                if model.environment.settings.showBookshelfFastScroller {
+                    BookshelfFastScroller(count: model.visibleBooks.count) { index in
+                        guard index >= 0, index < model.visibleBooks.count else { return }
+                        proxy.scrollTo(model.visibleBooks[index].bookUrl, anchor: .top)
+                    }
+                    .padding(.trailing, 2)
+                }
             }
         }
     }
@@ -265,6 +316,114 @@ struct GroupSelector: View {
     }
 }
 
+/// The group selector of the shelf in the "folder" style.
+///
+/// Upstream `AppConfig.bookGroupStyle == 1` selects the second bookshelf
+/// style (`BookshelfFragment2`), where the groups are the folders of the
+/// shelf: they are the first items of the list and a tap opens the group.
+struct GroupFolderList: View {
+
+    @ObservedObject var model: LegadoAppModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(model.groups, id: \.groupId) { group in
+                        Button {
+                            model.select(groupId: group.groupId)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "folder")
+                                    .font(.system(size: 13))
+                                Text(group.groupName)
+                                    .font(.system(size: 15))
+                                // Upstream `AppConfig.showWaitUpCount` — the
+                                // number of the books that wait for an update.
+                                if model.environment.settings.bool(.showWaitUpCount, default: false) {
+                                    let count = model.waitingUpdateCount(inGroup: group.groupId)
+                                    if count > 0 {
+                                        Text("\(count)")
+                                            .font(.system(size: 10))
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                model.selectedGroupId == group.groupId
+                                    ? Color.accentColor.opacity(0.2)
+                                    : Color.gray.opacity(0.12)
+                            )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            }
+            Divider()
+        }
+    }
+}
+
+/// The fast scroll bar of the shelf.
+///
+/// Upstream `AppConfig.showBookshelfFastScroller` enables the `FastScroller`
+/// of the shelf (`ui/widget/recycler/scroller/FastScroller.kt`): a thin
+/// handle on the right edge that is dragged to scroll the list. The upstream
+/// adapter does not implement a `SectionIndexer`, so the scroller only jumps
+/// proportionally — the port does the same.
+struct BookshelfFastScroller: View {
+
+    /// The number of the books of the list.
+    let count: Int
+    /// The new position of the list — the index of the first visible book.
+    let onSelect: (Int) -> Void
+
+    @State private var isDragging = false
+    @State private var fraction: Double = 0
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .top) {
+                Color.clear
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color.secondary.opacity(isDragging ? 0.8 : 0.35))
+                    .frame(width: 6)
+                    .frame(maxHeight: .infinity)
+                    .padding(.vertical, 8)
+                    .offset(y: handleOffset(in: proxy.size.height))
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        isDragging = true
+                        let height = max(proxy.size.height, 1)
+                        let value2 = min(max(value.location.y / height, 0), 1)
+                        fraction = value2
+                        guard count > 0 else { return }
+                        let index = min(Int(value2 * Double(count)), count - 1)
+                        onSelect(max(index, 0))
+                    }
+                    .onEnded { _ in
+                        isDragging = false
+                    }
+            )
+        }
+        .frame(width: 16)
+    }
+
+    /// The vertical position of the handle — upstream the handle follows the
+    /// finger.
+    private func handleOffset(in height: Double) -> Double {
+        let travel = max(height - 16 - 40, 0)
+        return travel * fraction
+    }
+}
+
 /// One book of the bookshelf.
 ///
 /// Upstream `style1/books/BooksAdapterList` and `style2/BooksAdapterList`.
@@ -274,6 +433,9 @@ struct BookRow: View {
     /// Whether the time of the last update is shown — upstream
     /// `AppConfig.showLastUpdateTime`.
     var showsLastUpdateTime = false
+    /// Whether the number of the chapters that were not read is shown —
+    /// upstream `AppConfig.showUnread`.
+    var showsUnread = true
 
     var body: some View {
         HStack(spacing: 12) {
@@ -286,7 +448,7 @@ struct BookRow: View {
                     // Upstream `BooksAdapterList.upUnread` — the number of the
                     // chapters that were not read yet.
                     let unread = BookRow.unreadCount(book)
-                    if unread > 0 {
+                    if showsUnread, unread > 0 {
                         Text("\(unread)")
                             .font(.system(size: 10))
                             .foregroundColor(.secondary)

@@ -199,7 +199,7 @@ Upstream: `app/src/main/java/io/legado/app/model/analyzeRule/`.
 | The `DirectLinkUploadConfig` screen | `ui/config/DirectLinkUploadConfig.kt` | **closed** — `LegadoUI/DirectLinkUploadView.swift` + `Core/App/DirectLinkUpload.swift` (the three default rules, the compress, the test upload) |
 | 清除缓存 (the app-cache clear) + the "ignore the items when restoring" dialog + the backup-directory picker | `ui/config/OtherConfigFragment.kt` | **closed** — `LegadoUI/BackupIgnoreView.swift` (`ClearCacheButton` + `BackupIgnoreConfigView`) + `Core/Storage/BackupIgnoreConfig.swift` + the picker in `LegadoUI/BackupView.swift` |
 | The source management: 新建书源, 从本地文件导入, 从网络链接导入, 扫码导入, 按域名分组书源, 书源帮助, the group filters, the search box, the bulk 允许发现 / 置顶 / 置底 / 加入分组 / 导出所选, the per-row 置顶 / 允许发现, the group rename | `ui/book/source/manage/*` | **closed** — `LegadoUI/SourceManagerView.swift` (the search, the sort, 新建, the three imports — the `QRScannerView` IS instantiated now, 按域名分组, 书源帮助, the filters, the bulk actions, the per-row 置顶 / 允许发现) + the group rename in `LegadoUI/ManageSources.swift` |
-| The source editor's 调试 / 搜索 / 清除Cookie / 自动补全 / 复制粘贴 / 设置变量 / 二维码分享 / 分享 / 帮助 | `ui/book/source/edit/*` | **closed** — `LegadoUI/SourceEditorView.swift` (the 更多 menu) + the new `Core/Rule/RuleComplete.swift` (`RuleAutoCompleter` — the upstream's `help/RuleComplete.kt`). The **debug screen's** 扫码 / 查看原始HTML / 刷新发现 / 帮助 are still **open** |
+| The source editor's 调试 / 搜索 / 清除Cookie / 自动补全 / 复制粘贴 / 设置变量 / 二维码分享 / 分享 / 帮助 | `ui/book/source/edit/*` | **closed** — `LegadoUI/SourceEditorView.swift` (the 更多 menu) + the new `Core/Rule/RuleComplete.swift` (`RuleAutoCompleter` — the upstream's `help/RuleComplete.kt`). The **debug screen's** 扫码 / 查看原始HTML / 刷新发现 / 帮助 are **closed too** (`LegadoUI/SourceDebugView.swift` + `Core/Pipeline/Debug.swift`) |
 | The theme LIST (apply / share / delete / import) — the port only edits one theme object | `ui/config/ThemeListDialog.kt` | **closed** — `LegadoUI/ThemeListView.swift` |
 | The reader's "more settings" — all 28 `pref_config_read.xml` preferences were unreachable | `ui/book/read/config/MoreConfigDialog.kt:86` | **closed** — `LegadoUI/ReaderSettingsView.swift` (`ReaderPreferencesView` + the style rows) + `Core/Reader/Config/ReaderConfigStore.swift` (the reader preferences are persisted now) |
 
@@ -210,11 +210,11 @@ Upstream: `app/src/main/java/io/legado/app/model/analyzeRule/`.
 | The TOC rows were **not tappable** — the user could not open a chapter from the table of contents | `ui/book/toc/TocActivity.kt` | **closed** — `LegadoUI/TocView.swift` (the chapter + bookmark rows are buttons, the current chapter is highlighted, the 顶部/底部 jump, the 已缓存 marker, the replace rules on the titles) |
 | The book info: the cover, the built-in cover gallery, 加入/移出书架, the 来源名称, 换分组, 最新章节, 分组名, the menu (上传到远程 / 刷新 / 登录 / 复制目录链接 / 允许更新 / 删除前确认 / 清除缓存 / 日志) | `ui/book/info/BookInfoActivity.kt` (725) | **mostly closed** — `LegadoUI/BookDetailView.swift` (the cover, the source name, the latest chapter, the group, the menu, the share as `${bookUrl}#$bookJson`) |
 | The bookshelf rows: the cover, 最新章节, the unread badge, 最后更新时间, the long-press → the book info | `ui/main/bookshelf/BookshelfAdapter.kt` | **closed** — `LegadoUI/BookshelfView.swift` (the badge = `max(totalChapterNum - durChapterIndex - 1, 0)`) |
-| The bookshelf menu: 搜索, 添加网址, 导出书架 / 导入书架, 日志, the cache/download screen, the bookshelf config dialog, the pull-to-refresh, the per-group sort, the Chinese ordering | `ui/main/bookshelf/BaseBookshelfFragment.kt:93-122` | **mostly closed** — the menu + the group manager + the add-by-url + the export/import (`LegadoUI/BookshelfToolsViews.swift`); the **cache/download screen is closed** (`LegadoUI/DownloadViews.swift` — the download queue, the per-book cache / stop / export and the reader's 离线缓存 dialog); the bookshelf config dialog (分组样式 / 显示最后更新时间 / 显示待更新数量 / 快速滚动 / 六列), the per-group sort override + the Chinese ordering are **open** |
+| The bookshelf menu: 搜索, 添加网址, 导出书架 / 导入书架, 日志, the cache/download screen, the bookshelf config dialog, the pull-to-refresh, the per-group sort, the Chinese ordering | `ui/main/bookshelf/BaseBookshelfFragment.kt:93-122` | **closed** — the menu + the group manager + the add-by-url + the export/import (`LegadoUI/BookshelfToolsViews.swift`); the **cache/download screen** (`LegadoUI/DownloadViews.swift` — the download queue, the per-book cache / stop / export and the reader's 离线缓存 dialog); the **bookshelf config dialog** (分组样式 / 显示未读标志 / 显示上次更新时间 / 显示待更新数量 / 快速滚动 / 六列 — `LegadoUI/BookshelfConfigView.swift` + the 文件夹 group style + the fast scroll bar in `LegadoUI/BookshelfView.swift`); the **per-group sort override** (the group's 更多 → 排序 submenu + `AppModel.setGroupSort`) and the **Chinese ordering** (the upstream `String.cnCompare` = the ICU `zh_Hans_CN` collation — `Core/App/Bookshelf.swift`) |
 | The bookshelf management: 反选, 选择区间, the drag reorder, the search, the group filter, the per-item delete/group, 批量换源, 允许/禁止更新, 批量清除缓存, 导出用到的书源, the delete confirmation | `ui/book/manage/BookshelfManageActivity.kt` (418) | **mostly closed** — `LegadoUI/BookshelfManageView.swift` (the search, the group filter, 全选/取消/反选, the interval check, the drag reorder, the batch actions, the delete confirmation + the "delete the local file" box) |
 | The group management: the group edit (the name / the cover / the per-group sort / 启用刷新), 显示/隐藏, the drag reorder, the 64-group limit | `ui/main/bookshelf/dialog/GroupManageDialog.kt` | **closed** — `LegadoUI/BookshelfToolsViews.swift` (`GroupManageView`) + `LegadoStore.canAddGroup()` |
 | The replace-rule toolbar (the group submenu, 导入本地/在线/二维码, 帮助, 启用/禁用所选, 置顶/置底, 导出所选, 搜索, 拖拽排序) | `ui/book/replace/*` | **closed** — `LegadoUI/ManageViews.swift` (the imports, the search, the sort, the bulk actions) |
-| The TOC: the TOC regex as a managed rule list, the VIP lock, the 更新时间 tag | `ui/book/toc/TocActivity.kt` | **mostly closed** — the TOC regex is now a managed rule list (`LegadoUI/TocRegexPickerView.swift` + `LegadoStore.importTxtTocRules/moveTxtTocRules/updateTxtTocRuleOrder` + `ReaderController.applyTocRegex`); the VIP lock and the 更新时间 tag are still **open** |
+| The TOC: the TOC regex as a managed rule list, the VIP lock, the 更新时间 tag | `ui/book/toc/TocActivity.kt` | **closed** — the TOC regex is now a managed rule list (`LegadoUI/TocRegexPickerView.swift` + `LegadoStore.importTxtTocRules/moveTxtTocRules/updateTxtTocRuleOrder` + `ReaderController.applyTocRegex`); the VIP lock + the 更新时间 tag are in the chapter row (`LegadoUI/TocView.swift`, the upstream `ChapterListAdapter`) |
 
 ### 8.4 The RSS + the discover + the search (93 missing)
 
@@ -241,9 +241,9 @@ Upstream: `app/src/main/java/io/legado/app/model/analyzeRule/`.
 | The background / text colour / alpha UI and the style import-export (readConfig.zip) | `ui/book/read/config/BgTextConfigDialog.kt:129-179` | **mostly closed** — the background presets + the colours + the alpha are in `LegadoUI/ReaderMenuView.swift` (`backgroundSection`) and `Core/App/ReaderBackgroundManager.swift`; the **readConfig.zip import/export** is still **open** |
 | The header / footer TIP system (14 tip types) | `ui/book/read/page/PageView.kt:157-266` | **closed** — `Core/Reader/Tips.swift` (`ReaderTipType` + `ReaderTipRenderer` + the 12 `ReaderConfig` fields) + `LegadoUI/ReaderTipView.swift` |
 | The click-region editor (the nine `clickAction*` keys exist and are read, but there is no UI) | `ui/book/read/config/ClickActionConfigDialog.kt:64-134` | **closed** — `LegadoUI/ClickRegionEditorView.swift` |
-| The read-aloud dialog (the rate / the timer / the engine / the start at the current page / the paragraph highlight / 按页朗读 / the streaming audio) | `ui/book/read/config/ReadAloudDialog.kt:97-163` | **mostly closed** — `LegadoUI/ReaderAloudDialogView.swift` (the rate, 跟随系统语速, the timer, the HTTP-TTS engine, 按页朗读); the **paragraph highlight + the streaming audio** are still **open** |
-| The continuous-scroll reading mode + the E-Ink auto page | `ui/book/read/page/delegate/ScrollPageDelegate.kt`, `page/AutoPager.kt` | **mostly closed** — `Core/Reader/ScrollMode.swift` (the upstream `ContentTextView.scroll(mOffset)` + the `ScrollPageDelegate.calcNextPageOffset`/`calcPrevPageOffset` + the stacked pages of `ContentTextView.drawPage`) + `LegadoUI/ReaderScrollView.swift`; the **E-Ink auto page** is still **open** |
-| The manga menu entries (the page seek bar, the chapter URL → the browser, the brightness position, the toolbar → the book info) | `ui/book/manga/MangaMenu.kt` | **mostly closed** — `LegadoUI/MangaMenuView.swift` (换源 / 刷新 / 目录, the 禁用缩放 / 禁用点击滚动 / 自动翻页 / 自动滚动 / 横向滚动 / 禁用翻页动画 / 隐藏标题 / 电子墨水 / 灰度 toggles, 预下载数, 自动翻页速度, 页脚设置, 颜色滤镜) + `Core/App/MangaConfig.swift`; the page seek bar + the chapter URL → the browser are still **open** |
+| The read-aloud dialog (the rate / the timer / the engine / the start at the current page / the paragraph highlight / 按页朗读 / the streaming audio) | `ui/book/read/config/ReadAloudDialog.kt:97-163` | **closed** — `LegadoUI/ReaderAloudDialogView.swift` (the rate, 跟随系统语速, the timer, the HTTP-TTS engine, 按页朗读, the upstream `pref_config_aloud.xml` toggles), the **paragraph highlight** (`ReadBook.moveToPosition` + `TextPage.updatePageAloudSpan` + `LegadoUI/ReaderView.swift`) and the **streaming audio** (`Core/Reader/HttpTtsPlayback.swift` + the `AVPlayer` streamer in `LegadoUI/ReadAloudPlatform.swift`) |
+| The continuous-scroll reading mode + the E-Ink auto page | `ui/book/read/page/delegate/ScrollPageDelegate.kt`, `page/AutoPager.kt` | **closed** — `Core/Reader/ScrollMode.swift` (the upstream `ContentTextView.scroll(mOffset)` + the `ScrollPageDelegate.calcNextPageOffset`/`calcPrevPageOffset` + the stacked pages of `ContentTextView.drawPage`) + `LegadoUI/ReaderScrollView.swift`; the **E-Ink auto page** and the upstream's normal progress mode are in `Core/Reader/AutoPager.swift` (the three modes `pageTurn` / `scroll` / `progress` + the accent progress bar) |
+| The manga menu entries (the page seek bar, the chapter URL → the browser, the brightness position, the toolbar → the book info) | `ui/book/manga/MangaMenu.kt` | **closed** — `LegadoUI/MangaMenuView.swift` (换源 / 刷新 / 目录, the 禁用缩放 / 禁用点击滚动 / 自动翻页 / 自动滚动 / 横向滚动 / 禁用翻页动画 / 隐藏标题 / 电子墨水 / 灰度 toggles, 预下载数, 自动翻页速度, 页脚设置, 颜色滤镜, the page seek bar) + `Core/App/MangaConfig.swift`; the chapter name / address open the web page (`LegadoUI/ChapterLinkView.swift` — the upstream `ReadMenu.chapterViewClickListener`: the system browser or the built-in browser) |
 | The brightness slider only changed a local `@State` — it never touched `UIScreen.main.brightness` | `ui/book/read/ReadMenu.kt:384-396` | **closed** — `LegadoUI/ReaderSystemIntegration.swift` (`setBrightness(percent:)` writes `UIScreen.main.brightness`) + the slider in `LegadoUI/ReaderMenuView.swift` |
 | The volume keys | `ui/book/read/BaseReadBookActivity.kt:377-391` | **a deliberate deviation** — intercepting them needs a `UIApplication` subclass, which SwiftUI cannot install; the preference is kept and exposed |
 
@@ -256,17 +256,11 @@ closed with the reason named in its row:
 
 | # | The remaining gap | The upstream | Where it lives in the port |
 |---|---|---|---|
-| 1 | The **read-aloud paragraph highlight** + the **streaming audio** | `ui/book/read/ReadAloudService.kt` | `LegadoUI/ReadAloudPlatform.swift` |
-| 2 | The **E-Ink auto page** in the reader | `ui/book/read/page/AutoPager.kt` | `LegadoCore/Reader/AutoPager.swift` |
-| 3 | The **14 upstream raw preference keys** that are not `PreferKey` constants (`clickRegionalConfig`, `disableReturnKey`, `customPageKey`, `mediaButtonOnExit`, `systemMediaControlCompatibilityChange`, `mediaButtonPerNext`, `sysTtsConfig`, `welcomeStyle`, `coverConfig`, `themeList`, `saveDayTheme`, `saveNightTheme`, `coverRule`, `import_old`) | the upstream code reads them by hand | `Core/App/AppSettings.swift` |
-| 4 | The **bookshelf config dialog** (分组样式, 显示最后更新时间, 显示待更新数量, 快速滚动, 六列) + the **per-group sort override** + the **Chinese ordering** | `ui/main/bookshelf/BookshelfConfigDialog.kt` | `LegadoUI/BookshelfView.swift` |
-| 5 | The **TOC's VIP lock** + the **更新时间 tag** | `ui/book/toc/TocActivity.kt` | `LegadoUI/TocView.swift` |
-| 6 | The **source debug screen's** 扫码 / 查看原始HTML / 刷新发现 / 帮助 | `ui/book/source/debug/BookSourceDebugActivity.kt` | `LegadoUI/SourceDebugView.swift` |
-| 7 | The **per-chapter source change** (章节换源 — the source of one chapter, not of the whole book) | `ui/book/changesource/ChangeChapterSourceDialog.kt` | `LegadoCore/Pipeline/ChangeSource.swift` + `LegadoUI/BookToolsViews.swift` |
-| 8 | The **readConfig.zip import/export** of the reader style | `ui/book/read/config/ReadStyleDialog.kt` | `Core/Reader/Config/ReaderConfigStore.swift` |
-| 9 | The **RSS source editor's** ~23 remaining fields (the WEB_VIEW tab, ruleTitle / rulePubDate / ruleDescription / ruleImage / ruleLink, sortUrl / loginUrl / header / jsLib) | `ui/rss/RssSourceEditActivity.kt:209-276` | `LegadoUI/RssSourceManagementView.swift` |
-| 10 | The **manga** page seek bar + the chapter URL → the browser | `ui/book/manga/MangaMenu.kt` | `LegadoUI/MangaMenuView.swift` |
-| 11 | The **volume keys** — a *deliberate deviation* (SwiftUI cannot install a `UIApplication` subclass) | `ui/book/read/BaseReadBookActivity.kt:377-391` | `LegadoUI/ReaderSystemIntegration.swift` |
+| 1 | The **14 upstream raw preference keys** that are not `PreferKey` constants (`clickRegionalConfig`, `disableReturnKey`, `customPageKey`, `mediaButtonOnExit`, `systemMediaControlCompatibilityChange`, `mediaButtonPerNext`, `sysTtsConfig`, `welcomeStyle`, `coverConfig`, `themeList`, `saveDayTheme`, `saveNightTheme`, `coverRule`, `import_old`) | the upstream code reads them by hand | `Core/App/AppSettings.swift` — they need a raw-key mechanism, because `SettingsKey` is checked against the upstream's 182 `PreferKey` constants by `Tests/LegadoCoreTests/SettingsKeyParityTests.swift` |
+| 2 | The **per-chapter source change** (章节换源 — the source of one chapter, not of the whole book) | `ui/book/changesource/ChangeChapterSourceDialog.kt` | `Core/Pipeline/ChangeSource.swift` + `LegadoUI/BookToolsViews.swift` |
+| 3 | The **readConfig.zip import/export** of the reader style | `ui/book/read/config/ReadStyleDialog.kt` | `Core/Reader/Config/ReaderConfigStore.swift` |
+| 4 | The **RSS source editor's** ~23 remaining fields (the WEB_VIEW tab, ruleTitle / rulePubDate / ruleDescription / ruleImage / ruleLink, sortUrl / loginUrl / header / jsLib) | `ui/rss/RssSourceEditActivity.kt:209-276` | `LegadoUI/RssSourceManagementView.swift` |
+| 5 | The **volume keys** — a *deliberate deviation* (SwiftUI cannot install a `UIApplication` subclass) | `ui/book/read/BaseReadBookActivity.kt:377-391` | `LegadoUI/ReaderSystemIntegration.swift` |
 
 **Closed since the audits** (they were in the tables above, the list is kept
 here so that the remainder is easy to see):
@@ -275,6 +269,13 @@ here so that the remainder is easy to see):
   `LegadoUI/ReaderScrollView.swift` — the upstream stacks the current + the
   next pages and the offset crosses the page boundary exactly like
   `ContentTextView.scroll(mOffset)`);
+- the **E-Ink auto page** and the upstream's normal progress mode
+  (`Core/Reader/AutoPager.swift` — the three modes `pageTurn` / `scroll` /
+  `progress` + the accent progress bar of `AutoPager.onDraw`);
+- the **read-aloud paragraph highlight** (`ReadBook.moveToPosition` +
+  `TextPage.updatePageAloudSpan` + the accent colour of the read-aloud lines)
+  and the **streaming HTTP-TTS audio** (`Core/Reader/HttpTtsPlayback.swift` +
+  the `AVPlayer` streamer);
 - the **cache / download screen** (`LegadoUI/DownloadViews.swift` —
   `DownloadManageView` is the upstream `CacheActivity`: the books with their
   download progress, the per-book 缓存 / 全部缓存 / 停止 / 导出, the toolbar
@@ -292,7 +293,22 @@ here so that the remainder is easy to see):
   context, and the `chapter` / `book` / `nextChapterUrl` script bindings of
   `AnalyzeRule.evalJS` were added to make that possible);
 - the **reader's content refresh** (刷新本章 / 刷新后续 / 刷新全部 — the
-  upstream `ReadBookViewModel.refreshContentDur/After/All`).
+  upstream `ReadBookViewModel.refreshContentDur/After/All`);
+- the **source debug screen's** 扫码 / 查看原始HTML / 刷新发现 / 帮助
+  (`LegadoUI/SourceDebugView.swift` — the raw HTML of every step is captured
+  by `AnalyzeUrlDependencies.debugCapture` and the states 10 / 20 / 30 / 40
+  are kept out of the log list, exactly like the upstream
+  `BookSourceDebugModel.printLog`);
+- the **bookshelf config dialog** (分组样式 / 显示未读标志 / 显示上次更新时间 /
+  显示待更新数量 / 快速滚动 / 六列 — `LegadoUI/BookshelfConfigView.swift`, the
+  文件夹 group style and the fast scroll bar in `LegadoUI/BookshelfView.swift`),
+  the **per-group sort override** (the group's 更多 → 排序 submenu) and the
+  **Chinese ordering** (the upstream `String.cnCompare` — the ICU `zh_Hans_CN`
+  collation in `Core/App/Bookshelf.swift`);
+- the **TOC's VIP lock** + the **更新时间 tag** (`LegadoUI/TocView.swift`);
+- the **chapter name / address → the browser** (`LegadoUI/ChapterLinkView.swift`
+  — the system browser or the built-in browser, the upstream
+  `ReadMenu.chapterViewClickListener`).
 
 Two upstream items are deliberately **not** ported because the upstream manifest
 does not register them either: the app widgets and the home-screen shortcuts.

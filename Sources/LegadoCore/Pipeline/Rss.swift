@@ -54,6 +54,8 @@ public enum Rss {
         )
         try analyzeUrl.initUrl()
         let response = try await analyzeUrl.strResponse()
+        // Upstream `RssParserByRule.kt:38` — the raw HTML of the list page.
+        dependencies.debugCapture?(10, response.body ?? "")
         return try parseArticles(
             sortName: sortName,
             sortUrl: sortUrl,
@@ -204,6 +206,8 @@ public enum Rss {
         )
         try analyzeUrl.initUrl()
         let response = try await analyzeUrl.strResponse()
+        // Upstream `Rss.kt:82` — the raw HTML of the article page.
+        dependencies.debugCapture?(20, response.body ?? "")
 
         let analyzeRule = AnalyzeRule()
         let articleBox = RuleDataBox(json: article.variable)

@@ -38,6 +38,8 @@ public enum WebBook {
         )
         var response = try await analyzeUrl.strResponse()
         response = try applyLoginCheck(bookSource, analyzeUrl, response)
+        // Upstream `BookList.kt:54` — the raw HTML of the search page.
+        dependencies.debugCapture?(10, response.body ?? "")
         return try BookListAssembler.analyzeBookList(
             bookSource: bookSource,
             ruleData: ruleData,
@@ -90,6 +92,8 @@ public enum WebBook {
         )
         var response = try await analyzeUrl.strResponse()
         response = try applyLoginCheck(bookSource, analyzeUrl, response)
+        // Upstream `BookList.kt:54` — the raw HTML of the explore page.
+        dependencies.debugCapture?(10, response.body ?? "")
         return try BookListAssembler.analyzeBookList(
             bookSource: bookSource,
             ruleData: ruleData,
@@ -135,6 +139,8 @@ public enum WebBook {
         )
         var response = try await analyzeUrl.strResponse()
         response = try applyLoginCheck(bookSource, analyzeUrl, response)
+        // Upstream `BookInfo.kt:40` — the raw HTML of the detail page.
+        dependencies.debugCapture?(20, response.body ?? "")
         return try BookInfoAssembler.analyzeBookInfo(
             bookSource: bookSource,
             book: book,
@@ -184,6 +190,8 @@ public enum WebBook {
         )
         var response = try await analyzeUrl.strResponse()
         response = try applyLoginCheck(bookSource, analyzeUrl, response)
+        // Upstream `BookChapterList.kt:47` — the raw HTML of the TOC page.
+        dependencies.debugCapture?(30, response.body ?? "")
         return try await BookChapterListAssembler.analyzeChapterList(
             bookSource: bookSource,
             book: book,
@@ -259,6 +267,8 @@ public enum WebBook {
             sourceRegex: contentRule.sourceRegex
         )
         response = try applyLoginCheck(bookSource, analyzeUrl, response)
+        // Upstream `BookContent.kt:49` — the raw HTML of the chapter page.
+        dependencies.debugCapture?(40, response.body ?? "")
         return try await BookContentAssembler.analyzeContent(
             bookSource: bookSource,
             book: book,

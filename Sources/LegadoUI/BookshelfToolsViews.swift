@@ -115,6 +115,18 @@ public struct GroupManageView: View {
                     editName = group.groupName
                     editingGroup = group
                 }
+                // Upstream `GroupEditDialog` — the `spSort` spinner with the
+                // `book_sort` array (the default plus the six sorts).
+                Menu("排序") {
+                    Button("默认") {
+                        model.setGroupSort(group, sort: -1)
+                    }
+                    ForEach(BookshelfSort.allCases, id: \.rawValue) { sort in
+                        Button(sort.name) {
+                            model.setGroupSort(group, sort: sort.rawValue)
+                        }
+                    }
+                }
                 Button("删除", role: .destructive) {
                     model.deleteGroup(group)
                 }

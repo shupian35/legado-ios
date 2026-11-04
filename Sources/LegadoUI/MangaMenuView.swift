@@ -55,7 +55,7 @@ public struct MangaMenuView: View {
         // `MangaMenu.chapterViewClickListener`.
         .sheet(isPresented: $showsBrowser) {
             NavigationStack {
-                InAppBrowserView(url: controller.chapterURL)
+                InAppBrowserView(url: browserURL)
             }
         }
         .sheet(isPresented: $showsColorFilter) {
@@ -78,6 +78,8 @@ public struct MangaMenuView: View {
 
     /// Whether the in-app browser is shown.
     @State private var showsBrowser = false
+    /// The address the built-in browser shows.
+    @State private var browserURL = ""
     /// Whether the colour filter dialog is shown — upstream
     /// `MangaColorFilterDialog`.
     @State private var showsColorFilter = false
@@ -98,16 +100,20 @@ public struct MangaMenuView: View {
                 onShowBookInfo()
                 onClose()
             }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(controller.chapterTitle)
-                    .font(.system(size: 15, weight: .semibold))
-                Text(controller.chapterURL)
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .onTapGesture { showsBrowser = true }
-            }
-            .onTapGesture { showsBrowser = true }
+            // The chapter name and the address — upstream
+            // `MangaMenu.tvChapterName` / `MangaMenu.tvChapterUrl`.
+            ChapterLinkView(
+                title: controller.chapterTitle,
+                url: controller.chapterURL,
+                openInSystemBrowser: controller.environment.settings.bool(.readUrlOpenInBrowser, default: false),
+                onOpenInApp: { url in
+                    browserURL = url
+                    showsBrowser = true
+                },
+                onChooseBrowser: { useSystemBrowser in
+                    controller.environment.settings.set(useSystemBrowser, for: .readUrlOpenInBrowser)
+                }
+            )
             Spacer()
             Button("关闭") { onClose() }
         }

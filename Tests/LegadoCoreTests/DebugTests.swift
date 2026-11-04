@@ -196,4 +196,54 @@ final class DebugTests: XCTestCase {
         XCTAssertEqual(state, -1)
         XCTAssertEqual(collector.lines.last?.state, -1)
     }
+
+    // MARK: - The raw HTML of the four steps
+
+    /// Upstream `Debug.log(sourceUrl, body, state = 10/20/30/40)` — the
+    /// debugger hands the raw HTML of every page to the log with the state of
+    /// the step, so that the native debug screen can show it in the
+    /// "原始HTML" dialogs.
+    func testTheRawHtmlOfEveryStepIsLoggedWithItsState() async {
+        let body: @Sendable (HttpRequest) -> String = { request in
+            if request.url.contains("/search") {
+                return """
+                <div class="item"><a class="name" href="/book/1">测试书</a><span class="author">作者</span></div>
+                """
+            }
+            if request.url.contains("/toc") {
+                return """
+                <div class="chapter"><a class="title" href="/book/1/1">第一章</a></div>
+                """
+            }
+            if request.url.contains("/1/1") {
+                return "<div class=\"content\">正文页</div>"
+            }
+            if request.url.contains("/book/1") {
+                return """
+                <div class="name">详情页</div><a class="toc" href="/book/1/toc">目录</a>
+                """
+            }
+            return "<div class=\"content\">正文页</div>"
+        }
+        let collector = Collector()
+        let debugger = SourceDebugger(sink: collector)
+        _ = await debugger.debugBookSource(
+            makeSource(),
+            key: "关键字",
+            dependencies: makeDependencies(body)
+        )
+        func html(state: Int) -> String? {
+            collector.lines.first(where: { $0.state == state })?.message
+        }
+        XCTAssertTrue(html(state: 10)?.contains("<div class=\"item\">") == true)
+        XCTAssertTrue(html(state: 20)?.contains("详情页") == true)
+        XCTAssertTrue(html(state: 30)?.contains("<div class=\"chapter\">") == true)
+        XCTAssertTrue(html(state: 40)?.contains("正文页") == true)
+    }
+
+    /// The upstream's `BookSourceDebugModel` intercepts the four raw HTML
+    /// states — they never reach the log list.
+    func testTheRawHtmlStatesAreNotPrinted() {
+        XCTAssertEqual(debugNotPrintedStates, [10, 20, 30, 40])
+    }
 }

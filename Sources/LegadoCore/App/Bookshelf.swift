@@ -69,14 +69,31 @@ public enum BookshelfSort: Int, CaseIterable, Sendable {
 /// The string comparison of the bookshelf.
 ///
 /// Upstream uses `cnCompare`, a pinyin aware collation, so that the Chinese
-/// titles are ordered by their pronunciation. A pinyin table is not part of
-/// the port, so the comparison falls back to a case and diacritic insensitive
-/// Unicode comparison — the ordering of the Latin titles is the same, the
-/// ordering of the Chinese titles follows the code points.
+/// titles are ordered by their pronunciation:
+///
+/// ```kotlin
+/// fun String.cnCompare(other: String): Int {
+///     return Collator.getInstance(ULocale.SIMPLIFIED_CHINESE).compare(this, other)
+/// }
+/// ```
+///
+/// The port reproduces it with the ICU collation of Foundation and the
+/// simplified Chinese locale — `Locale(identifier: "zh_Hans_CN")` — so that
+/// "阿凡提" sorts before "白起" (a, b, …) exactly like the upstream's
+/// `Collator` does.
 public enum TextComparison {
+
+    /// The locale of the upstream's `Collator` — `ULocale.SIMPLIFIED_CHINESE`.
+    public static let chineseLocale = Locale(identifier: "zh_Hans_CN")
+
+    /// Whether `lhs` comes before `rhs` — upstream `String.cnCompare`.
+    ///
+    /// The upstream uses a `Collator` with its default settings — the
+    /// tertiary strength, no decomposition — so the port compares without any
+    /// option as well.
     public static func isOrderedBefore(_ lhs: String, _ rhs: String) -> Bool {
         if lhs == rhs { return false }
-        let left = lhs.compare(rhs, options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive])
+        let left = lhs.compare(rhs, locale: chineseLocale)
         if left != .orderedSame { return left == .orderedAscending }
         // A stable tie breaker so that the order does not depend on the sort
         // implementation.

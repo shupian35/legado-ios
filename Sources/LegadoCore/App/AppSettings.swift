@@ -625,6 +625,20 @@ public final class AppSettings {
         set { set(newValue, for: .showUnread) }
     }
 
+    /// The style of the groups of the shelf — upstream
+    /// `PreferKey.bookGroupStyle` (0 = the tags, 1 = the folders).
+    public var bookGroupStyle: Int {
+        get { int(.bookGroupStyle, default: 0) }
+        set { set(newValue, for: .bookGroupStyle) }
+    }
+
+    /// Whether the fast scroll bar of the shelf is shown — upstream
+    /// `PreferKey.showBookshelfFastScroller`.
+    public var showBookshelfFastScroller: Bool {
+        get { bool(.showBookshelfFastScroller, default: false) }
+        set { set(newValue, for: .showBookshelfFastScroller) }
+    }
+
     /// Whether the books are refreshed automatically — upstream
     /// `AppConfig.autoRefreshBook`.
     public var autoRefreshBook: Bool {

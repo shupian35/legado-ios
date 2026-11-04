@@ -377,6 +377,17 @@ public struct Form<Content: View>: View {
     public var body: Never { fatalError("Form has no body") }
 }
 
+/// `SwiftUI.ScrollViewReader` — the content closure receives the proxy.
+public struct ScrollViewReader<Content: View>: View {
+    public init(@ViewBuilder content: (ScrollViewProxy) -> Content) {}
+    public var body: Never { fatalError("ScrollViewReader has no body") }
+}
+
+/// `SwiftUI.ScrollViewProxy`.
+public struct ScrollViewProxy {
+    public func scrollTo<ID: Hashable>(_ id: ID, anchor: UnitPoint? = nil) {}
+}
+
 /// `SwiftUI.ScrollView`.
 public struct ScrollView<Content: View>: View {
     public init(@ViewBuilder content: () -> Content) {}

@@ -721,6 +721,22 @@ public final class LegadoAppModel: ObservableObject {
         }
     }
 
+    /// Sets the sort order of a group — upstream `GroupEditDialog` (the
+    /// `spSort` spinner) and `BookGroupDao.updateBookSort`.
+    ///
+    /// The value is the upstream `bookSort`: -1 follows the global sort of the
+    /// bookshelf, 0…5 are the six sorts of `BookshelfSort`.
+    public func setGroupSort(_ group: BookGroup, sort: Int) {
+        var updated = group
+        updated.bookSort = Int64(sort)
+        do {
+            try environment.store.insert(updated)
+            reloadBookshelf()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     /// Reorders the groups — upstream `BookGroupDao.updateOrder`.
     public func moveGroups(from source: IndexSet, to destination: Int) {
         var all = groups

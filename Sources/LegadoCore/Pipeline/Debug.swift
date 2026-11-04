@@ -149,6 +149,7 @@ public final class SourceDebugger {
     ) async -> Int {
         sourceUrl = source.bookSourceUrl
         resetClock()
+        let dependencies = capturing(dependencies)
         if key.hasPrefix("http://") || key.hasPrefix("https://") {
             var book = Book()
             book.origin = source.bookSourceUrl
@@ -187,6 +188,23 @@ public final class SourceDebugger {
         }
         log("\(Self.resultMarker)开始搜索关键字:\(key)", sourceUrl: source.bookSourceUrl)
         return await debugSearch(source: source, key: key, dependencies: dependencies)
+    }
+
+    /// Wraps the dependencies so that the raw HTML of every fetched page is
+    /// written to the log with the upstream's states (10 = the search page,
+    /// 20 = the detail page, 30 = the table of contents, 40 = the chapter
+    /// content) — upstream `Debug.log(sourceUrl, body, state = 10/20/30/40)`.
+    ///
+    /// The upstream's `BookSourceDebugModel` intercepts those states and shows
+    /// them in the "原始HTML" dialogs instead of the log list.
+    private func capturing(_ dependencies: AnalyzeUrlDependencies) -> AnalyzeUrlDependencies {
+        var dependencies = dependencies
+        let previous = dependencies.debugCapture
+        dependencies.debugCapture = { [weak self] state, body in
+            previous?(state, body)
+            self?.log(body, state: state)
+        }
+        return dependencies
     }
 
     private func debugSearch(
@@ -342,6 +360,7 @@ public final class SourceDebugger {
     ) async -> Int {
         sourceUrl = source.sourceUrl
         resetClock()
+        let dependencies = capturing(dependencies)
         log("\(Self.startMarker)开始解析", sourceUrl: source.sourceUrl)
         let sortUrl = source.sortUrl ?? source.sourceUrl
         do {
