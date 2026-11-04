@@ -35,6 +35,12 @@ public final class DeepLinkHandler: ObservableObject {
     @Published public var message: String?
     /// The kind of the last import.
     @Published public var lastKind: ImportKind?
+    /// The theme that waits for the confirmation of the user — upstream
+    /// `ImportThemeDialog`.
+    @Published public var pendingTheme: AppTheme?
+    /// The book that waits for the confirmation of the user — upstream
+    /// `AddToBookshelfDialog` opens the book information.
+    @Published public var pendingBook: Book?
 
     private init() {}
 
@@ -52,19 +58,84 @@ public final class DeepLinkHandler: ObservableObject {
         defer { isWorking = false }
         do {
             let request = try DeepLink.parse(url)
-            let summary = try await DeepLink.importData(
-                from: request,
-                httpClient: model.environment.httpClient,
-                store: model.environment.store,
-                userAgent: model.environment.settings.userAgent
-            )
-            lastKind = summary.kind
-            message = message(for: summary)
-            model.reloadAll()
+            let action = DeepLinkService.action(forPath: request.path, host: request.host)
+            switch action {
+            case .importJSON(let kind):
+                let summary = try await DeepLink.importData(
+                    from: request,
+                    httpClient: model.environment.httpClient,
+                    store: model.environment.store,
+                    userAgent: model.environment.settings.userAgent
+                )
+                lastKind = summary.kind
+                message = message(for: summary)
+                model.reloadAll()
+            case .importTheme:
+                let theme = try await DeepLinkService.importTheme(
+                    from: request,
+                    httpClient: model.environment.httpClient,
+                    userAgent: model.environment.settings.userAgent
+                )
+                pendingTheme = theme
+            case .importReadConfig:
+                let payload = try await DeepLinkService.importReadConfig(
+                    from: request,
+                    httpClient: model.environment.httpClient,
+                    userAgent: model.environment.settings.userAgent
+                )
+                try model.applyReaderStyleArchive(payload)
+                message = "导入排版成功"
+            case .addToBookshelf:
+                let result = try await DeepLinkService.addToBookshelf(
+                    bookUrl: request.source,
+                    store: model.environment.store,
+                    sources: try model.environment.store.allSources(),
+                    dependencies: model.environment.dependencies()
+                )
+                // Upstream `saveSearchBook` — the book is written to the search
+                // books and the book information is opened.
+                try model.environment.store.insert([result.book.toSearchBook()])
+                pendingBook = result.book
+            case nil:
+                // Upstream `OnLineImportViewModel.determineType` — the content
+                // type decides: an archive is the reader style, everything
+                // else is a JSON document whose kind comes from its keys.
+                let data = try await DeepLinkService.download(
+                    from: request,
+                    httpClient: model.environment.httpClient,
+                    userAgent: model.environment.settings.userAgent
+                )
+                if data.starts(with: [0x50, 0x4B]) {
+                    let payload = try ReaderConfigArchive.read(data)
+                    try model.applyReaderStyleArchive(payload)
+                    message = "导入排版成功"
+                } else {
+                    let text = String(decoding: data, as: UTF8.self)
+                    let kind = try DeepLink.detectKind(json: text)
+                    let summary = try DeepLink.importJSON(text, kind: kind, store: model.environment.store)
+                    lastKind = summary.kind
+                    message = message(for: summary)
+                    model.reloadAll()
+                }
+            }
         } catch {
             lastKind = nil
             message = Self.describe(error)
         }
+    }
+
+    /// Adds the theme that waits for the confirmation — upstream
+    /// `ImportThemeDialog`.
+    public func confirmTheme(model: LegadoAppModel) {
+        guard let theme = pendingTheme else { return }
+        pendingTheme = nil
+        model.addTheme(theme)
+        message = "已导入主题 \(theme.themeName)"
+    }
+
+    /// Cancels the theme import.
+    public func cancelTheme() {
+        pendingTheme = nil
     }
 
     /// The text shown after a successful import.
@@ -75,6 +146,20 @@ public final class DeepLinkHandler: ObservableObject {
 
     /// The text shown after a failed import.
     public static func describe(_ error: Error) -> String {
+        if let error = error as? DeepLinkActionError {
+            switch error {
+            case .alreadyOnShelf(let name):
+                return "\(name) 已在书架"
+            case .malformedBookUrl:
+                return "书籍地址格式不对"
+            case .noMatchingSource:
+                return "未找到匹配书源"
+            case .invalidTheme:
+                return "主题数据无效"
+            case .invalidReadConfig:
+                return "排版数据无效"
+            }
+        }
         guard let error = error as? DeepLinkError else {
             return error.localizedDescription
         }
@@ -130,7 +215,11 @@ public final class DeepLinkHandler: ObservableObject {
                 message = "已导入本地书"
                 model.reloadAll()
             case .archive:
-                message = "暂不支持直接打开压缩包"
+                // Upstream `FileAssociationViewModel.dispatchIntent` unpacks
+                // the archive and imports every book in it.
+                let imported = await model.importLocalBooks([url])
+                message = imported > 0 ? "已导入 \(imported) 本本地书" : "压缩包里没有找到书籍"
+                model.reloadAll()
             case .unsupported:
                 message = "不支持的文件"
             }
@@ -268,5 +357,48 @@ public struct LegadoRootScene: View {
                 }
             }
         }
+        // The result of a deep link — the message of the import or the
+        // confirmation of the theme (upstream `ImportThemeDialog`).
+        .alert(
+            alertTitle,
+            isPresented: Binding(
+                get: { handler.message != nil || handler.pendingTheme != nil },
+                set: { if !$0 { handler.cancelTheme(); handler.message = nil } }
+            )
+        ) {
+            if handler.pendingTheme != nil {
+                Button("取消") {
+                    handler.cancelTheme()
+                }
+                Button("导入") {
+                    handler.confirmTheme(model: model)
+                }
+            } else {
+                Button("好") {
+                    handler.message = nil
+                }
+            }
+        } message: {
+            Text(alertMessage)
+        }
+        // The book of the "add to the bookshelf" link — upstream
+        // `AddToBookshelfDialog` opens the book information.
+        .sheet(item: $handler.pendingBook) { book in
+            NavigationStack {
+                BookDetailView(model: model, book: book)
+            }
+        }
+    }
+
+    private var alertTitle: String {
+        if handler.pendingTheme != nil { return "导入主题" }
+        return "提示"
+    }
+
+    private var alertMessage: String {
+        if let theme = handler.pendingTheme {
+            return "是否导入主题「\(theme.themeName)」？"
+        }
+        return handler.message ?? ""
     }
 }

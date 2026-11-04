@@ -542,6 +542,19 @@ public final class AnalyzeUrl {
         return UrlOption(dictionary: object)
     }
 
+    /// The option block embedded in a URL — upstream
+    /// `AnalyzeUrl.paramPattern` + `GSON.fromJsonObject`.
+    ///
+    /// The upstream reads the origin of the source out of it to find the
+    /// source of a book url (`AddToBookshelfDialog`).
+    public static func option(of url: String) -> UrlOption? {
+        guard let range = firstOptionBlockRange(in: url) else { return nil }
+        let ns = url as NSString
+        let start = range.location + range.length
+        guard start <= ns.length else { return nil }
+        return parseOption(ns.substring(from: start))
+    }
+
     static func percentEncodeQuery(_ value: String) -> String {
         var output = ""
         for byte in Array(value.utf8) {

@@ -1525,6 +1525,33 @@ public final class LegadoAppModel: ObservableObject {
         }
     }
 
+    /// Applies a reader style archive — upstream
+    /// `OnLineImportViewModel.importReadConfig` and `ReadBookConfig.import`.
+    ///
+    /// The font of the archive is copied into the font folder of the app and
+    /// the configuration is written into the reader preferences.
+    public func applyReaderStyleArchive(_ payload: ReaderConfigArchive.Payload) throws {
+        if let font = payload.font {
+            let directory = readerFontDirectory()
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+            let destination = directory.appendingPathComponent(font.name)
+            try font.data.write(to: destination)
+            environment.settings.set(destination.path, for: .fontFolder)
+        }
+        ReaderConfigStore(settings: environment.settings).save(payload.config)
+    }
+
+    /// Where the fonts of the reader are stored — upstream `<externalFiles>/font`.
+    public func readerFontDirectory() -> URL {
+        let base = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)
+            .first ?? FileManager.default.temporaryDirectory
+        return base.appendingPathComponent("font", isDirectory: true)
+    }
+
     // MARK: - The startup sequence
 
     /// The phase of the startup sequence — upstream
