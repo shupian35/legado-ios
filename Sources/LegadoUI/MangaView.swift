@@ -17,6 +17,17 @@ public final class MangaReaderController: ObservableObject {
     @Published public var pageIndex: Int = 0
     /// Whether the menu is shown — upstream `MangaMenu.runMenuIn`.
     @Published public var isMenuVisible = false
+    /// Whether the pages turn automatically — upstream
+    /// `ReadMangaActivity.enableAutoScrollPage` (`mScrollTimer.isEnabledPage`).
+    ///
+    /// The upstream keeps the flag in the activity, so it is not persisted.
+    @Published public var isAutoPage = false
+    /// Whether the pages scroll automatically — upstream
+    /// `ReadMangaActivity.enableAutoScroll` (`mScrollTimer.isEnabled`).
+    @Published public var isAutoScroll = false
+    /// Whether the pages scroll horizontally — upstream
+    /// `AppConfig.enableMangaHorizontalScroll`.
+    @Published public var isHorizontalScroll = false
 
     public let environment: AppEnvironment
     public let book: Book
@@ -108,6 +119,102 @@ public final class MangaReaderController: ObservableObject {
         isEInk = environment.settings.bool(.enableMangaEInk, default: false)
         eInkThreshold = environment.settings.int(.mangaEInkThreshold, default: 150)
         hideTitle = environment.settings.bool(.hideMangaTitle, default: false)
+        isHorizontalScroll = environment.settings.bool(.enableMangaHorizontalScroll, default: false)
+    }
+
+    // MARK: - The automatic page / the automatic scroll
+
+    /// Turns the automatic page on or off — upstream
+    /// `ReadMangaActivity.onCompatOptionsItemSelected` (`menu_enable_auto_page`):
+    /// the automatic scroll is turned off, the two are exclusive.
+    public func setAutoPage(_ enabled: Bool) {
+        isAutoPage = enabled
+        if enabled {
+            isAutoScroll = false
+        }
+        restartAutoTimer()
+    }
+
+    /// Turns the automatic scroll on or off — upstream
+    /// `ReadMangaActivity.onCompatOptionsItemSelected` (`menu_enable_auto_scroll`):
+    /// the automatic page is turned off, the two are exclusive.
+    public func setAutoScroll(_ enabled: Bool) {
+        isAutoScroll = enabled
+        if enabled {
+            isAutoPage = false
+        }
+        restartAutoTimer()
+    }
+
+    /// The task of the automatic page / scroll — upstream `ScrollTimer`
+    /// (`ui/book/manga/recyclerview/ScrollTimer.kt`): the page is turned every
+    /// `mangaAutoPageSpeed` seconds.
+    private var autoTask: Task<Void, Never>?
+
+    /// Starts or stops the timer — upstream `ScrollTimer.isEnabledPage`.
+    private func restartAutoTimer() {
+        autoTask?.cancel()
+        autoTask = nil
+        guard isAutoPage || isAutoScroll else { return }
+        let speed = max(1, environment.settings.int(.mangaAutoPageSpeed, default: 3))
+        autoTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(speed) * 1_000_000_000)
+                if Task.isCancelled { break }
+                self?.autoTick()
+            }
+        }
+    }
+
+    /// One tick of the timer — upstream `ScrollTimer.startScrollPage`
+    /// (`callback.scrollPage()`).
+    private func autoTick() {
+        guard let chapter else { return }
+        if pageIndex + 1 < chapter.imageCount {
+            pageIndex += 1
+        } else if currentChapterIndex + 1 < chapters.count {
+            Task { await moveToNextChapter() }
+        }
+    }
+
+    /// Stops the timer when the reader is closed.
+    public func stopAutoTimer() {
+        autoTask?.cancel()
+        autoTask = nil
+    }
+
+    // MARK: - The display toggles
+
+    /// Turns the e-ink mode on or off — upstream `menu_epaper_manga`: the
+    /// grey mode is turned off, the two are exclusive.
+    public func setEInk(_ enabled: Bool) {
+        environment.settings.set(enabled, for: .enableMangaEInk)
+        if enabled {
+            environment.settings.set(false, for: .enableMangaGray)
+        }
+        refreshDisplay()
+    }
+
+    /// Turns the grey mode on or off — upstream `menu_gray_manga`: the e-ink
+    /// mode is turned off, the two are exclusive.
+    public func setGray(_ enabled: Bool) {
+        environment.settings.set(enabled, for: .enableMangaGray)
+        if enabled {
+            environment.settings.set(false, for: .enableMangaEInk)
+        }
+        refreshDisplay()
+    }
+
+    /// Changes the threshold of the e-ink mode — upstream
+    /// `MangaEpaperDialog` (`callback.updateEepaper(value)`).
+    public func setEInkThreshold(_ value: Int) {
+        environment.settings.set(max(0, min(255, value)), for: .mangaEInkThreshold)
+        refreshDisplay()
+    }
+
+    /// Changes the zoom — upstream `WebtoonRecyclerView` (the pinch gesture).
+    public func setZoom(_ rate: Double) {
+        zoom = MangaMode.Zoom.clamp(rate)
     }
 
     /// Reloads the current chapter — upstream
@@ -220,38 +327,59 @@ public struct MangaReaderView: View {
                 ProgressView("加载中")
             } else if let chapter = controller.chapter {
                 GeometryReader { proxy in
-                    ScrollView {
-                        ForEach(Array(chapter.pages.enumerated()), id: \.offset) { index, page in
-                            MangaPageView(
-                                page: page,
-                                zoom: controller.zoom,
-                                colorFilter: controller.colorFilter,
-                                isGray: controller.isGray,
-                                isEInk: controller.isEInk,
-                                eInkThreshold: controller.eInkThreshold
-                            )
-                                .id(index)
+                    ScrollViewReader { scrollProxy in
+                        ScrollView(controller.isHorizontalScroll ? .horizontal : .vertical) {
+                            ForEach(Array(chapter.pages.enumerated()), id: \.offset) { index, page in
+                                MangaPageView(
+                                    page: page,
+                                    zoom: controller.zoom,
+                                    colorFilter: controller.colorFilter,
+                                    isGray: controller.isGray,
+                                    isEInk: controller.isEInk,
+                                    eInkThreshold: controller.eInkThreshold
+                                )
+                                    .id(index)
+                            }
                         }
-                    }
-                    .onTapGesture { position in
-                        // Upstream `WebtoonFrame` — the middle opens the
-                        // menu, the bottom left goes back, the bottom right
-                        // goes forward.
-                        switch controller.handleTap(
-                            x: Double(position.x),
-                            y: Double(position.y),
-                            width: Double(proxy.size.width),
-                            height: Double(proxy.size.height)
-                        ) {
-                        case .menu:
-                            controller.isMenuVisible.toggle()
-                        case .previous:
-                            Task { await controller.moveToPrevChapter() }
-                        case .next:
-                            Task { await controller.moveToNextChapter() }
-                        case .none:
-                            break
+                        .onTapGesture { position in
+                            // Upstream `WebtoonFrame` — the middle opens the
+                            // menu, the bottom left goes back, the bottom right
+                            // goes forward.
+                            switch controller.handleTap(
+                                x: Double(position.x),
+                                y: Double(position.y),
+                                width: Double(proxy.size.width),
+                                height: Double(proxy.size.height)
+                            ) {
+                            case .menu:
+                                controller.isMenuVisible.toggle()
+                            case .previous:
+                                Task { await controller.moveToPrevChapter() }
+                            case .next:
+                                Task { await controller.moveToNextChapter() }
+                            case .none:
+                                break
+                            }
                         }
+                        // The page turn scrolls to the page — upstream
+                        // `ReadManga.scrollToPage`.
+                        .onChange(of: controller.pageIndex) { _, index in
+                            scrollToPage(index, proxy: scrollProxy)
+                        }
+                        // The pinch zoom — upstream `WebtoonRecyclerView.onScale`.
+                        .gesture(
+                            MagnificationGesture()
+                                .onChanged { value in
+                                    guard !controller.environment.settings.bool(.disableMangaScale, default: true) else { return }
+                                    if pinchBase == nil {
+                                        pinchBase = controller.zoom
+                                    }
+                                    controller.setZoom((pinchBase ?? controller.zoom) * Double(value.magnification))
+                                }
+                                .onEnded { _ in
+                                    pinchBase = nil
+                                }
+                        )
                     }
                 }
             } else {
@@ -287,6 +415,22 @@ public struct MangaReaderView: View {
     /// Whether the book info is shown — upstream
     /// `MangaMenu.CallBack.openBookInfoActivity`.
     @State private var showsBookInfo = false
+    /// The zoom at the start of the pinch gesture — upstream
+    /// `WebtoonRecyclerView.onScale` (the scale is relative to the start).
+    @State private var pinchBase: Double?
+
+    /// Scrolls to the page — upstream `ReadManga.scrollToPage`.
+    ///
+    /// The automatic scroll scrolls smoothly, the automatic page jumps.
+    private func scrollToPage(_ index: Int, proxy: ScrollViewProxy) {
+        if controller.isAutoScroll {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                proxy.scrollTo(index, anchor: .leading)
+            }
+        } else {
+            proxy.scrollTo(index, anchor: .leading)
+        }
+    }
 
     private var footer: some View {
         HStack {
@@ -326,7 +470,7 @@ struct MangaPageView: View {
             if let url = page.imageURL, let remote = URL(string: url) {
                 AsyncImage(url: remote) { phase in
                     if case let .success(image) = phase {
-                        return AnyView(filtered(image))
+                        return AnyView(scaled(filtered(image), by: zoom))
                     } else {
                         return AnyView(
                             Text("加载中")

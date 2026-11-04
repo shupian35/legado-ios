@@ -84,6 +84,66 @@ public struct MangaColorFilterSheet: View {
     }
 }
 
+/// The e-ink threshold of the manga reader — upstream
+/// `ui/book/manga/config/MangaEpaperDialog.kt`.
+///
+/// The upstream applies the value live (`callback.updateEepaper(value)`) and
+/// stores it when the dialog is dismissed (`AppConfig.mangaEInkThreshold`).
+public struct MangaEInkThresholdSheet: View {
+
+    /// The controller of the manga reader.
+    @ObservedObject var controller: MangaReaderController
+
+    @State private var threshold = 150
+    @Environment(\.dismiss) private var dismiss
+
+    public init(controller: MangaReaderController) {
+        self.controller = controller
+    }
+
+    public var body: some View {
+        NavigationStack {
+            Form {
+                Section("电子墨水阈值") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("阈值")
+                                .font(.system(size: 13))
+                            Spacer()
+                            Text("\(threshold)")
+                                .font(.system(size: 13))
+                                .foregroundColor(.secondary)
+                        }
+                        Slider(
+                            value: Binding(
+                                get: { Double(threshold) },
+                                set: {
+                                    threshold = Int($0.rounded())
+                                    controller.setEInkThreshold(threshold)
+                                }
+                            ),
+                            in: 0...255
+                        )
+                    }
+                }
+                Section {
+                    Button("取消") {
+                        dismiss()
+                    }
+                    Button("确定") {
+                        controller.setEInkThreshold(threshold)
+                        dismiss()
+                    }
+                }
+            }
+            .navigationTitle("电子墨水阈值")
+        }
+        .onAppear {
+            threshold = controller.eInkThreshold
+        }
+    }
+}
+
 /// The footer configuration of the manga reader — upstream
 /// `MangaFooterSettingDialog`.
 public struct MangaFooterConfigSheet: View {

@@ -60,13 +60,61 @@ public struct DragGestureModifier: View {
     public func onEnded(_ action: @escaping (DragGesture.Value) -> Void) -> DragGestureModifier { self }
 }
 
-/// `SwiftUI.withAnimation` — runs a closure inside an animation transaction.
-public func withAnimation<T>(_ animation: Animation? = nil, _ body: () throws -> T) rethrows -> T {
-    try body()
+/// `SwiftUI.MagnificationGesture` — the pinch of the manga reader.
+///
+/// The shim only has to type-check: the value carries the same fields as the
+/// real gesture so the shared view code can be written once.
+public struct MagnificationGesture: Equatable {
+
+    /// The minimum scale change before the gesture starts.
+    public var minimumScaleDelta: Double
+
+    public init(minimumScaleDelta: Double = 0.01) {
+        self.minimumScaleDelta = minimumScaleDelta
+    }
+
+    /// The state of the gesture.
+    public struct Value: Equatable {
+        public var time: TimeInterval
+        public var magnification: Double
+        public var startAnchor: CGPoint
+        public var velocity: Double
+
+        public init(
+            time: TimeInterval = 0,
+            magnification: Double = 1,
+            startAnchor: CGPoint = .zero,
+            velocity: Double = 0
+        ) {
+            self.time = time
+            self.magnification = magnification
+            self.startAnchor = startAnchor
+            self.velocity = velocity
+        }
+    }
+
+    /// The action run while the gesture changes.
+    public func onChanged(_ action: @escaping (Value) -> Void) -> MagnificationGestureModifier {
+        MagnificationGestureModifier()
+    }
+
+    /// The action run when the gesture ends.
+    public func onEnded(_ action: @escaping (Value) -> Void) -> MagnificationGestureModifier {
+        MagnificationGestureModifier()
+    }
 }
 
-/// `SwiftUI.withAnimation` with an explicit duration.
-public func withAnimation<T>(_ animation: Animation? = nil, body: () throws -> T) rethrows -> T {
+/// The result of `onChanged`/`onEnded` — in SwiftUI the returned value can be
+/// chained, so the shim offers both methods again.
+public struct MagnificationGestureModifier: View {
+    public init() {}
+    public var body: Never { fatalError("LegadoUIShim never renders") }
+    public func onChanged(_ action: @escaping (MagnificationGesture.Value) -> Void) -> MagnificationGestureModifier { self }
+    public func onEnded(_ action: @escaping (MagnificationGesture.Value) -> Void) -> MagnificationGestureModifier { self }
+}
+
+/// `SwiftUI.withAnimation` — runs a closure inside an animation transaction.
+public func withAnimation<T>(_ animation: Animation? = nil, _ body: () throws -> T) rethrows -> T {
     try body()
 }
 

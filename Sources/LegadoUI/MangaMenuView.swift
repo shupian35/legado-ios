@@ -74,6 +74,16 @@ public struct MangaMenuView: View {
                 }
             }
         }
+        .sheet(isPresented: $showsChangeSource) {
+            if let model = controller.model {
+                NavigationStack {
+                    ChangeSourceView(model: model, book: controller.book)
+                }
+            }
+        }
+        .sheet(isPresented: $showsEInkThreshold) {
+            MangaEInkThresholdSheet(controller: controller)
+        }
     }
 
     /// Whether the in-app browser is shown.
@@ -178,7 +188,9 @@ public struct MangaMenuView: View {
                 .foregroundColor(.secondary)
             HStack {
                 Button("换源") {
-                    onShowBookInfo()
+                    // Upstream `menu_change_source` — the change-source
+                    // dialog, not the book info.
+                    showsChangeSource = true
                     onClose()
                 }
                 Button("刷新") {
@@ -191,13 +203,35 @@ public struct MangaMenuView: View {
             }
             Toggle("禁用缩放", isOn: settingBinding(.disableMangaScale))
             Toggle("禁用点击滚动", isOn: settingBinding(.disableClickScroll))
-            Toggle("自动翻页", isOn: $isAutoPage)
-            Toggle("自动滚动", isOn: $isAutoScroll)
-            Toggle("横向滚动", isOn: settingBinding(.enableMangaHorizontalScroll))
+            // Upstream `menu_enable_auto_page` / `menu_enable_auto_scroll`:
+            // the two are exclusive.
+            Toggle("自动翻页", isOn: Binding(
+                get: { controller.isAutoPage },
+                set: { controller.setAutoPage($0) }
+            ))
+            Toggle("自动滚动", isOn: Binding(
+                get: { controller.isAutoScroll },
+                set: { controller.setAutoScroll($0) }
+            ))
+            Toggle("横向滚动", isOn: Binding(
+                get: { controller.isHorizontalScroll },
+                set: { newValue in
+                    controller.environment.settings.set(newValue, for: .enableMangaHorizontalScroll)
+                    controller.refreshDisplay()
+                }
+            ))
             Toggle("禁用翻页动画", isOn: settingBinding(.disableMangaPageAnim))
             Toggle("隐藏标题", isOn: settingBinding(.hideMangaTitle))
-            Toggle("电子墨水", isOn: settingBinding(.enableMangaEInk))
-            Toggle("灰度", isOn: settingBinding(.enableMangaGray))
+            // Upstream `menu_epaper_manga` / `menu_gray_manga`: the two are
+            // exclusive.
+            Toggle("电子墨水", isOn: Binding(
+                get: { controller.isEInk },
+                set: { controller.setEInk($0) }
+            ))
+            Toggle("灰度", isOn: Binding(
+                get: { controller.isGray },
+                set: { controller.setGray($0) }
+            ))
             Stepper("预下载数：\(preDownloadNum)", value: $preDownloadNum, in: 0...99)
             Stepper("自动翻页速度：\(autoPageSpeed)", value: $autoPageSpeed, in: 1...60)
             Button("页脚设置") {
@@ -205,6 +239,9 @@ public struct MangaMenuView: View {
             }
             Button("颜色滤镜") {
                 showsColorFilter = true
+            }
+            Button("电子墨水阈值") {
+                showsEInkThreshold = true
             }
         }
         .onAppear {
@@ -219,12 +256,14 @@ public struct MangaMenuView: View {
         }
     }
 
-    /// Whether the auto page is on — upstream `enableAutoScrollPage`.
-    @State private var isAutoPage = false
-    /// Whether the auto scroll is on — upstream `enableAutoScroll`.
-    @State private var isAutoScroll = false
     /// Whether the chapter list is shown — upstream `menu_catalog`.
     @State private var showsToc = false
+    /// Whether the change-source dialog is shown — upstream
+    /// `menu_change_source` → `ChangeBookSourceDialog`.
+    @State private var showsChangeSource = false
+    /// Whether the e-ink threshold dialog is shown — upstream
+    /// `menu_epaper_manga_setting` → `MangaEpaperDialog`.
+    @State private var showsEInkThreshold = false
 
     /// A binding that reads and writes a boolean preference.
     private func settingBinding(_ key: SettingsKey) -> Binding<Bool> {
