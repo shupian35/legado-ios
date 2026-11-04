@@ -9,7 +9,11 @@
 //  The content editor of the reader: the content of the current chapter is
 //  shown in an editable text view and saved back into the cache, so the
 //  change survives the next reload. The upstream also offers to edit the
-//  title of the chapter and to copy the content to the clipboard.
+//  title of the chapter, to reset the content (delete the cache and
+//  download the chapter again) and to copy the content to the clipboard.
+//
+//  The content that is shown is the PROCESSED text (the title is not
+//  included — `ContentProcessor.getContent(..., includeTitle = false)`).
 //
 
 #if canImport(SwiftUI)
@@ -24,33 +28,22 @@ import LegadoCore
 /// The content editor — upstream `ContentEditDialog`.
 public struct ContentEditView: View {
 
-    /// The book the chapter belongs to.
-    let book: Book
-    /// The index of the chapter that is edited.
-    let chapterIndex: Int
+    /// The reader controller.
+    @ObservedObject var controller: ReaderController
+
     /// The title of the chapter.
-    @State private var title: String
+    @State private var title: String = ""
     /// The content of the chapter.
-    @State private var content: String
+    @State private var content: String = ""
     /// Whether the content was loaded.
     @State private var isLoading = true
+    /// Whether the reset is running.
+    @State private var isResetting = false
     /// The message of the last action.
     @State private var message: String?
-    /// The callback that saves the chapter — it reloads the reader.
-    let onSave: (String, String) -> Void
 
-    public init(
-        book: Book,
-        chapterIndex: Int,
-        chapterTitle: String,
-        content: String,
-        onSave: @escaping (String, String) -> Void
-    ) {
-        self.book = book
-        self.chapterIndex = chapterIndex
-        _title = State(wrappedValue: chapterTitle)
-        _content = State(wrappedValue: content)
-        self.onSave = onSave
+    public init(controller: ReaderController) {
+        self.controller = controller
     }
 
     public var body: some View {
@@ -63,13 +56,23 @@ public struct ContentEditView: View {
             }
             HStack {
                 Button("保存") {
-                    onSave(title, content)
+                    controller.saveEditedContent(title: title, content: content)
                 }
+                // Upstream `menu_reset` — the cache is deleted and the
+                // chapter is downloaded again.
+                Button("重置") {
+                    reset()
+                }
+                .disabled(isResetting)
+                // Upstream `menu_copy_all`.
                 Button("复制") {
                     UIPasteboardShim.copy(content)
                     message = "已复制到剪贴板"
                 }
                 Spacer()
+                if isResetting {
+                    ProgressView()
+                }
                 if let message {
                     Text(message)
                         .font(.system(size: 12))
@@ -78,5 +81,28 @@ public struct ContentEditView: View {
         }
         .padding(16)
         .navigationTitle("编辑内容")
+        .onAppear {
+            load()
+        }
+    }
+
+    /// Loads the content of the chapter — upstream
+    /// `ContentEditViewModel.initContent`.
+    private func load() {
+        isLoading = true
+        title = controller.currentChapterTitle
+        content = controller.currentChapterContent
+        isLoading = false
+    }
+
+    /// Deletes the cached content and downloads the chapter again — upstream
+    /// `ContentEditViewModel.initContent(reset = true)`.
+    private func reset() {
+        isResetting = true
+        Task {
+            await controller.resetEditedContent()
+            load()
+            isResetting = false
+        }
     }
 }

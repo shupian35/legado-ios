@@ -104,6 +104,21 @@ public struct ReaderConfig: Equatable {
 
     public init() {}
 
+    /// Removes a repeated tip from the other slots — upstream
+    /// `TipConfigDialog.clearRepeat` (a tip may be used only once).
+    ///
+    /// The upstream clears the value BEFORE it assigns the new one, so the
+    /// slot that is being changed is cleared as well.
+    public mutating func clearRepeatedTip(_ tip: Int) {
+        guard tip != ReaderTipType.none.rawValue else { return }
+        if tipHeaderLeft == tip { tipHeaderLeft = ReaderTipType.none.rawValue }
+        if tipHeaderMiddle == tip { tipHeaderMiddle = ReaderTipType.none.rawValue }
+        if tipHeaderRight == tip { tipHeaderRight = ReaderTipType.none.rawValue }
+        if tipFooterLeft == tip { tipFooterLeft = ReaderTipType.none.rawValue }
+        if tipFooterMiddle == tip { tipFooterMiddle = ReaderTipType.none.rawValue }
+        if tipFooterRight == tip { tipFooterRight = ReaderTipType.none.rawValue }
+    }
+
     /// The style of the body text.
     public var contentStyle: ReaderTextStyle {
         ReaderTextStyle(

@@ -150,6 +150,13 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     /// Whether the in-reader search is shown — upstream `SearchMenu`.
     @Published public var isSearchPresented = false
 
+    /// Whether the whole-book content search is shown — upstream
+    /// `ReadBookActivity.openSearchActivity` → `SearchContentActivity`.
+    @Published public var isContentSearchPresented = false
+
+    /// The keyword the content search starts with.
+    @Published public var contentSearchKeyword: String = ""
+
     /// Whether the table of contents is shown inside the reader — upstream
     /// `ReadMenu` opens the chapter list of the running reader.
     @Published public var isTocPresented = false
@@ -917,7 +924,7 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
         case .addBookmark:
             Task { await addBookmark() }
         case .editContent:
-            errorMessage = "暂不支持编辑内容"
+            isContentEditPresented = true
         case .toggleReplaceRule:
             toggleReplaceRule()
         case .chapterList:
@@ -1295,11 +1302,33 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
 
     /// The content of the chapter that is edited — upstream
     /// `ContentEditViewModel.initContent`.
+    ///
+    /// The upstream shows the PROCESSED text without the title
+    /// (`ContentProcessor.getContent(..., includeTitle = false)`).
     public var currentChapterContent: String {
         let index = readBook.durChapterIndex
         guard chapters.indices.contains(index) else { return "" }
         guard let storage = environment.cacheStorage else { return "" }
-        return storage.content(book: book, chapter: chapters[index]) ?? ""
+        let chapter = chapters[index]
+        let titleRules = (try? environment.store.replaceRulesForTitle(
+            name: book.name,
+            origin: book.origin
+        )) ?? []
+        let contentRules = (try? environment.store.replaceRulesForContent(
+            name: book.name,
+            origin: book.origin
+        )) ?? []
+        return ContentEditService.loadContent(
+            book: book,
+            chapter: chapter,
+            storage: storage,
+            titleRules: titleRules,
+            contentRules: contentRules,
+            chineseConversionMode: ChineseConversionMode(
+                rawValue: environment.settings.chineseConverterType
+            ) ?? .off,
+            scriptEngine: environment.scriptEngine
+        ) ?? ""
     }
 
     /// The title of the chapter that is edited.
@@ -1307,6 +1336,24 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
         let index = readBook.durChapterIndex
         guard chapters.indices.contains(index) else { return "" }
         return chapters[index].title
+    }
+
+    /// Deletes the cached content and downloads the chapter again — upstream
+    /// `ContentEditViewModel.initContent(reset = true)`.
+    public func resetEditedContent() async {
+        let index = readBook.durChapterIndex
+        guard chapters.indices.contains(index) else { return }
+        guard let storage = environment.cacheStorage else { return }
+        let chapter = chapters[index]
+        let source = try? environment.source(for: book)
+        _ = await ContentEditService.resetContent(
+            book: book,
+            chapter: chapter,
+            storage: storage,
+            source: source ?? nil,
+            dependencies: environment.dependencies()
+        )
+        reloadContent()
     }
 
     /// Saves the edited content — upstream `ContentEditDialog.saveContent`.
@@ -1798,8 +1845,12 @@ public struct ReaderView: View {
                     if controller.isSearchPresented {
                         ReaderSearchBar(controller: controller) {
                             controller.isSearchPresented = false
-                        } onShowResults: { _ in
+                        } onShowResults: { keyword in
                             controller.isSearchPresented = false
+                            // Upstream `ReadBookActivity.openSearchActivity` —
+                            // the whole-book search screen.
+                            controller.contentSearchKeyword = keyword
+                            controller.isContentSearchPresented = true
                         } onShowMenu: {
                             controller.isSearchPresented = false
                             controller.isMenuPresented = true
@@ -1867,13 +1918,19 @@ public struct ReaderView: View {
             }
             .sheet(isPresented: $controller.isContentEditPresented) {
                 NavigationStack {
-                    ContentEditView(
-                        book: controller.book,
-                        chapterIndex: controller.chapterIndex,
-                        chapterTitle: controller.currentChapterTitle,
-                        content: controller.currentChapterContent
-                    ) { title, content in
-                        controller.saveEditedContent(title: title, content: content)
+                    ContentEditView(controller: controller)
+                }
+            }
+            // The whole-book content search — upstream
+            // `SearchContentActivity`.
+            .sheet(isPresented: $controller.isContentSearchPresented) {
+                if let model = controller.model {
+                    NavigationStack {
+                        ContentSearchView(
+                            model: model,
+                            book: controller.book,
+                            initialQuery: controller.contentSearchKeyword
+                        )
                     }
                 }
             }

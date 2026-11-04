@@ -375,9 +375,10 @@ public struct ContentSearchView: View {
     /// The index of the result the user jumped to.
     @State private var currentIndex: Int?
 
-    public init(model: LegadoAppModel, book: Book) {
+    public init(model: LegadoAppModel, book: Book, initialQuery: String = "") {
         self.model = model
         self.book = book
+        _query = State(wrappedValue: initialQuery)
     }
 
     public var body: some View {
@@ -434,6 +435,13 @@ public struct ContentSearchView: View {
         }
         .padding(16)
         .navigationTitle("搜索正文")
+        .onAppear {
+            // Upstream `SearchContentActivity` starts the search with the
+            // word it was launched with (`intent.getStringExtra("searchWord")`).
+            if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                search()
+            }
+        }
     }
 
     /// Opens the chapter of the result — upstream

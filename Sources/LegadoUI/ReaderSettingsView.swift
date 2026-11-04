@@ -251,37 +251,49 @@ public struct ReaderPageRows: View {
             }
         }
         // `ReadBookConfig.tipHeaderLeft` … `tipFooterRight` — the six tip
-        // slots of the page.
-        Picker("页眉左侧", selection: $config.tipHeaderLeft) {
+        // slots of the page. A tip may be used only once — the upstream
+        // `TipConfigDialog.clearRepeat` removes it from the other slots.
+        Picker("页眉左侧", selection: tipBinding(\.tipHeaderLeft)) {
             ForEach(ReaderTipType.pickerOrder, id: \.rawValue) { type in
                 Text(type.displayName).tag(type.rawValue)
             }
         }
-        Picker("页眉中间", selection: $config.tipHeaderMiddle) {
+        Picker("页眉中间", selection: tipBinding(\.tipHeaderMiddle)) {
             ForEach(ReaderTipType.pickerOrder, id: \.rawValue) { type in
                 Text(type.displayName).tag(type.rawValue)
             }
         }
-        Picker("页眉右侧", selection: $config.tipHeaderRight) {
+        Picker("页眉右侧", selection: tipBinding(\.tipHeaderRight)) {
             ForEach(ReaderTipType.pickerOrder, id: \.rawValue) { type in
                 Text(type.displayName).tag(type.rawValue)
             }
         }
-        Picker("页脚左侧", selection: $config.tipFooterLeft) {
+        Picker("页脚左侧", selection: tipBinding(\.tipFooterLeft)) {
             ForEach(ReaderTipType.pickerOrder, id: \.rawValue) { type in
                 Text(type.displayName).tag(type.rawValue)
             }
         }
-        Picker("页脚中间", selection: $config.tipFooterMiddle) {
+        Picker("页脚中间", selection: tipBinding(\.tipFooterMiddle)) {
             ForEach(ReaderTipType.pickerOrder, id: \.rawValue) { type in
                 Text(type.displayName).tag(type.rawValue)
             }
         }
-        Picker("页脚右侧", selection: $config.tipFooterRight) {
+        Picker("页脚右侧", selection: tipBinding(\.tipFooterRight)) {
             ForEach(ReaderTipType.pickerOrder, id: \.rawValue) { type in
                 Text(type.displayName).tag(type.rawValue)
             }
         }
+    }
+
+    /// The binding of a tip slot — the repeated tips are cleared first.
+    private func tipBinding(_ keyPath: WritableKeyPath<ReaderConfig, Int>) -> Binding<Int> {
+        Binding(
+            get: { config[keyPath: keyPath] },
+            set: { newValue in
+                config.clearRepeatedTip(newValue)
+                config[keyPath: keyPath] = newValue
+            }
+        )
     }
 }
 
