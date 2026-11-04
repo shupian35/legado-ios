@@ -47,6 +47,16 @@ public struct ReaderMenuView: View {
     /// Whether the character set is shown — upstream
     /// `ReadBookActivity.menu_set_charset`.
     @State private var isCharsetPresented = false
+    /// Whether the offline cache dialog is shown — upstream
+    /// `ReadBookActivity.menu_download`.
+    @State private var isDownloadPresented = false
+    /// Whether the app log is shown — upstream `ReadBookActivity.menu_log`.
+    @State private var isLogPresented = false
+    /// Whether the reader help is shown — upstream `ReadBookActivity.menu_help`.
+    @State private var isHelpPresented = false
+    /// Whether the source editor is shown — upstream
+    /// `ReadBookActivity.menu_edit_source`.
+    @State private var isSourceEditorPresented = false
     /// The character set that the user picked.
     @State private var charset = ""
     /// Closes the sheet.
@@ -65,6 +75,7 @@ public struct ReaderMenuView: View {
                 styleSection
                 backgroundSection
                 aloudSection
+                sourceSection
                 moreSection
                 brightnessSection
             }
@@ -113,7 +124,37 @@ public struct ReaderMenuView: View {
                     }
                 }
             }
+            .sheet(isPresented: $isDownloadPresented) {
+                if let model = controller.model {
+                    NavigationStack {
+                        ReaderDownloadDialog(model: model, book: controller.book)
+                    }
+                }
+            }
+            .sheet(isPresented: $isLogPresented) {
+                NavigationStack {
+                    AppLogView()
+                }
+            }
+            .sheet(isPresented: $isHelpPresented) {
+                NavigationStack {
+                    ReaderHelpView()
+                }
+            }
+            .sheet(isPresented: $isSourceEditorPresented) {
+                if let model = controller.model, let source = source {
+                    NavigationStack {
+                        SourceEditorView(model: model, source: source)
+                    }
+                }
+            }
         }
+    }
+
+    /// The source the book came from — upstream `ReadBook.bookSource`.
+    private var source: BookSource? {
+        guard let model = controller.model else { return nil }
+        return try? model.environment.source(for: controller.book)
     }
 
     /// The character set of a local book — upstream
@@ -382,6 +423,34 @@ public struct ReaderMenuView: View {
 
     // MARK: - The upstream top bar options
 
+    /// The source actions — upstream `res/menu/book_read_source.xml`
+    /// (`menu_login`, `menu_chapter_pay`, `menu_edit_source`,
+    /// `menu_disable_source`).
+    private var sourceSection: some View {
+        Section("书源") {
+            if let source {
+                // Upstream `ReadBookActivity.showLogin()` — the login of the
+                // source of the book.
+                Button("登录") {
+                    controller.model?.presentLogin(for: source)
+                }
+                // Upstream `ReadBookActivity.payAction()` — the purchase of the
+                // current chapter.
+                Button("章节购买") {
+                    Task { await controller.payChapter() }
+                }
+                // Upstream `ReadBookActivity.openSourceEditActivity()`.
+                Button("编辑书源") {
+                    isSourceEditorPresented = true
+                }
+                // Upstream `ReadBookActivity.disableSource()`.
+                Button("禁用书源") {
+                    controller.model?.setSource(source, enabled: false)
+                }
+            }
+        }
+    }
+
     /// The options of the upstream's `res/menu/book_read.xml` that the port
     /// can offer.
     private var moreSection: some View {
@@ -531,6 +600,18 @@ public struct ReaderMenuView: View {
             // progress overwrites the one of the WebDAV server.
             Button("覆盖进度") {
                 Task { await controller.uploadProgress() }
+            }
+            // Upstream `ReadBookActivity.menu_download` — the offline cache.
+            Button("离线缓存") {
+                isDownloadPresented = true
+            }
+            // Upstream `ReadBookActivity.menu_log` — the app log.
+            Button("日志") {
+                isLogPresented = true
+            }
+            // Upstream `ReadBookActivity.menu_help` — the reader help.
+            Button("帮助") {
+                isHelpPresented = true
             }
         }
     }

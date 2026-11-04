@@ -35,6 +35,8 @@ public enum BookContentAssembler {
         analyzeRule.setRedirectUrl(redirectUrl)
         analyzeRule.source = bookSource.variableBox
         analyzeRule.chapter = bookChapter.variableBox
+        analyzeRule.chapterInfo = bookChapter
+        analyzeRule.bookInfo = book
         analyzeRule.bookName = book.name
         analyzeRule.chapterTitle = bookChapter.title
         analyzeRule.nextChapterUrl = nextChapterUrl
@@ -161,6 +163,8 @@ public enum BookContentAssembler {
         analyzeRule.setRedirectUrl(redirectUrl)
         analyzeRule.source = bookSource.variableBox
         analyzeRule.chapter = chapter.variableBox
+        analyzeRule.chapterInfo = chapter
+        analyzeRule.bookInfo = book
         analyzeRule.bookName = book.name
         analyzeRule.chapterTitle = chapter.title
         analyzeRule.nextChapterUrl = nextChapterUrl

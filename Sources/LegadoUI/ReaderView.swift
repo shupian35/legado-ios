@@ -1030,6 +1030,43 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
         reloadContent()
     }
 
+    /// Buys the current chapter — upstream `ReadBookActivity.payAction()`.
+    ///
+    /// The purchase script of the source is evaluated with the chapter as the
+    /// context; an absolute URL opens the web view, "true" means the purchase
+    /// succeeded and the table of contents is reloaded.
+    public func payChapter() async {
+        guard !book.isLocal else { return }
+        guard let model else { return }
+        guard let source = try? model.environment.source(for: book) else { return }
+        guard chapters.indices.contains(chapterIndex) else {
+            errorMessage = "没有章节"
+            return
+        }
+        let chapter = chapters[chapterIndex]
+        do {
+            let result = try ChapterPay.pay(
+                source: source,
+                book: book,
+                chapter: chapter,
+                dependencies: model.environment.dependencies()
+            )
+            switch result {
+            case .openURL(let url):
+                browserURL = url
+                isBrowserPresented = true
+            case .refreshTableOfContents:
+                await checkForNewChapters()
+            case .ignored:
+                break
+            }
+        } catch {
+            // Upstream `AppLog.put("执行购买操作出错…", it, true)`.
+            AppLog.shared.put("执行购买操作出错", error: error)
+            errorMessage = error.localizedDescription
+        }
+    }
+
     /// Reloads the content of the current chapter — upstream
     /// `ReadBook.loadContent(false)` after a content option changed.
     private func reloadContent() {

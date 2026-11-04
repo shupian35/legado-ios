@@ -95,6 +95,86 @@ public final class LegadoAppModel: ObservableObject {
         }
     }
 
+    /// Starts caching a range of chapters — upstream
+    /// `CacheBook.start(activity, book, start, end)` (the chapters are
+    /// 0-based; the upstream passes `Int.MAX_VALUE` for "the rest of the
+    /// book").
+    public func startCaching(book: Book, start: Int, end: Int) async {
+        guard let manager = cacheManager else { return }
+        guard let source = try? environment.source(for: book) else { return }
+        do {
+            try await manager.start(book: book, source: source, start: start, end: end)
+            await refreshCacheProgress(bookUrl: book.bookUrl)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// The export formats of the upstream `ExportBookService`.
+    public enum BookExportFormat: String, CaseIterable, Identifiable, Sendable {
+        case txt
+        case epub
+
+        public var id: String { rawValue }
+
+        public var displayName: String {
+            switch self {
+            case .txt: return "TXT"
+            case .epub: return "EPUB"
+            }
+        }
+    }
+
+    /// Exports a book — upstream `ExportBookService` (the TXT / EPUB export of
+    /// the cache screen).
+    ///
+    /// The cached chapters are used when they exist, otherwise the content is
+    /// fetched through the source.
+    @discardableResult
+    public func exportBook(book: Book, format: BookExportFormat) async throws -> ExportedFile {
+        let chapters = try environment.chapters(of: book)
+        let titleRules = (try? environment.store.replaceRulesForTitle(name: book.name, origin: book.origin)) ?? []
+        let contentRules = (try? environment.store.replaceRulesForContent(name: book.name, origin: book.origin)) ?? []
+        let dependencies = AnalyzeUrlDependencies(
+            httpClient: environment.httpClient,
+            cookieStore: environment.cookieStore,
+            scriptEngine: environment.scriptEngine
+        )
+        let cache = environment.cacheStorage
+        let source = try environment.source(for: book)
+        let content: (BookChapter) async throws -> String? = { chapter in
+            if let cached = cache?.content(book: book, chapter: chapter) {
+                return cached
+            }
+            guard let source else { return nil }
+            return try await WebBook.getContent(
+                bookSource: source,
+                book: book,
+                bookChapter: chapter,
+                dependencies: dependencies
+            )
+        }
+        switch format {
+        case .txt:
+            let result = try await BookExporter.exportTxt(
+                book: book,
+                chapters: chapters,
+                titleRules: titleRules,
+                contentRules: contentRules,
+                content: content
+            )
+            return result.file
+        case .epub:
+            return try await BookExporter.exportEpub(
+                book: book,
+                chapters: chapters,
+                titleRules: titleRules,
+                contentRules: contentRules,
+                content: content
+            )
+        }
+    }
+
     /// Stops caching a book.
     public func stopCaching(book: Book) async {
         await cacheManager?.stop(bookUrl: book.bookUrl)

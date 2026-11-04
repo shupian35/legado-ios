@@ -55,5 +55,18 @@ public struct RootView: View {
                 }
         }
         .background(model.currentTheme.background)
+        // The login of a source is requested from several places (the book
+        // detail, the discover, the source manager, the reader); the sheet is
+        // presented here so that every request opens it.
+        .sheet(isPresented: Binding(
+            get: { model.loginSource != nil },
+            set: { if !$0 { model.dismissPresentedSheet() } }
+        )) {
+            if let source = model.loginSource {
+                NavigationStack {
+                    SourceLoginView(source: source, model: model)
+                }
+            }
+        }
     }
 }

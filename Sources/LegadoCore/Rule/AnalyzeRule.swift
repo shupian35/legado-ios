@@ -50,6 +50,14 @@ public final class AnalyzeRule {
     /// The URL of the next chapter — the `nextChapterUrl` variable.
     public var nextChapterUrl: String?
 
+    /// The chapter the rule is evaluated for — the upstream binds the whole
+    /// chapter object to the `chapter` variable (`AnalyzeRule.kt:783`).
+    public var chapterInfo: BookChapter?
+
+    /// The book the rule is evaluated for — the upstream binds the whole book
+    /// object to the `book` variable (`AnalyzeRule.kt:780`).
+    public var bookInfo: Book?
+
     /// The JavaScript runtime used by `{{ ... }}` rules.
     public var scriptEngine: RuleScriptEngine?
 
@@ -578,6 +586,40 @@ public final class AnalyzeRule {
         bindings["title"] = .text(chapterTitle)
         bindings["src"] = content.map { .text($0.textValue) } ?? .null
         bindings["bookName"] = .text(bookName)
+        // Upstream `AnalyzeRule.evalJS` binds the next chapter URL as well.
+        if let nextChapterUrl {
+            bindings["nextChapterUrl"] = .text(nextChapterUrl)
+        }
+        // Upstream binds the chapter and the book objects (the Rhino scope
+        // receives the Kotlin instances); here they become plain objects.
+        if let chapterInfo {
+            bindings["chapter"] = .scriptObject([
+                "url": .text(chapterInfo.url),
+                "title": .text(chapterInfo.title),
+                "index": .number(Double(chapterInfo.index)),
+                "isVolume": .text(chapterInfo.isVolume ? "true" : "false"),
+                "isVip": .text(chapterInfo.isVip ? "true" : "false"),
+                "isPay": .text(chapterInfo.isPay ? "true" : "false"),
+                "baseUrl": .text(chapterInfo.baseUrl),
+                "bookUrl": .text(chapterInfo.bookUrl),
+                "tag": chapterInfo.tag.map { .text($0) } ?? .null,
+                "wordCount": chapterInfo.wordCount.map { .text($0) } ?? .null
+            ])
+            bindings["title"] = .text(chapterInfo.title)
+        }
+        if let bookInfo {
+            bindings["book"] = .scriptObject([
+                "name": .text(bookInfo.name),
+                "author": .text(bookInfo.author),
+                "bookUrl": .text(bookInfo.bookUrl),
+                "origin": .text(bookInfo.origin),
+                "originName": .text(bookInfo.originName),
+                "tocUrl": .text(bookInfo.tocUrl),
+                "kind": bookInfo.kind.map { .text($0) } ?? .null,
+                "intro": bookInfo.intro.map { .text($0) } ?? .null,
+                "coverUrl": bookInfo.coverUrl.map { .text($0) } ?? .null
+            ])
+        }
         // Upstream binds the source object as `java`, so the script reaches the
         // variables and the login data of the source it belongs to.
         return try engine.evaluate(jsStr, bindings: bindings, source: sourceContext())
