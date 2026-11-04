@@ -485,6 +485,15 @@ public struct ReaderSettingsView: View {
                     ClickRegionEditorView(settings: controller.environment.settings)
                 }
             }
+            // Upstream `pref_config_read.xml` — the switch
+            // `disableReturnKey` (the back key does nothing while the reader
+            // menu is hidden).
+            Section("更多") {
+                Toggle("禁用返回键", isOn: Binding(
+                    get: { controller.environment.settings.disableReturnKey },
+                    set: { controller.environment.settings.disableReturnKey = $0 }
+                ))
+            }
         }
         .navigationTitle("更多设置")
     }

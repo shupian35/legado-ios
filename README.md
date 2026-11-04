@@ -18,8 +18,8 @@ upstream feature is listed with its upstream file, the Swift implementation and
 its state (`[x]` done, `[~]` partial, `[ ]` not started), followed by the
 deliberate deviations.
 
-The port is ~60,200 lines of Swift in 242 files, with ~13,180 lines of tests
-(1,055 unit tests: 975 in `LegadoCoreTests`, 80 in `LegadoServerTests`) next to them.
+The port is ~61,800 lines of Swift in 246 files, with ~13,730 lines of tests
+(1,091 unit tests: 1,011 in `LegadoCoreTests`, 80 in `LegadoServerTests`) next to them.
 
 ## What is in here
 
@@ -34,7 +34,7 @@ Sources/
   LegadoServer/        the local HTTP + WebSocket server (the upstream web API)
   LegadoApp/           a command-line shell with a headless smoke test
   LegadoAppUI/         the iOS entry point (`@main`) + the Info.plist
-Tests/                 1,055 unit tests
+Tests/                 1,091 unit tests
 project.yml            the XcodeGen spec of the iOS application target
 Scripts/
   sw.sh                the build/test/run helper (WSL, a clean PATH, a scratch dir)
@@ -176,9 +176,10 @@ replace rules, the theme list, the reader's settings, the RSS management, the
 multi-source search, the reader's tip system, the click-region editor, the
 read-aloud dialog, the text selection, the dictionary, the manga menu, …).
 `Plan/00-feature-parity-matrix.md` §8 keeps the audit's own gap lists with a
-state column, and **§8.6 is the honest remainder — 3 items**, one of them a
-deliberate deviation (the volume keys need a `UIApplication` subclass, which
-SwiftUI cannot install).
+state column, and **§8.6 is the honest remainder — 4 items, all of them
+deliberate deviations**: the volume keys and the hardware page-turn keys need
+a `UIApplication` subclass and Android key codes, the system TTS settings and
+the "media button wakes the app" behaviour have no iOS equivalent.
 
 ## The security differences from the Android app
 

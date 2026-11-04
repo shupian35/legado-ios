@@ -163,6 +163,7 @@ extension View {
 
     // MARK: - Presentation
 
+    public func interactiveDismissDisabled(_ isDisabled: Bool = true) -> some View { ModifiedView(self) }
     public func sheet<V: View>(isPresented: Binding<Bool>, onDismiss: (() -> Void)? = nil, @ViewBuilder content: @escaping () -> V) -> some View { ModifiedView(self) }
     public func sheet<Item, V: View>(item: Binding<Item?>, onDismiss: (() -> Void)? = nil, @ViewBuilder content: @escaping (Item) -> V) -> some View { ModifiedView(self) }
     public func popover<V: View>(isPresented: Binding<Bool>, attachmentAnchor: PopoverAttachmentAnchor = .rectangle, arrowEdge: Edge = .top, @ViewBuilder content: @escaping () -> V) -> some View { ModifiedView(self) }

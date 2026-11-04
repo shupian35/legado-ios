@@ -252,17 +252,43 @@ Upstream: `app/src/main/java/io/legado/app/model/analyzeRule/`.
 The audits found 324 missing features; the work since then closed the great
 majority of them (the tables above name the file that closes each row). The
 **real remainder** is this list — everything else in §8 is closed or partly
-closed with the reason named in its row:
+closed with the reason named in its row. Only the **deliberate deviations**
+are left: they are the Android-only behaviours that have no iOS equivalent.
 
-| # | The remaining gap | The upstream | Where it lives in the port |
+| # | The remaining gap | The upstream | Why it is not ported / where it lives |
 |---|---|---|---|
-| 1 | The **14 upstream raw preference keys** that are not `PreferKey` constants (`clickRegionalConfig`, `disableReturnKey`, `customPageKey`, `mediaButtonOnExit`, `systemMediaControlCompatibilityChange`, `mediaButtonPerNext`, `sysTtsConfig`, `welcomeStyle`, `coverConfig`, `themeList`, `saveDayTheme`, `saveNightTheme`, `coverRule`, `import_old`) | the upstream code reads them by hand | `Core/App/AppSettings.swift` — they need a raw-key mechanism, because `SettingsKey` is checked against the upstream's 182 `PreferKey` constants by `Tests/LegadoCoreTests/SettingsKeyParityTests.swift` |
-| 2 | The **per-chapter source change** (章节换源 — the source of one chapter, not of the whole book) | `ui/book/changesource/ChangeChapterSourceDialog.kt` | `Core/Pipeline/ChangeSource.swift` + `LegadoUI/BookToolsViews.swift` |
-| 3 | The **volume keys** — a *deliberate deviation* (SwiftUI cannot install a `UIApplication` subclass) | `ui/book/read/BaseReadBookActivity.kt:377-391` | `LegadoUI/ReaderSystemIntegration.swift` |
+| 1 | The **volume keys** — the hardware volume buttons turn the pages | `ui/book/read/BaseReadBookActivity.kt:377-391` | *Deliberate deviation* — a SwiftUI app cannot install a `UIApplication` subclass, so the volume keys are not intercepted (`LegadoUI/ReaderSystemIntegration.swift`) |
+| 2 | The **custom page key** (`customPageKey`) — the user picks the hardware key codes that turn the page | `MoreConfigDialog.kt:181` → `PageKeyDialog` | *Deliberate deviation* — iOS has no hardware key codes to pick; the preference keys themselves exist (`Core/App/AppSettings.swift`) |
+| 3 | The **system TTS settings** (`sysTtsConfig`) — the screen of the system's text-to-speech engine | `ReadAloudConfigDialog.kt:107` → `IntentHelp.openTTSSetting()` | *Deliberate deviation* — iOS has no equivalent system screen; the engine is configured inside the app (`LegadoUI/ReaderAloudDialogView.swift`) |
+| 4 | The **media button on exit** (`mediaButtonOnExit`) — the media key wakes the app | `AppConfig.kt:467` + `MediaButtonReceiver.kt:103` | *Deliberate deviation* — the app is foreground-only on iOS; the preference exists and is honoured by `LegadoUI/MediaCommandBridge.swift` |
 
 **Closed since the audits** (they were in the tables above, the list is kept
 here so that the remainder is easy to see):
 
+- the **per-chapter source change** (章节换源 — the source of one chapter, not
+  of the whole book: `Core/Pipeline/ChangeChapterSource.swift` +
+  `LegadoUI/BookToolsViews.swift` + the reader's 章节换源 entry; the upstream
+  `ChangeChapterSourceDialog` finds the matching chapter in the new table of
+  contents and replaces the content of the current chapter);
+- the **14 upstream raw preference keys** (`clickRegionalConfig`,
+  `disableReturnKey`, `customPageKey`, `mediaButtonOnExit`,
+  `systemMediaControlCompatibilityChange`, `mediaButtonPerNext`,
+  `sysTtsConfig`, `welcomeStyle`, `coverConfig`, `themeList`,
+  `saveDayTheme`, `saveNightTheme`, `coverRule`, `import_old`) — every
+  behaviour behind them exists in the port: the click-region editor
+  (`LegadoUI/ClickRegionEditorView.swift`), the disabled back key while the
+  reader menu is hidden (`Core/App/AppSettings.swift` →
+  `LegadoUI/ReaderView.swift`), the media-button paragraph
+  (`LegadoUI/MediaCommandBridge.swift`), the **old-data import**
+  (`Core/Storage/ImportOldData.swift` — the upstream `help/storage/ImportOldData.kt`
+  with `myBookShelf.json` / `myBookSource.json` / `myBookReplaceRule.json` and
+  the old rule syntax conversion; the UI in `LegadoUI/BackupView.swift`), the
+  **cover configuration + the cover rule** (`Core/App/BookCover.swift` +
+  `LegadoUI/ConfigScreens.swift`), the **welcome configuration**
+  (`LegadoUI/ConfigScreens.swift`), the **saved day / night themes**
+  (`Core/App/Theme.swift` → `saveCurrentTheme(name:isNightTheme:)`) and the
+  **theme list** (`LegadoUI/ThemeListView.swift`); only the three
+  Android-only rows of the table above stay open;
 - the **continuous-scroll reading mode** (`Core/Reader/ScrollMode.swift` +
   `LegadoUI/ReaderScrollView.swift` — the upstream stacks the current + the
   next pages and the offset crosses the page boundary exactly like
@@ -380,11 +406,14 @@ does not register them either: the app widgets and the home-screen shortcuts.
     `Sources/LegadoUIShim` (view builder, state, modifiers, scene) everywhere
     else. The same view sources are therefore type-checked by the Linux build
     and by the Linux CI job; the shim never renders.
-15. **The bookshelf sorts names without pinyin.** Upstream compares with
-    `cnCompare` (a pinyin-aware collation); the port uses a
-    case/diacritic/width-insensitive comparison with a code-point tie breaker
-    (`Core/App/Bookshelf.swift`), so a Chinese title sorts by Unicode order
-    instead of by pinyin.
+15. **The bookshelf sorts names with the ICU Chinese collation.** Upstream
+    compares with `cnCompare` — a `Collator` for `ULocale.SIMPLIFIED_CHINESE`
+    (`StringExtensions.kt:97-103`). The port compares with
+    `String.compare(_:locale:)` and the `zh_Hans_CN` locale
+    (`Core/App/Bookshelf.swift`), which is the same ICU collation; the
+    difference is that the upstream's `Collator` has no comparison options
+    (the tertiary strength, no decomposition), so the port passes none
+    either.
 16. **The read-aloud unit is the paragraph, like upstream.** Upstream does not
     split sentences: the chapter content is split on `\n`, the empty lines and
     the lines that consist only of punctuation/symbols are dropped, and each
@@ -465,6 +494,23 @@ does not register them either: the app widgets and the home-screen shortcuts.
     Vue bundle is served with a small inline script that adds the
     `Authorization` header and the `token` query parameter, so the browser
     experience is unchanged while the API stays closed.
+29. **The volume keys do not turn the pages.** Upstream installs a
+    `BroadcastReceiver` for the volume keys (`BaseReadBookActivity.kt:377-391`)
+    and a `UIApplication` subclass to receive them; a SwiftUI app can do
+    neither, so the reader is driven by the taps, the swipes and the media
+    buttons (`LegadoUI/MediaCommandBridge.swift`).
+30. **The hardware page-turn keys are not configurable.** Upstream's
+    `PageKeyDialog` stores the Android key codes in `prevKeyCodes` /
+    `nextKeyCodes`; iOS has no hardware key codes to pick, so the preference
+    keys exist but no dialog does (`Core/App/AppSettings.swift`).
+31. **The system TTS settings are not opened.** Upstream sends the
+    `ACTION_TTS_SETTINGS` intent (`ReadAloudConfigDialog.kt:107`); iOS has no
+    such screen, so the read-aloud engine is configured inside the app
+    (`LegadoUI/ReaderAloudDialogView.swift`).
+32. **The media button does not wake the app.** Upstream's
+    `mediaButtonOnExit` makes the media key bring the app back
+    (`MediaButtonReceiver.kt:103`); the port keeps the preference but the
+    behaviour is meaningless on iOS, where the app is foreground-only.
 
 ## Known upstream quirks that are reproduced on purpose
 

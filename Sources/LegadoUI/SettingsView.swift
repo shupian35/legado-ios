@@ -77,6 +77,18 @@ public struct SettingsView: View {
                     NavigationLink("本地密码") {
                         LocalPasswordView(model: model)
                     }
+                    // Upstream `ThemeConfigFragment` — the entries
+                    // `themeList`, `coverConfig` and `welcomeStyle` open
+                    // these screens.
+                    NavigationLink("主题编辑") {
+                        ThemeEditorView(model: model)
+                    }
+                    NavigationLink("封面设置") {
+                        CoverConfigView(model: model)
+                    }
+                    NavigationLink("启动页样式") {
+                        WelcomeConfigView(model: model)
+                    }
                 }
 
                 Section("书架") {

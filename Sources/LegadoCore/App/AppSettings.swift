@@ -790,6 +790,13 @@ public final class AppSettings {
         set { set(newValue, for: .systemMediaControlCompatibilityChange) }
     }
 
+    /// Whether the back key does nothing while the reader menu is hidden —
+    /// upstream `disableReturnKey` (`ReadBookActivity.kt:288`).
+    public var disableReturnKey: Bool {
+        get { bool(.disableReturnKey, default: false) }
+        set { set(newValue, for: .disableReturnKey) }
+    }
+
     // MARK: - Import / export
 
     /// The charset of the exported text — upstream `AppConfig.exportCharset`.

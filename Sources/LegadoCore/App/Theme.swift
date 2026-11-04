@@ -207,6 +207,34 @@ public final class ThemeManager {
         return true
     }
 
+    /// Saves the current colours under a new name — upstream
+    /// `ThemeConfig.saveDayTheme` / `saveNightTheme`.
+    ///
+    /// The upstream reads the colours out of the preferences; the port keeps
+    /// them in the theme list, so the current theme of the requested mode is
+    /// copied into a new entry.
+    ///
+    /// - Parameters:
+    ///   - name: the name of the new theme.
+    ///   - isNightTheme: whether the night colours are saved.
+    @discardableResult
+    public func saveCurrentTheme(name: String, isNightTheme: Bool) -> Bool {
+        // The upstream keeps the day colours and the night colours in two
+        // separate sets of preferences; the port keeps them in the two
+        // entries of the theme list.
+        let current = themes.first { $0.isNightTheme == isNightTheme }
+            ?? currentTheme(isSystemDark: isNightTheme)
+        let theme = AppTheme(
+            themeName: name,
+            isNightTheme: isNightTheme,
+            primaryColor: current.primaryColor,
+            accentColor: current.accentColor,
+            backgroundColor: current.backgroundColor,
+            bottomBackground: current.bottomBackground
+        )
+        return add(theme)
+    }
+
     /// Deletes a theme (upstream `delConfig`).
     public func delete(index: Int) {
         guard themes.indices.contains(index) else { return }

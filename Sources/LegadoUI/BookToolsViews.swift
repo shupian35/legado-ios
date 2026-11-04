@@ -131,6 +131,230 @@ public struct ChangeSourceView: View {
     }
 }
 
+// MARK: - 章节换源
+
+/// The per-chapter source change — upstream
+/// `ui/book/changesource/ChangeChapterSourceDialog.kt`.
+///
+/// The sheet searches the other sources for the book, shows the table of
+/// contents of the source the user picked (the chapter that matches the one
+/// being read is marked) and fetches the content of the chapter the user
+/// picks. The content is handed to the reader, which replaces the content of
+/// the chapter it is showing (upstream
+/// `ReadBookViewModel.saveContent`).
+public struct ChangeChapterSourceView: View {
+
+    @ObservedObject var model: LegadoAppModel
+    let book: Book
+    /// The index of the chapter the reader is on.
+    let chapterIndex: Int
+    /// The title of the chapter the reader is on.
+    let chapterTitle: String
+    /// The number of chapters of the current book.
+    let chapterCount: Int
+    /// Called with the content of the chapter of the other source.
+    let onContent: (String) -> Void
+
+    @State private var candidates: [ChangeSourceCandidate] = []
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    @State private var checkAuthor = true
+    @State private var didSearch = false
+    /// The chapter list of the other source.
+    @State private var match: ChapterSourceMatch?
+    @State private var isLoadingToc = false
+    /// The message of the last action.
+    @State private var message: String?
+
+    public init(
+        model: LegadoAppModel,
+        book: Book,
+        chapterIndex: Int,
+        chapterTitle: String,
+        chapterCount: Int,
+        onContent: @escaping (String) -> Void
+    ) {
+        self.model = model
+        self.book = book
+        self.chapterIndex = chapterIndex
+        self.chapterTitle = chapterTitle
+        self.chapterCount = chapterCount
+        self.onContent = onContent
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let match {
+                chapterList(match)
+            } else {
+                searchList
+            }
+        }
+        .padding(16)
+        .navigationTitle(chapterTitle)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    // MARK: - The search
+
+    @ViewBuilder
+    private var searchList: some View {
+        HStack {
+            Toggle("校验作者", isOn: $checkAuthor)
+            Button("搜索") {
+                search()
+            }
+        }
+        if isLoading {
+            ProgressView("正在搜索…")
+        }
+        if let errorMessage {
+            Text(errorMessage)
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
+        }
+        if candidates.isEmpty && !isLoading && didSearch {
+            EmptyState(text: "没有找到其他来源")
+        }
+        List(candidates, id: \.scoreKey) { candidate in
+            VStack(alignment: .leading, spacing: 4) {
+                Text(candidate.sourceName)
+                    .font(.system(size: 15, weight: .medium))
+                Text(candidate.book.name)
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+                Text(candidate.book.author)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+            .onTapGesture {
+                loadToc(candidate)
+            }
+        }
+        .listStyle(PlainListStyle())
+    }
+
+    // MARK: - The chapter list of the other source
+
+    @ViewBuilder
+    private func chapterList(_ match: ChapterSourceMatch) -> some View {
+        HStack {
+            Button("返回") {
+                self.match = nil
+            }
+            Text(match.sourceName)
+                .font(.system(size: 14, weight: .medium))
+            if isLoadingToc {
+                ProgressView()
+            }
+        }
+        if let message {
+            Text(message)
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
+        }
+        if match.toc.isEmpty {
+            EmptyState(text: "没有目录")
+        } else {
+            List(match.toc, id: \.url) { chapter in
+                let index = match.toc.firstIndex(where: { $0.url == chapter.url }) ?? 0
+                HStack {
+                    Text(chapter.title)
+                        .font(.system(size: 14))
+                    if index == match.durChapterIndex {
+                        Text("当前")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .onTapGesture {
+                    loadContent(match, chapter: chapter, index: index)
+                }
+            }
+            .listStyle(PlainListStyle())
+        }
+    }
+
+    // MARK: - The work
+
+    private func search() {
+        isLoading = true
+        errorMessage = nil
+        didSearch = true
+        Task {
+            do {
+                let sources = try model.environment.sources(enabledOnly: true)
+                let options = ChangeSourceOptions(checkAuthor: checkAuthor)
+                let found = try await ChangeSourceService.search(
+                    book: book,
+                    sources: sources,
+                    options: options,
+                    dependencies: model.environment.dependencies()
+                )
+                candidates = found
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isLoading = false
+        }
+    }
+
+    /// Upstream `ChangeChapterSourceDialog.openToc(searchBook)`.
+    private func loadToc(_ candidate: ChangeSourceCandidate) {
+        isLoadingToc = true
+        message = nil
+        Task {
+            do {
+                guard let source = try model.environment.store.source(url: candidate.sourceUrl) else {
+                    errorMessage = "书源不存在"
+                    isLoadingToc = false
+                    return
+                }
+                let loaded = try await ChangeChapterSourceService.loadMatch(
+                    candidate: candidate,
+                    source: source,
+                    chapterIndex: chapterIndex,
+                    chapterTitle: chapterTitle,
+                    oldChapterCount: chapterCount,
+                    dependencies: model.environment.dependencies()
+                )
+                match = loaded
+            } catch {
+                errorMessage = "单章换源获取目录出错\n\(error.localizedDescription)"
+            }
+            isLoadingToc = false
+        }
+    }
+
+    /// Upstream `ChangeChapterSourceDialog.clickChapter(bookChapter,
+    /// nextChapterUrl)`.
+    private func loadContent(_ match: ChapterSourceMatch, chapter: BookChapter, index: Int) {
+        isLoadingToc = true
+        message = nil
+        Task {
+            do {
+                guard let source = try model.environment.store.source(url: match.sourceUrl) else {
+                    errorMessage = "书源不存在"
+                    isLoadingToc = false
+                    return
+                }
+                let next = ChangeChapterSourceService.nextChapterUrl(in: match.toc, after: index)
+                let content = try await ChangeChapterSourceService.content(
+                    match: match,
+                    source: source,
+                    chapter: chapter,
+                    nextChapterUrl: next,
+                    dependencies: model.environment.dependencies()
+                )
+                onContent(content)
+            } catch {
+                errorMessage = "获取正文出错\n\(error.localizedDescription)"
+            }
+            isLoadingToc = false
+        }
+    }
+}
+
 // MARK: - 搜索正文
 
 /// The content search sheet: it searches the downloaded chapters of a book.

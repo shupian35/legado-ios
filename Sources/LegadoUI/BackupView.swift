@@ -34,6 +34,8 @@ public struct BackupView: View {
     @State private var webDavPassword: String = ""
     /// Whether the folder picker is open — upstream `selectBackupPath`.
     @State private var isSelectingDirectory = false
+    /// Whether the old-data picker is open — upstream `import_old`.
+    @State private var isSelectingOldData = false
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -64,6 +66,14 @@ public struct BackupView: View {
                         }
                     }
                 }
+            }
+            Section("旧版数据") {
+                Button("导入旧版数据") {
+                    isSelectingOldData = true
+                }
+                Text("导入旧版阅读（2.x）的 myBookShelf.json、myBookSource.json 和 myBookReplaceRule.json")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
             }
             Section("WebDAV") {
                 TextField("地址", text: $webDavUrl)
@@ -110,6 +120,14 @@ public struct BackupView: View {
         ) { result in
             if case let .success(url) = result {
                 selectDirectory(url)
+            }
+        }
+        .fileImporter(
+            isPresented: $isSelectingOldData,
+            allowedContentTypes: [.folder, .json]
+        ) { result in
+            if case let .success(url) = result {
+                importOldData(url)
             }
         }
     }
@@ -262,6 +280,116 @@ public struct BackupView: View {
             }
             isWorking = false
         }
+    }
+
+    // MARK: - The old data
+
+    /// Imports the data of the old Legado — upstream `import_old`
+    /// (`BackupConfigFragment.kt:238` → `ImportOldData.importUri`).
+    ///
+    /// The upstream picks a folder that holds `myBookShelf.json`,
+    /// `myBookSource.json` and `myBookReplaceRule.json`; a single JSON file
+    /// is accepted as well — the kind is detected from its content.
+    private func importOldData(_ url: URL) {
+        isWorking = true
+        status = nil
+        do {
+            let summary = try withSecurityScope(url) {
+                try importOldDataFiles(in: url)
+            }
+            model.reloadAll()
+            status = summary.isEmpty
+                ? "没有找到可导入的旧版数据"
+                : "导入完成：书架 \(summary.books) 本，书源 \(summary.sources) 个，替换规则 \(summary.rules) 条"
+        } catch {
+            status = "导入失败：\(error.localizedDescription)"
+        }
+        isWorking = false
+    }
+
+    /// The summary of an old-data import.
+    private struct OldDataSummary {
+        var books = 0
+        var sources = 0
+        var rules = 0
+        var isEmpty: Bool { books == 0 && sources == 0 && rules == 0 }
+    }
+
+    /// Reads the old data of a folder or of a single JSON file.
+    private func importOldDataFiles(in url: URL) throws -> OldDataSummary {
+        var summary = OldDataSummary()
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return summary
+        }
+        if isDirectory.boolValue {
+            let shelf = url.appendingPathComponent("myBookShelf.json")
+            let sources = url.appendingPathComponent("myBookSource.json")
+            let rules = url.appendingPathComponent("myBookReplaceRule.json")
+            if FileManager.default.fileExists(atPath: shelf.path) {
+                let books = try ImportOldData.importOldBooks(
+                    try String(contentsOf: shelf, encoding: .utf8),
+                    existingBookUrls: Set((try? model.environment.store.allBooks())?.map(\.bookUrl) ?? [])
+                )
+                try model.environment.store.insert(books)
+                summary.books = books.count
+            }
+            if FileManager.default.fileExists(atPath: sources.path) {
+                let imported = try ImportOldData.importOldSources(
+                    try String(contentsOf: sources, encoding: .utf8)
+                )
+                try model.environment.store.insert(imported)
+                summary.sources = imported.count
+            }
+            if FileManager.default.fileExists(atPath: rules.path) {
+                let imported = try ImportOldData.importOldReplaceRules(
+                    try String(contentsOf: rules, encoding: .utf8)
+                )
+                for rule in imported {
+                    try model.environment.store.insert(rule)
+                }
+                summary.rules = imported.count
+            }
+            return summary
+        }
+        // A single file — the kind is detected from the first item.
+        let json = try String(contentsOf: url, encoding: .utf8)
+        guard let value = try? JSONValue.parse(json) else {
+            throw ImportOldDataError.brokenJson
+        }
+        let keys = firstItemKeys(of: value)
+        if keys.contains("noteUrl") {
+            let books = try ImportOldData.importOldBooks(
+                json,
+                existingBookUrls: Set((try? model.environment.store.allBooks())?.map(\.bookUrl) ?? [])
+            )
+            try model.environment.store.insert(books)
+            summary.books = books.count
+        } else if keys.contains("bookSourceUrl") {
+            let imported = try ImportOldData.importOldSources(json)
+            try model.environment.store.insert(imported)
+            summary.sources = imported.count
+        } else {
+            let imported = try ImportOldData.importOldReplaceRules(json)
+            for rule in imported {
+                try model.environment.store.insert(rule)
+            }
+            summary.rules = imported.count
+        }
+        return summary
+    }
+
+    /// The keys of the first item of a JSON array (or of the object itself).
+    private func firstItemKeys(of value: JSONValue) -> Set<String> {
+        let object: JSONValue
+        switch value {
+        case .array(let items):
+            guard let first = items.first else { return [] }
+            object = first
+        default:
+            object = value
+        }
+        return Set(object.objectValue?.keys ?? [:].keys)
     }
 
     // MARK: - The helpers

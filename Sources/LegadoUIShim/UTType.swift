@@ -38,4 +38,10 @@ public struct UTType: Hashable, Sendable {
 
     /// `UTType.zip` — the archive of the reader style (`readConfig.zip`).
     public static let zip = UTType(identifier: "public.zip-archive")
+
+    /// `UTType.json` — the old Legado data (`myBookShelf.json` …).
+    public static let json = UTType(identifier: "public.json")
+
+    /// `UTType.image` — the covers and the images of the welcome screen.
+    public static let image = UTType(identifier: "public.image")
 }

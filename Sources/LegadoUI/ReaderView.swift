@@ -1176,6 +1176,24 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
         }
     }
 
+    /// Replaces the content of the current chapter — upstream
+    /// `ReadBookViewModel.saveContent(book, content)`, which is what the
+    /// per-chapter source change (章节换源) calls.
+    ///
+    /// The content is written into the cache of the chapter and the chapter is
+    /// loaded again, so the reader shows the text of the other source.
+    public func replaceCurrentContent(_ content: String) {
+        Task {
+            guard chapters.indices.contains(chapterIndex) else { return }
+            let chapter = chapters[chapterIndex]
+            if let storage = model?.environment.cacheStorage {
+                try? storage.saveText(book: book, chapter: chapter, content: content)
+            }
+            await readBook.reloadCurrentChapter()
+            refreshPage()
+        }
+    }
+
     // MARK: - The reading progress of the WebDAV server
 
     /// The message of the last progress sync — upstream the toast
@@ -1625,6 +1643,11 @@ public struct ReaderView: View {
                 controller.system.deactivate()
                 controller.deactivateMediaCommands()
             }
+            // Upstream `ReadBookActivity.kt:288` — the back key does nothing
+            // while the reader menu is hidden (`disableReturnKey`).
+            .interactiveDismissDisabled(
+                controller.environment.settings.disableReturnKey && !controller.isMenuPresented
+            )
             .sheet(isPresented: $controller.isTocPresented) {
                 if let model = controller.model {
                     NavigationStack {

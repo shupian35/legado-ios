@@ -31,6 +31,9 @@ public struct ThemeListView: View {
     @State private var isSharePresented = false
     @State private var shareText: String = ""
     @State private var importText: String = ""
+    /// The name of the theme that is saved — upstream `saveDayTheme` /
+    /// `saveNightTheme` ask for a name.
+    @State private var saveName: String = ""
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -59,6 +62,18 @@ public struct ThemeListView: View {
                 // reads the clipboard (`Context.getClipText()`).
                 Button("从剪贴板导入") {
                     importFromClipboard()
+                }
+            }
+            // Upstream `ThemeConfigFragment` — the menu entries
+            // `saveDayTheme` and `saveNightTheme` save the current colours
+            // under a new name.
+            Section("保存当前主题") {
+                TextField("主题名称", text: $saveName)
+                Button("保存日间主题") {
+                    saveTheme(isNight: false)
+                }
+                Button("保存夜间主题") {
+                    saveTheme(isNight: true)
                 }
             }
             if let message {
@@ -141,6 +156,22 @@ public struct ThemeListView: View {
         }
         importText = ""
         message = "已导入 \(theme.themeName)"
+    }
+
+    /// Saves the current colours under a new name — upstream
+    /// `ThemeConfig.saveDayTheme` / `ThemeConfig.saveNightTheme`.
+    private func saveTheme(isNight: Bool) {
+        let name = saveName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            message = "请输入主题名称"
+            return
+        }
+        guard model.themeManager.saveCurrentTheme(name: name, isNightTheme: isNight) else {
+            message = "格式不对,添加失败"
+            return
+        }
+        saveName = ""
+        message = "已保存 \(name)"
     }
 
     /// Imports the theme of the clipboard — upstream

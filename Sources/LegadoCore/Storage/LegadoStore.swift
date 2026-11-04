@@ -396,6 +396,11 @@ public final class LegadoStore {
         try tables.insert(CacheEntry(key: key, value: value, deadline: deadline).row, into: "caches")
     }
 
+    /// Removes a cached value — upstream `CacheDao.delete`.
+    public func deleteCache(_ key: String) throws {
+        try tables.delete(from: "caches", where: .equals(column: "key", value: .text(key)))
+    }
+
     /// Removes the expired cache entries — upstream `CacheDao.clearDeadline`.
     public func clearExpiredCaches(now: Int64) throws {
         let rows = try tables.allRows(in: "caches")

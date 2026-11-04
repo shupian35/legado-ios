@@ -35,6 +35,9 @@ public struct ReaderMenuView: View {
     /// Whether the change source screen is shown — upstream
     /// `ReadBookActivity.menu_changeSource`.
     @State private var isChangeSourcePresented = false
+    /// Whether the per-chapter source change is shown — upstream
+    /// `ReadBookActivity.menu_chapter_change_source`.
+    @State private var isChapterChangeSourcePresented = false
     /// Whether the read-aloud settings are shown — upstream
     /// `ReadAloudDialog`.
     @State private var isAloudSettingsPresented = false
@@ -103,6 +106,22 @@ public struct ReaderMenuView: View {
                 if let model = controller.model {
                     NavigationStack {
                         ChangeSourceView(model: model, book: controller.book)
+                    }
+                }
+            }
+            .sheet(isPresented: $isChapterChangeSourcePresented) {
+                if let model = controller.model {
+                    NavigationStack {
+                        ChangeChapterSourceView(
+                            model: model,
+                            book: controller.book,
+                            chapterIndex: controller.chapterIndex,
+                            chapterTitle: currentChapter?.title ?? "",
+                            chapterCount: controller.chapters.count
+                        ) { content in
+                            controller.replaceCurrentContent(content)
+                            isChapterChangeSourcePresented = false
+                        }
                     }
                 }
             }
@@ -551,6 +570,12 @@ public struct ReaderMenuView: View {
             // Upstream `ReadBookActivity.menu_changeSource`.
             Button("换源") {
                 isChangeSourcePresented = true
+            }
+            // Upstream `ReadBookActivity.menu_chapter_change_source` (the
+            // overflow menu `book_read_change_source.xml`) — the source of the
+            // current chapter only.
+            Button("章节换源") {
+                isChapterChangeSourcePresented = true
             }
             // Upstream `ReadBookActivity.menu_addBookmark`.
             Button("添加书签") {
