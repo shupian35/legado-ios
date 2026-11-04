@@ -60,6 +60,9 @@ public struct ReaderMenuView: View {
     /// Whether the built-in browser is shown — upstream
     /// `ReadMenu.chapterViewClickListener` (`WebViewActivity`).
     @State private var isBrowserPresented = false
+    /// Whether the import and the export of the reader style are shown —
+    /// upstream `BgTextConfigDialog` (导入配置 / 导出配置).
+    @State private var isStyleArchivePresented = false
     /// The address the built-in browser shows.
     @State private var browserURL = ""
     /// The character set that the user picked.
@@ -156,6 +159,11 @@ public struct ReaderMenuView: View {
             .sheet(isPresented: $isBrowserPresented) {
                 NavigationStack {
                     InAppBrowserView(url: browserURL)
+                }
+            }
+            .sheet(isPresented: $isStyleArchivePresented) {
+                NavigationStack {
+                    ReaderStyleArchiveView(controller: controller)
                 }
             }
         }
@@ -415,6 +423,11 @@ public struct ReaderMenuView: View {
                 ForEach(ChineseConversionMode.allCases, id: \.rawValue) { mode in
                     Text(ReaderConverterRow.name(of: mode)).tag(mode.rawValue)
                 }
+            }
+            // The import and the export of the style — upstream
+            // `BgTextConfigDialog` (导入配置 / 导出配置).
+            Button("导入/导出阅读配置") {
+                isStyleArchivePresented = true
             }
         }
     }

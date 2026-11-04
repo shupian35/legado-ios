@@ -35,4 +35,7 @@ public struct UTType: Hashable, Sendable {
 
     /// `UTType.folder` — the folder picker (the scan of a folder for the books).
     public static let folder = UTType(identifier: "public.folder")
+
+    /// `UTType.zip` — the archive of the reader style (`readConfig.zip`).
+    public static let zip = UTType(identifier: "public.zip-archive")
 }

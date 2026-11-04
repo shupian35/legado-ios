@@ -258,9 +258,7 @@ closed with the reason named in its row:
 |---|---|---|---|
 | 1 | The **14 upstream raw preference keys** that are not `PreferKey` constants (`clickRegionalConfig`, `disableReturnKey`, `customPageKey`, `mediaButtonOnExit`, `systemMediaControlCompatibilityChange`, `mediaButtonPerNext`, `sysTtsConfig`, `welcomeStyle`, `coverConfig`, `themeList`, `saveDayTheme`, `saveNightTheme`, `coverRule`, `import_old`) | the upstream code reads them by hand | `Core/App/AppSettings.swift` — they need a raw-key mechanism, because `SettingsKey` is checked against the upstream's 182 `PreferKey` constants by `Tests/LegadoCoreTests/SettingsKeyParityTests.swift` |
 | 2 | The **per-chapter source change** (章节换源 — the source of one chapter, not of the whole book) | `ui/book/changesource/ChangeChapterSourceDialog.kt` | `Core/Pipeline/ChangeSource.swift` + `LegadoUI/BookToolsViews.swift` |
-| 3 | The **readConfig.zip import/export** of the reader style | `ui/book/read/config/ReadStyleDialog.kt` | `Core/Reader/Config/ReaderConfigStore.swift` |
-| 4 | The **RSS source editor's** ~23 remaining fields (the WEB_VIEW tab, ruleTitle / rulePubDate / ruleDescription / ruleImage / ruleLink, sortUrl / loginUrl / header / jsLib) | `ui/rss/RssSourceEditActivity.kt:209-276` | `LegadoUI/RssSourceManagementView.swift` |
-| 5 | The **volume keys** — a *deliberate deviation* (SwiftUI cannot install a `UIApplication` subclass) | `ui/book/read/BaseReadBookActivity.kt:377-391` | `LegadoUI/ReaderSystemIntegration.swift` |
+| 3 | The **volume keys** — a *deliberate deviation* (SwiftUI cannot install a `UIApplication` subclass) | `ui/book/read/BaseReadBookActivity.kt:377-391` | `LegadoUI/ReaderSystemIntegration.swift` |
 
 **Closed since the audits** (they were in the tables above, the list is kept
 here so that the remainder is easy to see):
@@ -308,7 +306,16 @@ here so that the remainder is easy to see):
 - the **TOC's VIP lock** + the **更新时间 tag** (`LegadoUI/TocView.swift`);
 - the **chapter name / address → the browser** (`LegadoUI/ChapterLinkView.swift`
   — the system browser or the built-in browser, the upstream
-  `ReadMenu.chapterViewClickListener`).
+  `ReadMenu.chapterViewClickListener`);
+- the **readConfig.zip import / export** of the reader style
+  (`Core/Reader/Config/ReaderConfigArchive.swift` — the archive holds
+  `readConfig.json` with the field names of the upstream `ReadBookConfig.Config`
+  + the font + the background images, so an archive of the Android app is read
+  by the port and the other way round; `LegadoUI/ReaderStyleArchiveView.swift`
+  is the upstream `BgTextConfigDialog` with its 导入配置 / 导出配置);
+- the **RSS source editor** — the audit row was stale: the port's
+  `LegadoUI/RssSourceManagementView.swift` already has the three tabs of the
+  upstream `RssSourceEditActivity` (基础 / 列表 / WEB_VIEW) with every field.
 
 Two upstream items are deliberately **not** ported because the upstream manifest
 does not register them either: the app widgets and the home-screen shortcuts.
