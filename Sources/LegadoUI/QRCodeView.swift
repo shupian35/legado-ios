@@ -70,6 +70,25 @@ public enum QRCodeGenerator {
         return nil
         #endif
     }
+    /// Encodes a text as a PNG file in the temporary directory.
+    ///
+    /// The upstream's `shareWithQr` writes the PNG into the cache directory
+    /// and shares it as an image (`ContextExtensions.kt:280-306`); on iOS the
+    /// file is shared through the share sheet.
+    public static func fileURL(
+        text: String,
+        level: CorrectionLevel = .high,
+        fileName: String = "qr.png"
+    ) -> URL? {
+        guard let data = png(text: text, level: level) else { return nil }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+        do {
+            try data.write(to: url)
+            return url
+        } catch {
+            return nil
+        }
+    }
 }
 
 /// The QR code view of a book source — upstream `ui/association/`.

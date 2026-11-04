@@ -19,7 +19,7 @@ import Foundation
 import LegadoCore
 
 /// The cover image of a book.
-struct BookCoverView: View {
+public struct BookCoverView: View {
 
     let book: Book
     /// The width of the cover.
@@ -27,7 +27,7 @@ struct BookCoverView: View {
     /// The height of the cover.
     var height: Double = 76
 
-    var body: some View {
+    public var body: some View {
         Group {
             if let url = coverURL, let remote = URL(string: url) {
                 AsyncImage(url: remote) { phase in
@@ -58,6 +58,9 @@ struct BookCoverView: View {
     /// The URL of the cover — upstream `Book.getCoverUrl`.
     private var coverURL: String? {
         if let custom = book.customCoverUrl, !custom.isEmpty {
+            // The upstream's marker of the generated default cover — the
+            // cover is drawn by the placeholder.
+            if custom == legadoDefaultCoverMarker { return nil }
             return custom
         }
         if let cover = book.coverUrl, !cover.isEmpty {

@@ -106,6 +106,96 @@ final class BookCoverTests: XCTestCase {
         XCTAssertNil(cover)
         XCTAssertEqual(client.requests.count, 0)
     }
+
+    // MARK: - The cover source search
+
+    /// A source with a search rule that has a cover URL.
+    private func makeCoverSource(name: String = "Test", order: Int64 = 0) -> BookSource {
+        BookSource(
+            bookSourceUrl: "https://example.com/\(name)",
+            bookSourceName: name,
+            customOrder: order,
+            searchUrl: "https://example.com/search",
+            ruleSearch: """
+            {"bookList":"div.book","name":"h3 a@text","author":"span.author@text",\
+            "coverUrl":"img.cover@src","bookUrl":"h3 a@href"}
+            """
+        )
+    }
+
+    private let searchHTML = """
+    <div class="book">
+      <h3><a href="/book/1">测试书</a></h3>
+      <span class="author">作者</span>
+      <img class="cover" src="https://example.com/cover.jpg"/>
+    </div>
+    """
+
+    func testTheCoversAreSearchedInTheSources() async throws {
+        let client = StubHttpClient { request in
+            HttpResponse(url: request.url, body: self.searchHTML)
+        }
+        let book = Book(bookUrl: "https://example.com/book", name: "测试书", author: "作者")
+        let covers = await BookCoverService.searchCovers(
+            book: book,
+            sources: [makeCoverSource()],
+            dependencies: AnalyzeUrlDependencies(httpClient: client)
+        )
+        XCTAssertEqual(covers.count, 1)
+        XCTAssertEqual(covers[0].coverUrl, "https://example.com/cover.jpg")
+        XCTAssertEqual(covers[0].originName, "Test")
+    }
+
+    func testTheSourcesWithoutACoverRuleAreSkipped() async throws {
+        let client = StubHttpClient { request in
+            HttpResponse(url: request.url, body: self.searchHTML)
+        }
+        let source = BookSource(
+            bookSourceUrl: "https://example.com/plain",
+            bookSourceName: "Plain",
+            searchUrl: "https://example.com/search",
+            ruleSearch: "{\"bookList\":\"div.book\",\"name\":\"h3 a@text\"}"
+        )
+        let book = Book(bookUrl: "https://example.com/book", name: "测试书", author: "作者")
+        let covers = await BookCoverService.searchCovers(
+            book: book,
+            sources: [source],
+            dependencies: AnalyzeUrlDependencies(httpClient: client)
+        )
+        XCTAssertTrue(covers.isEmpty)
+        XCTAssertEqual(client.requests.count, 0)
+    }
+
+    func testTheCoversAreSortedByTheOrderOfTheSource() async throws {
+        let client = StubHttpClient { request in
+            HttpResponse(url: request.url, body: self.searchHTML)
+        }
+        let book = Book(bookUrl: "https://example.com/book", name: "测试书", author: "作者")
+        let covers = await BookCoverService.searchCovers(
+            book: book,
+            sources: [
+                makeCoverSource(name: "Second", order: 5),
+                makeCoverSource(name: "First", order: 1)
+            ],
+            dependencies: AnalyzeUrlDependencies(httpClient: client)
+        )
+        XCTAssertEqual(covers.count, 2)
+        XCTAssertEqual(covers[0].originName, "First")
+        XCTAssertEqual(covers[1].originName, "Second")
+    }
+
+    func testABookWithAnotherNameIsNotACover() async throws {
+        let client = StubHttpClient { request in
+            HttpResponse(url: request.url, body: self.searchHTML)
+        }
+        let book = Book(bookUrl: "https://example.com/book", name: "别的书", author: "作者")
+        let covers = await BookCoverService.searchCovers(
+            book: book,
+            sources: [makeCoverSource()],
+            dependencies: AnalyzeUrlDependencies(httpClient: client)
+        )
+        XCTAssertTrue(covers.isEmpty)
+    }
 }
 
 /// The saving of the current theme — upstream `ThemeConfig.saveDayTheme` /

@@ -35,6 +35,8 @@ public struct BookDetailView: View {
     @State private var isTocPresented = false
     @State private var isGroupPickerPresented = false
     @State private var isSharePresented = false
+    /// The share of the QR code — upstream `BookInfoActivity.menu_share_it`.
+    @State private var isShareQRPresented = false
     /// The confirmation of the upload to the WebDAV server — upstream
     /// `BookInfoActivity.menu_upload`.
     @State private var isUploadConfirmed = false
@@ -46,6 +48,17 @@ public struct BookDetailView: View {
     @State private var groupMask: Int64 = 0
     /// The book that is displayed — the store can update it.
     @State private var current: Book
+    /// The search of the book name or of the author — upstream
+    /// `BookInfoActivity.tvName` / `tvAuthor`.
+    @State private var searchKeyword: String?
+    /// The source editor of the source of the book — upstream
+    /// `BookInfoActivity.tvOrigin`.
+    @State private var isSourceEditorPresented = false
+    /// The cover picker — upstream `BookInfoActivity.ivCover`'s click.
+    @State private var isChangeCoverPresented = false
+    /// The full-screen cover — upstream `BookInfoActivity.ivCover`'s long
+    /// press.
+    @State private var isCoverPreviewPresented = false
 
     /// Whether the book is being cached (upstream `CacheBook`).
     private var isCaching: Bool {
@@ -188,6 +201,11 @@ public struct BookDetailView: View {
                     Button("分享") {
                         isSharePresented = true
                     }
+                    // Upstream `BookInfoActivity.menu_share_it` — the share
+                    // of the QR code of the book.
+                    Button("分享二维码") {
+                        isShareQRPresented = true
+                    }
                 } label: {
                     Label("更多", systemImage: "ellipsis.circle")
                 }
@@ -220,8 +238,42 @@ public struct BookDetailView: View {
                 }
             }
         }
+        .sheet(isPresented: Binding(
+            get: { searchKeyword != nil },
+            set: { if !$0 { searchKeyword = nil } }
+        )) {
+            // Upstream `BookInfoActivity.tvName` / `tvAuthor` — the search of
+            // the name or of the author.
+            NavigationStack {
+                SearchView(model: model, keyword: searchKeyword ?? "")
+            }
+        }
+        .sheet(isPresented: $isSourceEditorPresented) {
+            if let source {
+                NavigationStack {
+                    SourceEditorView(model: model, source: source)
+                }
+            }
+        }
+        .sheet(isPresented: $isChangeCoverPresented) {
+            // Upstream `BookInfoActivity.ivCover`'s click — the cover
+            // picker.
+            NavigationStack {
+                ChangeCoverView(model: model, book: current) { url in
+                    applyCover(url)
+                }
+            }
+        }
+        .sheet(isPresented: $isCoverPreviewPresented) {
+            // Upstream `BookInfoActivity.ivCover`'s long press — the
+            // full-screen preview.
+            BookCoverPreviewView(url: displayCoverUrl, title: current.name)
+        }
         .sheet(isPresented: $isSharePresented) {
             ShareSheet(items: [shareText])
+        }
+        .sheet(isPresented: $isShareQRPresented) {
+            ShareSheet(items: shareQRItems)
         }
         .sheet(isPresented: $isLogPresented) {
             NavigationStack {
@@ -299,13 +351,31 @@ public struct BookDetailView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
+            // Upstream `BookInfoActivity.ivCover` — a tap opens the cover
+            // picker and a long press the full-screen preview.
             BookCoverView(book: current, width: 84, height: 114)
+                .onTapGesture {
+                    isChangeCoverPresented = true
+                }
+                .onLongPressGesture {
+                    isCoverPreviewPresented = true
+                }
             VStack(alignment: .leading, spacing: 6) {
-                Text(current.name)
-                    .font(.system(size: 20))
-                Text(current.author)
-                    .font(.system(size: 14))
-                    .foregroundColor(.secondary)
+                // Upstream `BookInfoActivity.tvName` — the name opens the
+                // search.
+                Button(current.name) {
+                    searchKeyword = current.name
+                }
+                .font(.system(size: 20))
+                .buttonStyle(PlainButtonStyle())
+                // Upstream `BookInfoActivity.tvAuthor` — the author opens the
+                // search too.
+                Button(current.author) {
+                    searchKeyword = current.author
+                }
+                .font(.system(size: 14))
+                .foregroundColor(.secondary)
+                .buttonStyle(PlainButtonStyle())
                 if let kind = current.kind, !kind.isEmpty {
                     Text(kind)
                         .font(.system(size: 13))
@@ -317,12 +387,10 @@ public struct BookDetailView: View {
                         .foregroundColor(.secondary)
                 }
                 // Upstream `BookInfoActivity.tvOrigin` — the name of the
-                // source; tapping it opens the source.
+                // source; tapping it opens the SOURCE EDITOR.
                 if !sourceName.isEmpty {
                     Button(sourceName) {
-                        if let source {
-                            model.presentLogin(for: source)
-                        }
+                        isSourceEditorPresented = true
                     }
                     .font(.system(size: 12))
                     .buttonStyle(PlainButtonStyle())
@@ -396,6 +464,28 @@ public struct BookDetailView: View {
     private var shareText: String {
         let json = (try? LegadoBackup.encodeRows([current.row])) ?? "{}"
         return "\(current.bookUrl)#\(json)"
+    }
+
+    /// The URL of the cover that is displayed — upstream
+    /// `Book.getDisplayCover()`.
+    private var displayCoverUrl: String? {
+        if let custom = current.customCoverUrl, !custom.isEmpty,
+            custom != legadoDefaultCoverMarker {
+            return custom
+        }
+        if let cover = current.coverUrl, !cover.isEmpty {
+            return cover
+        }
+        return nil
+    }
+
+    /// The items of the share sheet of the QR code — upstream
+    /// `ContextExtensions.shareWithQr`.
+    private var shareQRItems: [Any] {
+        if let url = QRCodeGenerator.fileURL(text: shareText) {
+            return [url]
+        }
+        return [shareText]
     }
 
     // MARK: - Actions
@@ -478,6 +568,19 @@ public struct BookDetailView: View {
     private func toggleCanUpdate() {
         var updated = current
         updated.canUpdate.toggle()
+        try? model.environment.store.update(updated)
+        current = updated
+        model.reloadBookshelf()
+    }
+
+    /// Applies a cover that was picked — upstream
+    /// `BookInfoActivity.coverChangeTo`.
+    ///
+    /// The default cover is stored as the upstream's marker
+    /// `use_default_cover`; the cover view draws the generated cover for it.
+    private func applyCover(_ url: String) {
+        var updated = current
+        updated.customCoverUrl = url
         try? model.environment.store.update(updated)
         current = updated
         model.reloadBookshelf()

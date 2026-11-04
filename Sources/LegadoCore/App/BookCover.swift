@@ -165,3 +165,74 @@ public enum BookCoverService {
         return cover.isEmpty ? nil : cover
     }
 }
+
+// MARK: - The cover source search
+
+/// A cover that was found by searching the sources — upstream
+/// `ChangeCoverViewModel`'s `SearchBook` entries.
+public struct CoverSearchResult: Equatable, Identifiable, Sendable {
+    /// The URL of the cover.
+    public let coverUrl: String
+    /// The name of the source that found it.
+    public let originName: String
+    /// The order of the source — the results are sorted by it.
+    public let originOrder: Int64
+
+    public init(coverUrl: String, originName: String, originOrder: Int64) {
+        self.coverUrl = coverUrl
+        self.originName = originName
+        self.originOrder = originOrder
+    }
+
+    public var id: String { coverUrl }
+}
+
+public extension BookCoverService {
+
+    /// Searches the covers of a book in the sources — upstream
+    /// `ChangeCoverViewModel.search`.
+    ///
+    /// Only the sources whose search rule has a cover URL are used; the first
+    /// result of each source is taken and it is kept only when the name and
+    /// the author match the book exactly (the upstream's
+    /// `searchBook.name == name && searchBook.author == author`).
+    static func searchCovers(
+        book: Book,
+        sources: [BookSource],
+        dependencies: AnalyzeUrlDependencies = AnalyzeUrlDependencies()
+    ) async -> [CoverSearchResult] {
+        let name = book.name
+        let author = ChangeSourceService.sanitizedAuthor(book.author)
+        var results: [CoverSearchResult] = []
+        for source in sources where source.enabled {
+            guard let coverRule = source.searchRule?.coverUrl,
+                !coverRule.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                continue
+            }
+            do {
+                let books = try await WebBook.searchBook(
+                    bookSource: source,
+                    key: name,
+                    shouldBreak: { $0 > 0 },
+                    dependencies: dependencies
+                )
+                guard let hit = books.first else { continue }
+                guard hit.name == name, hit.author == author else { continue }
+                let coverUrl = hit.coverUrl ?? ""
+                guard !coverUrl.isEmpty else { continue }
+                results.append(
+                    CoverSearchResult(
+                        coverUrl: coverUrl,
+                        originName: source.bookSourceName,
+                        originOrder: source.customOrder
+                    )
+                )
+            } catch {
+                // The upstream logs the failure and carries on with the next
+                // source (`AppLog.put("封面换源搜索出错…")`).
+                continue
+            }
+        }
+        return results.sorted { $0.originOrder < $1.originOrder }
+    }
+}

@@ -647,6 +647,8 @@ public struct BookInfoMenuView: View {
     @State private var variableKind: VariableKind?
     /// The cover editor.
     @State private var isCoverPresented = false
+    /// The manual entry of a cover URL.
+    @State private var isCoverUrlPresented = false
 
     public init(model: LegadoAppModel, book: Book) {
         self.model = model
@@ -685,6 +687,9 @@ public struct BookInfoMenuView: View {
                 }
                 Button("更换封面") {
                     isCoverPresented = true
+                }
+                Button("手动输入封面链接") {
+                    isCoverUrlPresented = true
                 }
                 Button("删除") {
                     delete()
@@ -725,6 +730,19 @@ public struct BookInfoMenuView: View {
             }
         }
         .sheet(isPresented: $isCoverPresented) {
+            // Upstream `ui/book/changecover/ChangeCoverDialog` — the covers
+            // that the sources know.
+            NavigationStack {
+                ChangeCoverView(model: model, book: book) { url in
+                    var updated = book
+                    updated.customCoverUrl = url
+                    try? model.environment.store.update(updated)
+                    model.reloadBookshelf()
+                    message = "已更换封面"
+                }
+            }
+        }
+        .sheet(isPresented: $isCoverUrlPresented) {
             NavigationStack {
                 CoverEditorView(
                     coverUrl: book.customCoverUrl ?? "",
@@ -919,7 +937,11 @@ struct VariableEditorView: View {
     }
 }
 
-/// The cover editor — upstream `ChangeCoverDialog`.
+/// The cover editor — the manual entry of a cover URL.
+///
+/// The upstream picks the cover in a dialog that searches the sources
+/// (`ui/book/changecover/ChangeCoverDialog.kt`); this editor is the port's
+/// extra way to type a URL.
 struct CoverEditorView: View {
 
     @Environment(\.dismiss) private var dismiss
