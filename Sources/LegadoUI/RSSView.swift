@@ -155,10 +155,17 @@ public struct RSSView: View {
             .sheet(isPresented: $isSourceEditorPresented) {
                 NavigationStack {
                     if let source = selectedSource {
-                        RssSourceEditView(source: source) { updated in
-                            model.saveRssSource(updated)
-                            loadSorts(updated)
-                        }
+                        RssSourceEditView(
+                            model: model,
+                            source: source,
+                            onSave: { updated in
+                                model.saveRssSource(updated)
+                                loadSorts(updated)
+                            },
+                            onClose: {
+                                isSourceEditorPresented = false
+                            }
+                        )
                     }
                 }
             }

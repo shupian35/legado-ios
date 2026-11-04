@@ -70,4 +70,115 @@ public enum RssSourceImport {
         guard let scheme = url.scheme?.lowercased() else { return false }
         return scheme == "http" || scheme == "https"
     }
+
+    // MARK: - The preview of the import
+
+    /// The state of an imported source against the local ones — upstream
+    /// `ImportRssSourceViewModel.comparisonSource` (the adapter shows
+    /// "新增", "更新" or "已有").
+    public enum State: String, Equatable, Sendable {
+        /// The source is not on the device.
+        case new = "新增"
+        /// The imported source is newer than the local one.
+        case update = "更新"
+        /// The local source is the same or newer.
+        case existing = "已有"
+    }
+
+    /// The options of the import — upstream
+    /// `ImportRssSourceViewModel.importSelect` and the menu
+    /// `res/menu/import_source.xml` (保留名称 / 保留分组 / 保留启用 / 新建分组).
+    public struct Options: Equatable, Sendable {
+        /// The name of the local source wins — `importKeepName`.
+        public var keepName = false
+        /// The group of the local source wins — `importKeepGroup`.
+        public var keepGroup = false
+        /// The enabled flag of the local source wins — `importKeepEnable`.
+        public var keepEnable = false
+        /// The group the imported sources are put into.
+        public var groupName: String? = nil
+        /// The group is added to the groups of the source instead of
+        /// replacing them — the upstream's "同时添加分组" switch.
+        public var addGroup = false
+
+        public init() {}
+    }
+
+    /// One source of the import preview.
+    public struct Item: Identifiable, Equatable, Sendable {
+        /// The imported source.
+        public let source: RssSource
+        /// The state against the local sources.
+        public let state: State
+        /// Whether the source is selected — upstream `selectStatus`.
+        public var selected: Bool
+
+        public var id: String { source.sourceUrl }
+
+        public init(source: RssSource, state: State, selected: Bool) {
+            self.source = source
+            self.state = state
+            self.selected = selected
+        }
+    }
+
+    /// The preview of the import — upstream
+    /// `ImportRssSourceViewModel.comparisonSource`.
+    ///
+    /// A source is selected when it is new or when it is newer than the
+    /// local one (`checkSources[index] == null || has.lastUpdateTime <
+    /// it.lastUpdateTime`).
+    public static func items(_ sources: [RssSource], local: [RssSource]) -> [Item] {
+        sources.map { source in
+            guard let has = local.first(where: { $0.sourceUrl == source.sourceUrl }) else {
+                return Item(source: source, state: .new, selected: true)
+            }
+            let state: State = has.lastUpdateTime < source.lastUpdateTime ? .update : .existing
+            return Item(source: source, state: state, selected: state != .existing)
+        }
+    }
+
+    /// The sources that are inserted — upstream
+    /// `ImportRssSourceViewModel.importSelect`.
+    ///
+    /// The selected sources keep the name, the group and the enabled flag of
+    /// the local source when the matching option is on; the order always
+    /// comes from the local source. The group of the options is added to the
+    /// groups of the source or replaces them.
+    public static func prepare(
+        _ items: [Item],
+        local: [RssSource],
+        options: Options
+    ) -> [RssSource] {
+        let group = options.groupName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var prepared: [RssSource] = []
+        for item in items where item.selected {
+            var source = item.source
+            if let has = local.first(where: { $0.sourceUrl == source.sourceUrl }) {
+                if options.keepName {
+                    source.sourceName = has.sourceName
+                }
+                if options.keepGroup {
+                    source.sourceGroup = has.sourceGroup
+                }
+                if options.keepEnable {
+                    source.enabled = has.enabled
+                }
+                source.customOrder = has.customOrder
+            }
+            if !group.isEmpty {
+                if options.addGroup {
+                    var groups = RssLibrary.splitGroups(source.sourceGroup)
+                    if !groups.contains(group) {
+                        groups.append(group)
+                    }
+                    source.sourceGroup = groups.joined(separator: ",")
+                } else {
+                    source.sourceGroup = group
+                }
+            }
+            prepared.append(source)
+        }
+        return prepared
+    }
 }

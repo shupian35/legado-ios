@@ -624,6 +624,46 @@ public final class LegadoAppModel: ObservableObject {
         }
     }
 
+    /// Adds the favourite of an article — upstream
+    /// `ReadRssViewModel.addFavorite`.
+    @discardableResult
+    public func addStar(
+        _ article: RssArticle,
+        group: String = RssLibrary.defaultGroup
+    ) -> RssStar? {
+        if let existing = RssLibrary.star(of: article, in: rssStars) {
+            return existing
+        }
+        let star = RssLibrary.makeStar(article: article, group: group)
+        do {
+            try environment.store.insert(star)
+            rssStars = try environment.store.allRssStars()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        return star
+    }
+
+    /// Updates a favourite — upstream `ReadRssViewModel.updateFavorite`.
+    public func updateStar(_ star: RssStar) {
+        do {
+            try environment.store.insert(star)
+            rssStars = try environment.store.allRssStars()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Deletes a favourite — upstream `ReadRssViewModel.delFavorite`.
+    public func deleteStar(_ star: RssStar) {
+        do {
+            try environment.store.deleteRssStar(link: star.link)
+            rssStars = try environment.store.allRssStars()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     /// Marks an article as read — upstream `RssReadRecordDao`.
     public func markRead(_ article: RssArticle) {
         do {

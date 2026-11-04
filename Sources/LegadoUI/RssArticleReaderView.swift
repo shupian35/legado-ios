@@ -21,6 +21,10 @@ import LegadoUIShim
 import WebKit
 #endif
 
+#if canImport(AVFoundation)
+import AVFoundation
+#endif
+
 import Foundation
 import LegadoCore
 
@@ -44,6 +48,25 @@ public struct RssArticleReaderView: View {
     /// Whether the original page is shown in the browser — upstream
     /// `menu_browser_open`.
     @State private var isBrowserPresented = false
+    /// Whether the editor of the favourite is shown — upstream
+    /// `ui/rss/favorites/RssFavoritesDialog.kt`.
+    @State private var isFavoritePresented = false
+    /// Whether the share sheet is shown — upstream `menu_share_it`.
+    @State private var isSharePresented = false
+    /// Whether the article is being read aloud — upstream `menu_aloud`.
+    @State private var isAloud = false
+
+    /// The read aloud of the article — upstream `viewModel.tts`.
+    ///
+    /// The upstream reads the visible text of the web view; the port reads
+    /// the text of the article.
+    private let aloud: ReadAloudController = {
+        #if canImport(AVFoundation)
+        return ReadAloudController(synthesizer: AVSpeechSynthesizerEngine())
+        #else
+        return ReadAloudController()
+        #endif
+    }()
 
     public init(model: LegadoAppModel, article: RssArticle, source: RssSource) {
         self.model = model
@@ -67,21 +90,59 @@ public struct RssArticleReaderView: View {
             .navigationTitle(article.title)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    // Upstream `menu_star`.
+                    // Upstream `menu_rss_star` — the article becomes a
+                    // favourite and its title and group are edited.
                     Button(model.isStarred(article) ? "★" : "☆") {
-                        model.toggleStar(article)
+                        addFavorite()
                     }
                 }
                 ToolbarItem(placement: .secondaryAction) {
-                    // Upstream `menu_browser_open`.
-                    Button("原文") {
-                        isBrowserPresented = true
+                    // Upstream `res/menu/rss_read.xml`.
+                    Menu("更多") {
+                        Button("刷新") {
+                            Task { await refresh() }
+                        }
+                        Button("分享") {
+                            isSharePresented = true
+                        }
+                        Button(isAloud ? "停止朗读" : "朗读") {
+                            toggleAloud()
+                        }
+                        if let loginUrl = source.loginUrl, !loginUrl.isEmpty {
+                            Button("登录") {
+                                model.presentLogin(for: source)
+                            }
+                        }
+                        Button("原文") {
+                            isBrowserPresented = true
+                        }
                     }
                 }
             }
             .sheet(isPresented: $isBrowserPresented) {
                 NavigationStack {
                     InAppBrowserView(url: article.link)
+                }
+            }
+            .sheet(isPresented: $isSharePresented) {
+                ShareSheet(items: [article.link])
+            }
+            .sheet(isPresented: $isFavoritePresented) {
+                NavigationStack {
+                    if let star = model.rssStars.first(where: { $0.link == article.link }) {
+                        RssFavoriteEditView(
+                            star: star,
+                            groups: RssLibrary.starGroups(model.rssStars).map(\.name),
+                            onSave: { updated in
+                                model.updateStar(updated)
+                            },
+                            onDelete: {
+                                if let current = model.rssStars.first(where: { $0.link == article.link }) {
+                                    model.deleteStar(current)
+                                }
+                            }
+                        )
+                    }
                 }
             }
             .task {
@@ -114,6 +175,46 @@ public struct RssArticleReaderView: View {
             model.errorMessage = error.localizedDescription
             content = article.description ?? ""
         }
+    }
+
+    /// Refreshes the content of the article — upstream `viewModel.refresh`.
+    private func refresh() async {
+        await load()
+    }
+
+    /// Reads the article aloud — upstream `readAloud()`.
+    ///
+    /// The upstream reads the visible text of the web view; the port reads
+    /// the text of the article.
+    private func toggleAloud() {
+        if isAloud {
+            aloud.stop()
+            isAloud = false
+            return
+        }
+        let text = TextFormat.format(content ?? article.description ?? "")
+        let paragraphs = ReadAloudSplitter.paragraphs(in: text)
+        guard !paragraphs.isEmpty else {
+            model.errorMessage = "没有可朗读的内容"
+            return
+        }
+        aloud.onStateChange { state in
+            DispatchQueue.main.async {
+                isAloud = state == .playing
+            }
+        }
+        aloud.play(paragraphs: paragraphs)
+        isAloud = true
+    }
+
+    /// Adds the article to the favourites and opens the editor of the
+    /// favourite — upstream `menu_rss_star` (`viewModel.addFavorite()` and
+    /// then `showDialogFragment(RssFavoritesDialog(it))`).
+    private func addFavorite() {
+        if !model.isStarred(article) {
+            model.addStar(article)
+        }
+        isFavoritePresented = true
     }
 
     /// Opens a link of the article — upstream

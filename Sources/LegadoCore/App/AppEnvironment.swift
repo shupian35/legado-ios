@@ -435,6 +435,51 @@ public final class AppEnvironment {
         return try importRssSources(json: body)
     }
 
+    /// The preview of an RSS source import — upstream
+    /// `ImportRssSourceViewModel.comparisonSource`.
+    ///
+    /// Every imported source is compared with the local ones: a source that
+    /// is not on the device is "新增", a source that is newer than the local
+    /// one is "更新" and the others are "已有".
+    public func rssImportPreview(_ sources: [RssSource]) throws -> [RssSourceImport.Item] {
+        RssSourceImport.items(sources, local: try store.allRssSources())
+    }
+
+    /// The RSS sources of an import document — upstream
+    /// `ImportRssSourceViewModel.importSourceAwait`.
+    ///
+    /// The document holds the sources themselves or a list of urls
+    /// (`sourceUrls`); every url of the list is downloaded and imported.
+    public func rssSourcesOfImport(json: String) async throws -> [RssSource] {
+        let urls = (try? RssSourceImport.sourceURLs(json: json)) ?? []
+        if !urls.isEmpty {
+            var sources: [RssSource] = []
+            for url in urls {
+                sources += try await rssSourcesOfImport(url: url)
+            }
+            return sources
+        }
+        return try RssSourceImport.sources(json: json)
+    }
+
+    /// The RSS sources of an import url — upstream
+    /// `ImportRssSourceViewModel.importSourceUrl`.
+    public func rssSourcesOfImport(url: String) async throws -> [RssSource] {
+        let body = try await download(url: url)
+        return try await rssSourcesOfImport(json: body)
+    }
+
+    /// Inserts the RSS sources — upstream `SourceHelp.insertRssSource`.
+    ///
+    /// - Returns: the number of inserted sources.
+    @discardableResult
+    public func insertRssSources(_ sources: [RssSource]) throws -> Int {
+        for source in sources {
+            try store.insert(source)
+        }
+        return sources.count
+    }
+
     /// Exports the RSS sources as a JSON array — upstream
     /// `RssSourceViewModel.saveToFile`.
     public func exportRssSources(onlyEnabled: Bool = false) throws -> String {

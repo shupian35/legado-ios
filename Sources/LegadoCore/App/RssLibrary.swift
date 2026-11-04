@@ -104,6 +104,25 @@ public enum RssLibrary {
         return (star, stars)
     }
 
+    /// Creates the favourite of an article — upstream `RssArticle.toStar()`.
+    public static func makeStar(
+        article: RssArticle,
+        group: String = defaultGroup
+    ) -> RssStar {
+        RssStar(
+            origin: article.origin,
+            sort: article.sort,
+            title: article.title,
+            link: article.link,
+            starTime: Int64(Date().timeIntervalSince1970 * 1000),
+            pubDate: article.pubDate,
+            description: article.description,
+            content: article.content,
+            image: article.image,
+            group: group
+        )
+    }
+
     /// The read record of an article.
     public static func readRecord(of article: RssArticle, in records: [RssReadRecord]) -> RssReadRecord? {
         records.first { $0.record == article.link }

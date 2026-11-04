@@ -210,10 +210,17 @@ public struct RssSourceManagerView: View {
             }
         }
         .sheet(item: $editing) { source in
-            RssSourceEditView(source: source) { saved in
-                model.saveRssSource(saved)
-                reload()
-            }
+            RssSourceEditView(
+                model: model,
+                source: source,
+                onSave: { saved in
+                    model.saveRssSource(saved)
+                    reload()
+                },
+                onClose: {
+                    editing = nil
+                }
+            )
         }
         .sheet(isPresented: $isImportPresented) {
             ImportDocumentView(model: model, kind: .rssSource, text: $importText)

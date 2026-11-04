@@ -18,8 +18,8 @@ upstream feature is listed with its upstream file, the Swift implementation and
 its state (`[x]` done, `[~]` partial, `[ ]` not started), followed by the
 deliberate deviations.
 
-The port is ~64,620 lines of Swift in 246 files, with ~14,450 lines of tests
-(1,147 unit tests: 1,067 in `LegadoCoreTests`, 80 in `LegadoServerTests`) next to them.
+The port is ~65,530 lines of Swift in 247 files, with ~14,640 lines of tests
+(1,164 unit tests: 1,084 in `LegadoCoreTests`, 80 in `LegadoServerTests`) next to them.
 
 ## What is in here
 
@@ -34,7 +34,7 @@ Sources/
   LegadoServer/        the local HTTP + WebSocket server (the upstream web API)
   LegadoApp/           a command-line shell with a headless smoke test
   LegadoAppUI/         the iOS entry point (`@main`) + the Info.plist
-Tests/                 1,147 unit tests
+Tests/                 1,164 unit tests
 project.yml            the XcodeGen spec of the iOS application target
 Scripts/
   sw.sh                the build/test/run helper (WSL, a clean PATH, a scratch dir)
@@ -187,7 +187,9 @@ A **second wave** of four fresh audits (2026-11-04, the reports in
 wave had missed — the in-app file browser of the local import, the manga's
 horizontal scroll and zoom, the RSS favourites editor, the search row's
 labels, the tip colour pickers, … They are listed in **§8.7** of the matrix
-and are the current work list.
+and are the current work list; the reader, the manga, the local import and
+the RSS rows are closed there now, the discover + search, the bookshelf + TOC
+and the settings + sources rows are what is left.
 
 ## The security differences from the Android app
 

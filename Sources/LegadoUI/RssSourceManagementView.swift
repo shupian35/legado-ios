@@ -70,6 +70,11 @@ public struct RssSourceManageView: View {
     /// The group the selected sources are added to or removed from — upstream
     /// `RssSourceViewModel.selectionAddToGroups`.
     @State private var newGroup: String = ""
+    /// The sources of the import preview — upstream
+    /// `ImportRssSourceDialog`.
+    @State private var importSources: [RssSource] = []
+    /// Whether the import preview is shown.
+    @State private var isImportPreviewPresented = false
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -221,10 +226,17 @@ public struct RssSourceManageView: View {
             }
         }
         .sheet(item: $editing) { item in
-            RssSourceEditView(source: item.source) { saved in
-                model.saveRssSource(saved)
-                reload()
-            }
+            RssSourceEditView(
+                model: model,
+                source: item.source,
+                onSave: { saved in
+                    model.saveRssSource(saved)
+                    reload()
+                },
+                onClose: {
+                    editing = nil
+                }
+            )
         }
         .sheet(isPresented: $isGroupPresented) {
             NavigationStack {
@@ -235,6 +247,20 @@ public struct RssSourceManageView: View {
             NavigationStack {
                 RssSourceImportView { text in
                     await importText(text)
+                }
+            }
+        }
+        .sheet(isPresented: $isImportPreviewPresented) {
+            NavigationStack {
+                RssSourceImportPreviewView(model: model, sources: importSources) { prepared in
+                    do {
+                        let count = try model.environment.insertRssSources(prepared)
+                        message = "导入 \(count) 个订阅源"
+                    } catch {
+                        message = "导入失败: \(error.localizedDescription)"
+                    }
+                    isImportPreviewPresented = false
+                    reload()
                 }
             }
         }
@@ -330,6 +356,19 @@ public struct RssSourceManageView: View {
                 deletedURL = source.sourceUrl
             }
             .font(.system(size: 12))
+        }
+        // Upstream `RssSourceAdapter.showMenu` — the popup of a row holds
+        // 置顶, 置底 and 删除.
+        .contextMenu {
+            Button("置顶") {
+                moveToTop(source)
+            }
+            Button("置底") {
+                moveToBottom(source)
+            }
+            Button("删除", role: .destructive) {
+                deletedURL = source.sourceUrl
+            }
         }
     }
 
@@ -459,6 +498,25 @@ public struct RssSourceManageView: View {
         reload()
     }
 
+    /// Moves a source to the top — upstream `RssSourceViewModel.topSource`
+    /// with a single source (`customOrder = minOrder - 1`).
+    private func moveToTop(_ source: RssSource) {
+        var changed = source
+        changed.customOrder = (sources.map(\.customOrder).min() ?? 0) - 1
+        save(changed)
+        reload()
+    }
+
+    /// Moves a source to the bottom — upstream
+    /// `RssSourceViewModel.bottomSource` with a single source
+    /// (`customOrder = maxOrder + 1`).
+    private func moveToBottom(_ source: RssSource) {
+        var changed = source
+        changed.customOrder = (sources.map(\.customOrder).max() ?? 0) + 1
+        save(changed)
+        reload()
+    }
+
     /// Adds a group to the selected sources — upstream
     /// `RssSourceViewModel.selectionAddToGroups`.
     private func addGroupToSelection() {
@@ -532,18 +590,24 @@ public struct RssSourceManageView: View {
     /// Imports a text — upstream `ImportRssSourceViewModel.importSourceAwait`.
     ///
     /// The text is either an url (the document is downloaded) or a JSON
-    /// document with the sources.
+    /// document with the sources. The upstream shows the preview of the
+    /// import before the sources are inserted.
     private func importText(_ text: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         do {
-            let count: Int
+            let sources: [RssSource]
             if RssSourceImport.isAbsoluteURL(trimmed) {
-                count = try await model.environment.importRssSources(url: trimmed)
+                sources = try await model.environment.rssSourcesOfImport(url: trimmed)
             } else {
-                count = try model.environment.importRssSources(json: trimmed)
+                sources = try await model.environment.rssSourcesOfImport(json: trimmed)
             }
-            message = "导入 \(count) 个订阅源"
+            guard !sources.isEmpty else {
+                message = "没有可导入的订阅源"
+                return
+            }
+            importSources = sources
+            isImportPreviewPresented = true
         } catch {
             message = "导入失败: \(error.localizedDescription)"
         }
@@ -708,16 +772,47 @@ public struct RssSourceGroupManageView: View {
 /// the article).
 public struct RssSourceEditView: View {
 
+    /// The model — the login, the debug and the share need it.
+    @ObservedObject var model: LegadoAppModel
+
     /// The edited source.
     @State private var draft: RssSource
     /// The tab of the editor.
     @State private var tab: Int = 0
     /// The action of the save.
     let onSave: (RssSource) -> Void
+    /// The action of the close — the upstream asks whether the changes are to
+    /// be discarded (`exit_no_save`).
+    let onClose: (() -> Void)?
+    /// The message of the last action.
+    @State private var message: String = ""
+    /// Whether the rules are completed automatically — upstream
+    /// `menu_auto_complete`.
+    @State private var autoComplete = false
+    /// The debugger — upstream `menu_debug`.
+    @State private var isDebugPresented = false
+    /// The variables of the source — upstream `menu_set_source_variable`.
+    @State private var isVariablesPresented = false
+    @State private var variableText: String = ""
+    /// The share sheet — upstream `menu_share_source`.
+    @State private var isSharePresented = false
+    /// The QR code — upstream `menu_qr_code`.
+    @State private var isQRPresented = false
+    /// Whether the source was changed.
+    @State private var isChanged = false
+    /// Whether the confirmation of the exit is shown.
+    @State private var isExitConfirmationPresented = false
 
-    public init(source: RssSource, onSave: @escaping (RssSource) -> Void) {
+    public init(
+        model: LegadoAppModel,
+        source: RssSource,
+        onSave: @escaping (RssSource) -> Void,
+        onClose: (() -> Void)? = nil
+    ) {
+        self.model = model
         _draft = State(initialValue: source)
         self.onSave = onSave
+        self.onClose = onClose
     }
 
     public var body: some View {
@@ -738,14 +833,101 @@ public struct RssSourceEditView: View {
             default:
                 baseTab
             }
+            if !message.isEmpty {
+                Section {
+                    Text(message)
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+            }
         }
         .navigationTitle("订阅源")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("保存") {
-                    onSave(draft)
+                    save()
                 }
             }
+            ToolbarItem(placement: .primaryAction) {
+                Button("关闭") {
+                    close()
+                }
+            }
+            ToolbarItem(placement: .secondaryAction) {
+                // The upstream `res/menu/source_edit.xml`.
+                Menu("更多") {
+                    Button("调试") {
+                        onSave(draft)
+                        isDebugPresented = true
+                    }
+                    if let loginUrl = draft.loginUrl, !loginUrl.isEmpty {
+                        Button("登录") {
+                            model.presentLogin(for: draft)
+                        }
+                    }
+                    Button("源变量") {
+                        variableText = BookSourceVariables.sourceVariables(draft.key) ?? ""
+                        isVariablesPresented = true
+                    }
+                    Button("清除Cookie") {
+                        model.environment.cookieStore.removeCookie(url: draft.sourceUrl)
+                        message = "已清除该订阅源的Cookie"
+                    }
+                    Button(autoComplete ? "自动补全：开" : "自动补全：关") {
+                        autoComplete.toggle()
+                        message = autoComplete ? "规则将自动补全" : "规则不再自动补全"
+                    }
+                    Button("复制源") {
+                        UIPasteboardShim.copy(sourceJSON)
+                        message = "已复制订阅源"
+                    }
+                    Button("粘贴源") {
+                        pasteSource()
+                    }
+                    Button("二维码分享") {
+                        isQRPresented = true
+                    }
+                    Button("分享") {
+                        isSharePresented = true
+                    }
+                    NavigationLink("帮助") {
+                        RuleHelpView()
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $isDebugPresented) {
+            NavigationStack {
+                RssSourceDebugView(model: model, sourceUrl: draft.sourceUrl)
+            }
+        }
+        .sheet(isPresented: $isVariablesPresented) {
+            NavigationStack {
+                VariableEditorView(
+                    title: "源变量",
+                    comment: "源变量可在js中通过source.getVariable()获取",
+                    value: variableText
+                ) { value in
+                    saveVariables(value)
+                }
+            }
+        }
+        .sheet(isPresented: $isQRPresented) {
+            NavigationStack {
+                QRCodeView(text: sourceJSON)
+                    .navigationTitle("订阅源二维码")
+            }
+        }
+        .sheet(isPresented: $isSharePresented) {
+            ShareSheet(items: [sourceJSON])
+        }
+        .alert("退出", isPresented: $isExitConfirmationPresented) {
+            Button("取消", role: .cancel) {}
+            Button("放弃修改", role: .destructive) {
+                onClose?()
+            }
+        } message: {
+            Text("是否放弃本次修改？")
         }
     }
 
@@ -783,12 +965,12 @@ public struct RssSourceEditView: View {
     private var listTab: some View {
         Section("列表规则") {
             TextField("文章列表(ruleArticles)", text: field(\.ruleArticles))
-            TextField("下一页(ruleNextPage)", text: field(\.ruleNextPage))
-            TextField("标题(ruleTitle)", text: field(\.ruleTitle))
-            TextField("发表时间(rulePubDate)", text: field(\.rulePubDate))
-            TextField("摘要(ruleDescription)", text: field(\.ruleDescription))
-            TextField("图片(ruleImage)", text: field(\.ruleImage))
-            TextField("链接(ruleLink)", text: field(\.ruleLink))
+            TextField("下一页(ruleNextPage)", text: ruleField(\.ruleNextPage, .link))
+            TextField("标题(ruleTitle)", text: ruleField(\.ruleTitle, .text))
+            TextField("发表时间(rulePubDate)", text: ruleField(\.rulePubDate, .text))
+            TextField("摘要(ruleDescription)", text: ruleField(\.ruleDescription, .text))
+            TextField("图片(ruleImage)", text: ruleField(\.ruleImage, .image))
+            TextField("链接(ruleLink)", text: ruleField(\.ruleLink, .text))
         }
     }
 
@@ -801,7 +983,7 @@ public struct RssSourceEditView: View {
             Toggle(isOn: $draft.loadWithBaseUrl) {
                 Text("加载BaseUrl(loadWithBaseUrl)")
             }
-            TextField("正文(ruleContent)", text: field(\.ruleContent))
+            TextField("正文(ruleContent)", text: ruleField(\.ruleContent, .text))
             TextField("样式(style)", text: field(\.style))
             TextField("注入JS(injectJs)", text: field(\.injectJs))
             TextField("白名单(contentWhitelist)", text: field(\.contentWhitelist))
@@ -818,8 +1000,93 @@ public struct RssSourceEditView: View {
             get: { draft[keyPath: keyPath] ?? "" },
             set: { value in
                 draft[keyPath: keyPath] = value.isEmpty ? nil : value
+                isChanged = true
             }
         )
+    }
+
+    /// A binding of a rule — the rule is completed when the auto-completion
+    /// is on — upstream `RssSourceEditActivity.getRssSource`.
+    private func ruleField(
+        _ keyPath: WritableKeyPath<RssSource, String?>,
+        _ type: RuleCompleteType
+    ) -> Binding<String> {
+        Binding(
+            get: { draft[keyPath: keyPath] ?? "" },
+            set: { value in
+                var updated = value
+                if autoComplete {
+                    updated = RuleComplete.autoComplete(
+                        rules: value,
+                        preRule: draft.ruleArticles,
+                        type: type
+                    ) ?? value
+                }
+                draft[keyPath: keyPath] = updated.isEmpty ? nil : updated
+                isChanged = true
+            }
+        )
+    }
+
+    /// The source as a JSON document — the upstream `GSON.toJson(source)`.
+    private var sourceJSON: String {
+        RssSourceJSONBridge.encode(draft).jsonString
+    }
+
+    /// Saves the source.
+    private func save() {
+        onSave(draft)
+        isChanged = false
+        message = "已保存"
+    }
+
+    /// Closes the editor — the upstream asks whether the changes are to be
+    /// discarded.
+    private func close() {
+        if isChanged {
+            isExitConfirmationPresented = true
+        } else {
+            onClose?()
+        }
+    }
+
+    /// Pastes a source from the clipboard — upstream `viewModel.pasteSource`.
+    private func pasteSource() {
+        guard let text = UIPasteboardShim.paste() else {
+            message = "剪贴板为空"
+            return
+        }
+        guard let value = try? JSONValue.parse(text),
+              let pasted = RssSourceJSONBridge.decode(value) else {
+            message = "剪贴板的内容不是一个订阅源"
+            return
+        }
+        draft = pasted
+        isChanged = true
+        message = "已粘贴订阅源：\(pasted.sourceName)"
+    }
+
+    /// Saves the variables of the source — upstream `setSourceVariable`.
+    private func saveVariables(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            message = "变量不能为空"
+            return
+        }
+        guard let value = try? JSONValue.parse(trimmed),
+              let object = value.objectValue else {
+            message = "变量不是一个合法的JSON对象"
+            return
+        }
+        // The upstream stores the variables in the cache manager under
+        // `v_<key>_<name>` — the port keeps them in one dictionary.
+        var variables: [String: String] = [:]
+        for (name, item) in object {
+            guard let text = item.stringValue else { continue }
+            variables[name] = text
+        }
+        BookSourceVariables.setVariables(variables, for: draft.key)
+        message = "已保存源变量"
     }
 }
 
