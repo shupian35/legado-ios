@@ -1076,6 +1076,46 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
         }
     }
 
+    // MARK: - The content refresh (upstream `ReadBookViewModel`)
+
+    /// Refreshes the content of the current chapter — upstream
+    /// `ReadBookViewModel.refreshContentDur(book)`: the cached content of the
+    /// chapter is deleted and the chapter is loaded again.
+    public func refreshCurrentContent() {
+        Task {
+            guard chapters.indices.contains(chapterIndex) else { return }
+            let chapter = chapters[chapterIndex]
+            model?.environment.cacheStorage?.deleteContent(book: book, chapter: chapter)
+            await readBook.reloadCurrentChapter()
+            refreshPage()
+        }
+    }
+
+    /// Refreshes the content of the chapters after the current one — upstream
+    /// `ReadBookViewModel.refreshContentAfter(book)`.
+    public func refreshContentAfter() {
+        Task {
+            if let storage = model?.environment.cacheStorage {
+                for chapter in chapters[chapterIndex...] {
+                    storage.deleteContent(book: book, chapter: chapter)
+                }
+            }
+            await readBook.reloadCurrentChapter()
+            refreshPage()
+        }
+    }
+
+    /// Refreshes the content of the whole book — upstream
+    /// `ReadBookViewModel.refreshContentAll(book)`: the whole cache of the
+    /// book is cleared and the current chapter is loaded again.
+    public func refreshAllContent() {
+        Task {
+            model?.environment.cacheStorage?.clearCache(book: book)
+            await readBook.reloadCurrentChapter()
+            refreshPage()
+        }
+    }
+
     // MARK: - The reading progress of the WebDAV server
 
     /// The message of the last progress sync — upstream the toast

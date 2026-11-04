@@ -465,6 +465,21 @@ public struct ReaderMenuView: View {
             Button("更新目录") {
                 Task { await controller.checkForNewChapters() }
             }
+            // Upstream `ReadBookActivity.menu_refresh` — the content of the
+            // current chapter is fetched again.
+            Button("刷新本章") {
+                controller.refreshCurrentContent()
+            }
+            // Upstream `ReadBookActivity.menu_refresh_after` — the content of
+            // the chapters after the current one.
+            Button("刷新后续") {
+                controller.refreshContentAfter()
+            }
+            // Upstream `ReadBookActivity.menu_refresh_all` — the content of
+            // the whole book.
+            Button("刷新全部") {
+                controller.refreshAllContent()
+            }
             // Upstream `ReadBookActivity.menu_replaceRuleState` — the
             // "启用替换净化" switch.
             Toggle(

@@ -262,6 +262,13 @@ public struct CacheManageView: View {
                     clearAll()
                 }
             }
+            Section("下载") {
+                // Upstream `ui/book/cache/CacheActivity.kt` — the download
+                // queue of the offline cache.
+                NavigationLink("下载管理") {
+                    DownloadManageView(model: model)
+                }
+            }
             if let message {
                 Section {
                     Text(message)
