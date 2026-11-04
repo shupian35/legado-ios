@@ -173,6 +173,9 @@ public struct DictRuleView: View {
     @State private var editing: DictRule?
     @State private var isSharePresented = false
     @State private var exportedFileURL: URL?
+    /// The import of a document — upstream `DictRuleActivity.menu_import_onLine`.
+    @State private var isImportPresented = false
+    @State private var importText: String = ""
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -201,6 +204,14 @@ public struct DictRuleView: View {
                 }
             }
             ToolbarItem(placement: .primaryAction) {
+                // Upstream `DictRuleActivity.menu_import_onLine` — the import
+                // of a document with the history of the urls.
+                Button("导入") {
+                    importText = ""
+                    isImportPresented = true
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
                 // Upstream `DictRuleViewModel.restoreDefault`.
                 Button("恢复默认") {
                     try? DefaultData.importDefaultDictRules(store: model.environment.store)
@@ -220,6 +231,9 @@ public struct DictRuleView: View {
                 model.saveDictRule(saved)
                 reload()
             }
+        }
+        .sheet(isPresented: $isImportPresented) {
+            ImportDocumentView(model: model, kind: .dictRule, text: $importText)
         }
         .sheet(isPresented: $isSharePresented) {
             if let exportedFileURL {

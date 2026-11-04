@@ -642,6 +642,9 @@ public struct ImportDocumentView: View {
     @State private var isURL = false
     @State private var isLoading = false
     @State private var message: String?
+    /// The urls the documents were imported from — upstream the `ACache`
+    /// (`BookSourceActivity.showImportDialog`).
+    @State private var history: [String] = []
 
     @Environment(\.dismiss) private var dismiss
 
@@ -649,6 +652,11 @@ public struct ImportDocumentView: View {
         self.model = model
         self.kind = kind
         self._text = text
+    }
+
+    /// The cache key of the history of this kind of import.
+    private var historyKind: ImportUrlHistory.Kind? {
+        ImportUrlHistory.Kind(importKind: kind)
     }
 
     /// The title of the sheet.
@@ -675,6 +683,28 @@ public struct ImportDocumentView: View {
                             .frame(minHeight: 220)
                     }
                 }
+                if isURL && !history.isEmpty {
+                    // Upstream the edit field has a filter with the urls of
+                    // the cache and a delete callback.
+                    Section("最近导入") {
+                        ForEach(history, id: \.self) { url in
+                            HStack {
+                                Button(url) {
+                                    text = url
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                                Spacer()
+                                Button {
+                                    removeHistory(url)
+                                } label: {
+                                    Image(systemName: "trash")
+                                        .foregroundColor(.red)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        }
+                    }
+                }
                 if let message {
                     Section {
                         Text(message)
@@ -684,6 +714,9 @@ public struct ImportDocumentView: View {
                 }
             }
             .navigationTitle(title)
+            .onAppear {
+                reloadHistory()
+            }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button("导入") {
@@ -724,8 +757,30 @@ public struct ImportDocumentView: View {
             message = DocumentImporter.failureMessage
             return
         }
+        // Upstream the url is remembered in the `ACache` before the import.
+        rememberHistory(url)
         message = DocumentImporter.importJSON(body, kind: kind, model: model)
         dismiss()
+    }
+
+    /// Reloads the history of the urls — upstream
+    /// `aCache.getAsString(importRecordKey)`.
+    private func reloadHistory() {
+        guard let historyKind else { return }
+        history = ImportUrlHistory.urls(historyKind, store: model.environment.store)
+    }
+
+    /// Remembers an imported url — upstream
+    /// `cacheUrls.add(0, it); aCache.put(importRecordKey, …)`.
+    private func rememberHistory(_ url: String) {
+        guard let historyKind else { return }
+        history = ImportUrlHistory.add(url, historyKind, store: model.environment.store)
+    }
+
+    /// Removes an url from the history — upstream `editView.delCallBack`.
+    private func removeHistory(_ url: String) {
+        guard let historyKind else { return }
+        history = ImportUrlHistory.remove(url, historyKind, store: model.environment.store)
     }
 
     /// Imports the JSON document — upstream `DeepLink.importJSON`.

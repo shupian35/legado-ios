@@ -213,7 +213,9 @@ public struct BookDetailView: View {
         }
         .sheet(isPresented: $isChangeSourcePresented) {
             NavigationStack {
-                ChangeSourceView(model: model, book: current)
+                ChangeSourceView(model: model, book: current) {
+                    isChangeSourcePresented = false
+                }
             }
         }
         .sheet(isPresented: $isContentSearchPresented) {

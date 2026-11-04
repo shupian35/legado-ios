@@ -129,6 +129,16 @@ public extension AppSettings {
         let isSingleGroup = !scope.isAll && !scope.isSource && scope.groupNames.count == 1
         settingsStore.set(isSingleGroup ? scope.scope : "", forKey: SearchScope.groupKey)
     }
+
+    /// The group of the change-source screen — upstream
+    /// `AppConfig.searchGroup` (`AppConfig.kt:527-530`).
+    ///
+    /// The upstream keeps the group of the search scope here so that the
+    /// change-source dialog can be scoped to it.
+    var searchGroup: String {
+        get { settingsStore.string(forKey: SearchScope.groupKey) ?? "" }
+        set { settingsStore.set(newValue, forKey: SearchScope.groupKey) }
+    }
 }
 
 /// The merge of the results of a search — upstream `SearchModel.mergeItems`.

@@ -244,6 +244,31 @@ final class SearchScopeTests: XCTestCase {
         XCTAssertEqual(SearchHistory.keywords(store: store, settings: settings).count, 1)
     }
 
+    // MARK: - The group of the change-source screen
+
+    func testTheSearchGroupIsEmptyByDefault() {
+        let settings = AppSettings(store: InMemorySettingsStore())
+        XCTAssertEqual(settings.searchGroup, "")
+    }
+
+    func testTheSearchGroupIsStored() {
+        let settings = AppSettings(store: InMemorySettingsStore())
+        settings.searchGroup = "轻小说"
+        XCTAssertEqual(settings.searchGroup, "轻小说")
+    }
+
+    func testTheScopeOfOneGroupIsAlsoTheSearchGroup() {
+        let settings = AppSettings(store: InMemorySettingsStore())
+        settings.setSearchScope(SearchScope(scope: "轻小说"))
+        XCTAssertEqual(settings.searchGroup, "轻小说")
+    }
+
+    func testTheScopeOfSeveralGroupsIsNotTheSearchGroup() {
+        let settings = AppSettings(store: InMemorySettingsStore())
+        settings.setSearchScope(SearchScope(scope: "轻小说,小说"))
+        XCTAssertEqual(settings.searchGroup, "")
+    }
+
     // MARK: - The helpers
 
     private func makeStore() throws -> LegadoStore {

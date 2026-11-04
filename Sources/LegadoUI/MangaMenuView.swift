@@ -77,7 +77,9 @@ public struct MangaMenuView: View {
         .sheet(isPresented: $showsChangeSource) {
             if let model = controller.model {
                 NavigationStack {
-                    ChangeSourceView(model: model, book: controller.book)
+                    ChangeSourceView(model: model, book: controller.book) {
+                        showsChangeSource = false
+                    }
                 }
             }
         }

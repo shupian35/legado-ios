@@ -41,10 +41,20 @@ public struct ChangeSourceView: View {
     @State private var editingSource: BookSource?
     /// The source that is about to be deleted — upstream `menu_delete_source`.
     @State private var deletingSource: BookSource?
+    /// The group the search is scoped to — upstream `AppConfig.searchGroup`
+    /// (the menu `res/menu/change_source.xml` → `menu_group`).
+    @State private var group: String = ""
+    /// The running search — upstream `ChangeBookSourceViewModel.task`.
+    @State private var searchTask: Task<Void, Never>?
+    /// The source manager — upstream `menu_source_manage`.
+    @State private var isSourceManagerPresented = false
+    /// Called when the sheet is closed — upstream `menu_close`.
+    private let onClose: (() -> Void)?
 
-    public init(model: LegadoAppModel, book: Book) {
+    public init(model: LegadoAppModel, book: Book, onClose: (() -> Void)? = nil) {
         self.model = model
         self.book = book
+        self.onClose = onClose
     }
 
     public var body: some View {
@@ -117,6 +127,54 @@ public struct ChangeSourceView: View {
         }
         .padding(16)
         .navigationTitle("换源")
+        .onAppear {
+            // Upstream `ChangeBookSourceDialog` reads the group of the
+            // search scope when it opens.
+            if group.isEmpty {
+                group = model.environment.settings.searchGroup
+            }
+        }
+        .toolbar {
+            // Upstream `res/menu/change_source.xml` — the group submenu
+            // (`menu_group`), the start/stop button (`menu_start_stop`) and
+            // the overflow items (`menu_source_manage`, `menu_refresh_list`,
+            // `menu_close`).
+            ToolbarItem(placement: .secondaryAction) {
+                Menu {
+                    Section("分组") {
+                        Button("全部书源") { selectGroup("") }
+                        ForEach(sourceGroups, id: \.self) { name in
+                            Button(name) { selectGroup(name) }
+                        }
+                    }
+                } label: {
+                    Text(group.isEmpty ? "分组" : "分组(\(group))")
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button(isLoading ? "停止" : "开始") {
+                    if isLoading {
+                        stopSearch()
+                    } else {
+                        search()
+                    }
+                }
+            }
+            ToolbarItem(placement: .secondaryAction) {
+                Menu {
+                    Button("书源管理") { isSourceManagerPresented = true }
+                    Button("刷新列表") { refreshList() }
+                    Button("关闭") { onClose?() }
+                } label: {
+                    Text("更多")
+                }
+            }
+        }
+        .sheet(isPresented: $isSourceManagerPresented) {
+            NavigationStack {
+                SourceManagerView(model: model)
+            }
+        }
         .sheet(item: $editingSource) { source in
             NavigationStack {
                 SourceEditorView(model: model, source: source, onClose: { editingSource = nil })
@@ -217,14 +275,20 @@ public struct ChangeSourceView: View {
         let settings = model.environment.settings
         // Upstream `SourceConfig` — the scores the user gave to the books.
         let config = SourceConfig.load(store: model.environment.store)
-        Task {
+        // The group of the search — upstream `AppConfig.searchGroup`.
+        let group = self.group
+        searchTask?.cancel()
+        searchTask = Task {
             do {
-                let sources = try model.environment.sources(enabledOnly: true)
+                let all = try model.environment.sources(enabledOnly: true)
+                // Upstream `ChangeBookSourceViewModel.getEnabledPartByGroup`.
+                let sources = ChangeSourceService.sources(all, group: group.isEmpty ? nil : group)
                 let options = ChangeSourceOptions(
                     checkAuthor: settings.bool(.changeSourceCheckAuthor, default: false),
                     loadInfo: settings.bool(.changeSourceLoadInfo, default: false),
                     loadToc: settings.bool(.changeSourceLoadToc, default: false),
                     loadWordCount: settings.bool(.changeSourceLoadWordCount, default: false),
+                    group: group.isEmpty ? nil : group,
                     bookScores: config.bookScores,
                     sourceScores: config.sourceScores
                 )
@@ -234,15 +298,63 @@ public struct ChangeSourceView: View {
                     options: options,
                     dependencies: model.environment.dependencies()
                 )
+                guard !Task.isCancelled else { return }
                 candidates = found
                 scores = Dictionary(
                     uniqueKeysWithValues: found.map { ($0.scoreKey, config.bookScore(key: $0.scoreKey)) }
                 )
+                if found.isEmpty && !group.isEmpty {
+                    // Upstream `ChangeBookSourceDialog.searchFinishCallback` —
+                    // the empty result of a group asks whether the search
+                    // should run over every group.
+                    errorMessage = "\(group)分组搜索结果为空，是否切换到全部分组？"
+                }
             } catch {
-                errorMessage = error.localizedDescription
+                if !Task.isCancelled {
+                    errorMessage = error.localizedDescription
+                }
             }
             isLoading = false
         }
+    }
+
+    /// Stops the running search — upstream
+    /// `ChangeBookSourceViewModel.stopSearch`.
+    private func stopSearch() {
+        searchTask?.cancel()
+        searchTask = nil
+        isLoading = false
+    }
+
+    /// Refreshes the list of the candidates — upstream
+    /// `ChangeBookSourceViewModel.startRefreshList` (the found books are
+    /// searched again so their information is up to date).
+    private func refreshList() {
+        search()
+    }
+
+    /// The groups of the enabled sources — upstream
+    /// `BookSourceDao.flowEnabledGroups`.
+    private var sourceGroups: [String] {
+        let sources = (try? model.environment.sources(enabledOnly: true)) ?? []
+        var groups: [String] = []
+        for source in sources {
+            for name in (source.bookSourceGroup ?? "").split(separator: ",") {
+                let trimmed = name.trimmingCharacters(in: .whitespaces)
+                if !trimmed.isEmpty && !groups.contains(trimmed) {
+                    groups.append(trimmed)
+                }
+            }
+        }
+        return groups
+    }
+
+    /// Selects the group of the search — upstream `ChangeBookSourceDialog`
+    /// (`AppConfig.searchGroup = item.title`).
+    private func selectGroup(_ name: String) {
+        group = name
+        model.environment.settings.searchGroup = name
+        search()
     }
 
     /// A binding for one of the switches of the upstream — the value is
@@ -303,6 +415,10 @@ public struct ChangeChapterSourceView: View {
     @State private var isLoadingToc = false
     /// The message of the last action.
     @State private var message: String?
+    /// The group the search is scoped to — upstream `AppConfig.searchGroup`.
+    @State private var group: String = ""
+    /// The running search — upstream `ChangeChapterSourceViewModel.task`.
+    @State private var searchTask: Task<Void, Never>?
 
     public init(
         model: LegadoAppModel,
@@ -331,6 +447,36 @@ public struct ChangeChapterSourceView: View {
         .padding(16)
         .navigationTitle(chapterTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            if group.isEmpty {
+                group = model.environment.settings.searchGroup
+            }
+        }
+        .toolbar {
+            // Upstream `ChangeChapterSourceDialog` uses the same menu
+            // `res/menu/change_source.xml`.
+            ToolbarItem(placement: .secondaryAction) {
+                Menu {
+                    Section("分组") {
+                        Button("全部书源") { selectGroup("") }
+                        ForEach(sourceGroups, id: \.self) { name in
+                            Button(name) { selectGroup(name) }
+                        }
+                    }
+                } label: {
+                    Text(group.isEmpty ? "分组" : "分组(\(group))")
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button(isLoading ? "停止" : "开始") {
+                    if isLoading {
+                        stopSearch()
+                    } else {
+                        search()
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - The search
@@ -419,22 +565,61 @@ public struct ChangeChapterSourceView: View {
         isLoading = true
         errorMessage = nil
         didSearch = true
-        Task {
+        let group = self.group
+        searchTask?.cancel()
+        searchTask = Task {
             do {
-                let sources = try model.environment.sources(enabledOnly: true)
-                let options = ChangeSourceOptions(checkAuthor: checkAuthor)
+                let all = try model.environment.sources(enabledOnly: true)
+                // Upstream `ChangeChapterSourceViewModel.getEnabledPartByGroup`.
+                let sources = ChangeSourceService.sources(all, group: group.isEmpty ? nil : group)
+                let options = ChangeSourceOptions(checkAuthor: checkAuthor, group: group.isEmpty ? nil : group)
                 let found = try await ChangeSourceService.search(
                     book: book,
                     sources: sources,
                     options: options,
                     dependencies: model.environment.dependencies()
                 )
+                guard !Task.isCancelled else { return }
                 candidates = found
             } catch {
-                errorMessage = error.localizedDescription
+                if !Task.isCancelled {
+                    errorMessage = error.localizedDescription
+                }
             }
             isLoading = false
         }
+    }
+
+    /// Stops the running search — upstream
+    /// `ChangeChapterSourceViewModel.stopSearch`.
+    private func stopSearch() {
+        searchTask?.cancel()
+        searchTask = nil
+        isLoading = false
+    }
+
+    /// The groups of the enabled sources — upstream
+    /// `BookSourceDao.flowEnabledGroups`.
+    private var sourceGroups: [String] {
+        let sources = (try? model.environment.sources(enabledOnly: true)) ?? []
+        var groups: [String] = []
+        for source in sources {
+            for name in (source.bookSourceGroup ?? "").split(separator: ",") {
+                let trimmed = name.trimmingCharacters(in: .whitespaces)
+                if !trimmed.isEmpty && !groups.contains(trimmed) {
+                    groups.append(trimmed)
+                }
+            }
+        }
+        return groups
+    }
+
+    /// Selects the group of the search — upstream
+    /// `ChangeChapterSourceDialog` (`AppConfig.searchGroup`).
+    private func selectGroup(_ name: String) {
+        group = name
+        model.environment.settings.searchGroup = name
+        search()
     }
 
     /// Upstream `ChangeChapterSourceDialog.openToc(searchBook)`.

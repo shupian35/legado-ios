@@ -262,7 +262,7 @@ public struct RssSourceManageView: View {
         }
         .sheet(isPresented: $isImportPresented) {
             NavigationStack {
-                RssSourceImportView { text in
+                RssSourceImportView(model: model) { text in
                     await importText(text)
                 }
             }
@@ -649,6 +649,9 @@ public struct RssSourceManageView: View {
         do {
             let sources: [RssSource]
             if RssSourceImport.isAbsoluteURL(trimmed) {
+                // Upstream the url is remembered in the `ACache` before the
+                // import (`RssSourceActivity.showImportDialog`).
+                _ = ImportUrlHistory.add(trimmed, .rssSource, store: model.environment.store)
                 sources = try await model.environment.rssSourcesOfImport(url: trimmed)
             } else {
                 sources = try await model.environment.rssSourcesOfImport(json: trimmed)
@@ -672,12 +675,18 @@ public struct RssSourceManageView: View {
 /// `RssSourceActivity.showImportDialog`.
 struct RssSourceImportView: View {
 
+    @ObservedObject var model: LegadoAppModel
+
     let onImport: (String) async -> Void
 
     @State private var url: String = ""
     @State private var isImporting = false
+    /// The urls the sources were imported from — upstream the `ACache`
+    /// (`RssSourceActivity.showImportDialog`).
+    @State private var history: [String] = []
 
-    init(onImport: @escaping (String) async -> Void) {
+    init(model: LegadoAppModel, onImport: @escaping (String) async -> Void) {
+        self.model = model
         self.onImport = onImport
     }
 
@@ -700,8 +709,37 @@ struct RssSourceImportView: View {
                     }
                 }
             }
+            if !history.isEmpty {
+                // Upstream the edit field has a filter with the urls of the
+                // cache and a delete callback.
+                Section("最近导入") {
+                    ForEach(history, id: \.self) { entry in
+                        HStack {
+                            Button(entry) {
+                                url = entry
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            Spacer()
+                            Button {
+                                history = ImportUrlHistory.remove(
+                                    entry,
+                                    .rssSource,
+                                    store: model.environment.store
+                                )
+                            } label: {
+                                Image(systemName: "trash")
+                                    .foregroundColor(.red)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                }
+            }
         }
         .navigationTitle("网络导入")
+        .onAppear {
+            history = ImportUrlHistory.urls(.rssSource, store: model.environment.store)
+        }
     }
 }
 

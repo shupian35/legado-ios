@@ -108,7 +108,9 @@ public struct ReaderMenuView: View {
             .sheet(isPresented: $isChangeSourcePresented) {
                 if let model = controller.model {
                     NavigationStack {
-                        ChangeSourceView(model: model, book: controller.book)
+                        ChangeSourceView(model: model, book: controller.book) {
+                            isChangeSourcePresented = false
+                        }
                     }
                 }
             }
