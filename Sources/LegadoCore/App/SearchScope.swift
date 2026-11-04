@@ -139,40 +139,69 @@ public enum SearchResultMerge {
     /// The books whose name or author are the keyword come first, then the
     /// books that only contain the keyword and — when the search is not
     /// precise — the rest. The books with the same name and author are
-    /// merged into one.
+    /// merged into one and the origins of the merged books are collected
+    /// (upstream `pBook.addOrigin(nBook.origin)`); the books are sorted by
+    /// the number of their origins (upstream `sortByDescending { it.origins.size }`).
     public static func merge(
         _ books: [SearchBook],
         keyword: String,
         precision: Bool
     ) -> [SearchBook] {
-        var equal: [SearchBook] = []
-        var contains: [SearchBook] = []
-        var other: [SearchBook] = []
-        // The position of every known book — the books with the same name
-        // and author are merged into the first one (upstream
-        // `pBook.addOrigin(nBook.origin)`).
-        var index: [String: (Int, Int)] = [:]
+        // The books with the same name and author are merged into the first
+        // one; the order of the books is kept.
+        var order: [String] = []
+        var merged: [String: SearchBook] = [:]
 
         for book in books {
             let key = "\(book.name)\u{1}\(book.author)"
-            if index[key] != nil { continue }
+            if var existing = merged[key] {
+                // Upstream `addOrigin` — the origins are unique and keep
+                // their order.
+                if !existing.origins.contains(book.origin) {
+                    existing.origins.append(book.origin)
+                    merged[key] = existing
+                }
+            } else {
+                var copy = book
+                copy.origins = [book.origin]
+                merged[key] = copy
+                order.append(key)
+            }
+        }
+
+        var equal: [SearchBook] = []
+        var contains: [SearchBook] = []
+        var other: [SearchBook] = []
+
+        for key in order {
+            guard let book = merged[key] else { continue }
             if book.name == keyword || book.author == keyword {
-                index[key] = (0, equal.count)
                 equal.append(book)
             } else if book.name.contains(keyword) || book.author.contains(keyword) {
-                index[key] = (1, contains.count)
                 contains.append(book)
             } else {
-                index[key] = (2, other.count)
                 other.append(book)
             }
         }
 
-        var result = equal
-        result.append(contentsOf: contains)
+        var result = sortedByOrigins(equal)
+        result.append(contentsOf: sortedByOrigins(contains))
         if !precision {
             result.append(contentsOf: other)
         }
         return result
+    }
+
+    /// Sorts the books by the number of their origins — upstream
+    /// `sortByDescending { it.origins.size }` (a stable sort).
+    private static func sortedByOrigins(_ books: [SearchBook]) -> [SearchBook] {
+        books.enumerated()
+            .sorted { lhs, rhs in
+                if lhs.element.origins.count != rhs.element.origins.count {
+                    return lhs.element.origins.count > rhs.element.origins.count
+                }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
     }
 }

@@ -667,6 +667,15 @@ public struct SearchBook: Equatable, Hashable {
     public var infoHtml: String?
     /// The cached table-of-contents page.
     public var tocHtml: String?
+    /// The origins that found the book — upstream
+    /// `SearchBook.origins`.
+    ///
+    /// The upstream keeps it in a transient `LinkedHashSet` that starts with
+    /// the origin of the book and grows with `addOrigin` when another source
+    /// finds a book with the same name and author (upstream
+    /// `SearchModel.mergeItems`). The search row shows its size as a badge
+    /// (upstream `SearchAdapter.bvOriginCount`).
+    public var origins: [String]
 
     public init(
         bookUrl: String = "",
@@ -688,7 +697,8 @@ public struct SearchBook: Equatable, Hashable {
         chapterWordCount: Int64 = 0,
         respondTime: Int64 = 0,
         infoHtml: String? = nil,
-        tocHtml: String? = nil
+        tocHtml: String? = nil,
+        origins: [String] = []
     ) {
         self.bookUrl = bookUrl
         self.origin = origin
@@ -710,6 +720,7 @@ public struct SearchBook: Equatable, Hashable {
         self.respondTime = respondTime
         self.infoHtml = infoHtml
         self.tocHtml = tocHtml
+        self.origins = origins
     }
 
     public init(row: StorageRow) {
@@ -731,6 +742,28 @@ public struct SearchBook: Equatable, Hashable {
         chapterWordCountText = row["chapterWordCountText"]?.stringValue
         chapterWordCount = row["chapterWordCount"]?.intValue ?? 0
         respondTime = row["respondTime"]?.intValue ?? 0
+        origins = []
+    }
+
+    /// The books are equal when their address is the same — upstream
+    /// `SearchBook.equals` (`other is SearchBook && other.bookUrl == bookUrl`).
+    public static func == (lhs: SearchBook, rhs: SearchBook) -> Bool {
+        lhs.bookUrl == rhs.bookUrl
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(bookUrl)
+    }
+
+    /// The kinds of the book — upstream `SearchBook.getKindList`.
+    ///
+    /// The kinds are stored in one comma separated string.
+    public var kindList: [String] {
+        guard let kind, !kind.isEmpty else { return [] }
+        return kind
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
     }
 
     public var row: StorageRow {

@@ -50,8 +50,14 @@ public struct SearchView: View {
     @State private var isPrecision: Bool
     /// The running search — upstream `SearchModel.searchJob`.
     @State private var searchTask: Task<Void, Never>?
-    /// The dialog that offers to turn the precise search off.
-    @State private var isPrecisionHintPresented = false
+    /// The dialog that offers to turn the precise search off or to widen the
+    /// scope — upstream `SearchActivity.searchFinishLiveData`.
+    @State private var isEmptyHintPresented = false
+    /// The log — upstream `SearchActivity.menu_log`.
+    @State private var isLogPresented = false
+    /// The books of the shelf that match the keyword — upstream
+    /// `SearchActivity.upHistory` (`rvBookshelfSearch`).
+    @State private var shelfMatches: [Book] = []
 
     public init(model: LegadoAppModel, keyword: String = "", source: BookSource? = nil) {
         self.model = model
@@ -71,6 +77,10 @@ public struct SearchView: View {
                 searchBar
                 if keyword.isEmpty {
                     historyBar
+                } else {
+                    // Upstream `SearchActivity.upHistory` — the books of the
+                    // shelf that match the keyword.
+                    shelfBar
                 }
                 resultList
             }
@@ -94,11 +104,62 @@ public struct SearchView: View {
                         Button("搜索范围") {
                             isScopePresented = true
                         }
-                        // Upstream `SearchActivity.menu_precision_search`.
-                        Toggle("精准搜索", isOn: $isPrecision)
+                        // Upstream `SearchActivity.menu_precision_search` —
+                        // the toggle re-submits the query.
+                        Toggle("精准搜索", isOn: Binding(
+                            get: { isPrecision },
+                            set: { newValue in
+                                isPrecision = newValue
+                                model.environment.settings.set(newValue, for: .precisionSearch)
+                                if !keyword.isEmpty {
+                                    startSearch()
+                                }
+                            }
+                        ))
                         // Upstream `SearchActivity.menu_source_manage`.
                         Button("书源管理") {
                             isSourceManagerPresented = true
+                        }
+                        // Upstream `SearchActivity.menu_log`.
+                        Button("日志") {
+                            isLogPresented = true
+                        }
+                        // Upstream `SearchActivity.onMenuOpened` — the scope
+                        // of the search is a menu of its own that is rebuilt
+                        // every time it is opened: the scope that is in use is
+                        // checked and the groups of the enabled sources can
+                        // be picked.
+                        Section("搜索范围") {
+                            // Upstream `menu_1` — every source.
+                            Button {
+                                applyScope(.all)
+                            } label: {
+                                if scope.isAll {
+                                    Label("全部书源", systemImage: "checkmark")
+                                } else {
+                                    Text("全部书源")
+                                }
+                            }
+                            ForEach(enabledGroups, id: \.self) { group in
+                                if scope.groupNames.contains(group) {
+                                    // Upstream `menu_group_1` — the group is
+                                    // in the scope, picking it removes it.
+                                    Button {
+                                        applyScope(scope.removing(group))
+                                    } label: {
+                                        Label(group, systemImage: "checkmark")
+                                    }
+                                } else {
+                                    // Upstream `menu_group_2` — the group is
+                                    // not in the scope, picking it replaces
+                                    // the scope.
+                                    Button {
+                                        applyScope(SearchScope(scope: group))
+                                    } label: {
+                                        Text(group)
+                                    }
+                                }
+                            }
                         }
                     } label: {
                         Label("更多", systemImage: "ellipsis.circle")
@@ -110,30 +171,54 @@ public struct SearchView: View {
                     model: model,
                     scope: scope,
                     onSelect: { newScope in
-                        scope = newScope
-                        model.environment.settings.setSearchScope(newScope)
+                        applyScope(newScope)
                     }
                 )
             }
             .sheet(isPresented: $isSourceManagerPresented) {
                 SourceManagerView(model: model)
             }
-            .alert("没有找到结果", isPresented: $isPrecisionHintPresented) {
-                Button("关闭精准搜索并重新搜索") {
-                    isPrecision = false
-                    model.environment.settings.set(false, for: .precisionSearch)
-                    startSearch()
+            .sheet(isPresented: $isLogPresented) {
+                NavigationStack {
+                    AppLogView()
+                }
+            }
+            // Upstream `SearchActivity.searchFinishLiveData` — the dialog has
+            // two branches: the precise search is turned off, or the scope is
+            // widened to every group.
+            .alert("搜索结果为空", isPresented: $isEmptyHintPresented) {
+                if isPrecision {
+                    Button("关闭精准搜索并重新搜索") {
+                        isPrecision = false
+                        model.environment.settings.set(false, for: .precisionSearch)
+                        startSearch()
+                    }
+                } else {
+                    Button("切换到全部分组") {
+                        applyScope(.all)
+                    }
                 }
                 Button("取消", role: .cancel) {}
             } message: {
-                Text("\(scope.display)分组搜索结果为空，是否关闭精准搜索？")
+                if isPrecision {
+                    Text("\(scope.display)分组搜索结果为空，是否关闭精准搜索？")
+                } else {
+                    Text("\(scope.display)分组搜索结果为空，是否切换到全部分组？")
+                }
             }
             .onAppear {
                 reloadHistory()
                 reloadShelfKeys()
+                reloadShelfMatches()
                 if !keyword.isEmpty {
                     startSearch()
                 }
+            }
+            // Upstream `SearchActivity.onQueryTextChange` — the books of the
+            // shelf that match the keyword are shown while the keyword is
+            // typed.
+            .onChange(of: keyword) { _, _ in
+                reloadShelfMatches()
             }
             .onDisappear {
                 stop()
@@ -203,6 +288,39 @@ public struct SearchView: View {
         }
     }
 
+    /// The books of the shelf that match the keyword — upstream
+    /// `SearchActivity.upHistory` (`rvBookshelfSearch` + `tvBookShow`).
+    ///
+    /// The books are shown as chips; tapping one opens the detail page.
+    @ViewBuilder
+    private var shelfBar: some View {
+        if !shelfMatches.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("书架中的书")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(shelfMatches, id: \.bookUrl) { book in
+                            NavigationLink {
+                                BookDetailView(model: model, book: book)
+                            } label: {
+                                Text(book.name)
+                                    .font(.system(size: 13))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 4)
+                                    .background(Color.gray.opacity(0.12))
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+        }
+    }
+
     @ViewBuilder
     private var resultList: some View {
         if isLoading && results.isEmpty {
@@ -256,35 +374,71 @@ public struct SearchView: View {
 
     /// A result of the search — upstream `SearchAdapter`.
     private func resultRow(_ book: SearchBook) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(book.name)
-                    .font(.system(size: 16))
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                // Upstream `SearchAdapter.isInBookShelf` — the marker of the
-                // books that are already on the shelf.
-                if isInShelf(book) {
-                    Text("已在书架")
-                        .font(.system(size: 11))
-                        .foregroundColor(.accentColor)
+        HStack(alignment: .top, spacing: 10) {
+            // Upstream `SearchAdapter.ivCover`.
+            BookCoverView(book: book.toBook(), width: 48, height: 66)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(book.name)
+                        .font(.system(size: 16))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    // Upstream `SearchAdapter.isInBookShelf` — the marker of the
+                    // books that are already on the shelf.
+                    if isInShelf(book) {
+                        Text("已在书架")
+                            .font(.system(size: 11))
+                            .foregroundColor(.accentColor)
+                    }
+                    // Upstream `SearchAdapter.bvOriginCount` — the number of
+                    // the sources that found the book.
+                    if book.origins.count > 1 {
+                        Text("\(book.origins.count)")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.gray.opacity(0.2))
+                            .cornerRadius(8)
+                    }
                 }
-            }
-            Text(book.author)
-                .font(.system(size: 13))
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-            if let intro = book.intro, !intro.isEmpty {
-                Text(intro)
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                    .lineLimit(3)
-            }
-            if !book.originName.isEmpty {
-                Text(book.originName)
-                    .font(.system(size: 11))
+                Text("作者：\(book.author)")
+                    .font(.system(size: 13))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
+                // Upstream `SearchAdapter.upLasted` — the latest chapter.
+                if let last = book.latestChapterTitle, !last.isEmpty {
+                    Text("最新：\(last)")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                if let intro = book.intro, !intro.isEmpty {
+                    Text(intro)
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .lineLimit(3)
+                }
+                // Upstream `SearchAdapter.upKind` — the kinds of the book.
+                if !book.kindList.isEmpty {
+                    HStack(spacing: 4) {
+                        ForEach(book.kindList, id: \.self) { kind in
+                            Text(kind)
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(Color.gray.opacity(0.12))
+                                .cornerRadius(6)
+                        }
+                    }
+                }
+                if !book.originName.isEmpty {
+                    Text(book.originName)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
             }
         }
     }
@@ -318,8 +472,11 @@ public struct SearchView: View {
             results = found
             hasMore = !found.isEmpty
             isLoading = false
-            if found.isEmpty && precision && !scope.isAll {
-                isPrecisionHintPresented = true
+            // Upstream `SearchActivity.searchFinishLiveData` — the dialog is
+            // shown when the results are empty and the scope is not every
+            // source.
+            if found.isEmpty && !scope.isAll {
+                isEmptyHintPresented = true
             }
         }
     }
@@ -367,6 +524,40 @@ public struct SearchView: View {
             store: model.environment.store,
             settings: model.environment.settings
         )
+    }
+
+    /// Applies a new scope — upstream `SearchActivity.onCompatOptionsItemSelected`
+    /// and `SearchActivity.initData`: the scope is saved and the query is
+    /// re-submitted.
+    private func applyScope(_ newScope: SearchScope) {
+        scope = newScope
+        model.environment.settings.setSearchScope(newScope)
+        if !keyword.isEmpty {
+            startSearch()
+        }
+    }
+
+    /// The groups of the enabled sources — upstream
+    /// `BookSourceDao.flowEnabledGroups`.
+    private var enabledGroups: [String] {
+        var names: [String] = []
+        for source in model.sources where source.enabled {
+            for group in source.groups where !names.contains(group) {
+                names.append(group)
+            }
+        }
+        return names
+    }
+
+    /// The books of the shelf that match the keyword — upstream
+    /// `SearchActivity.upHistory` (`BookDao.flowSearch`).
+    private func reloadShelfMatches() {
+        let key = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else {
+            shelfMatches = []
+            return
+        }
+        shelfMatches = ((try? model.environment.bookshelf().search(key)) ?? []).prefix(20).map { $0 }
     }
 
     private func reloadShelfKeys() {

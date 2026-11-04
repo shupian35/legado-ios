@@ -136,6 +136,66 @@ final class SearchScopeTests: XCTestCase {
         XCTAssertEqual(merged.first?.bookUrl, "1")
     }
 
+    // MARK: - The origins of the results
+
+    func testTheOriginsOfAMergedBookAreCollected() {
+        // Upstream `SearchModel.mergeItems` — `pBook.addOrigin(nBook.origin)`.
+        let books = [
+            SearchBook(bookUrl: "1", origin: "a", name: "Legend", author: "Someone"),
+            SearchBook(bookUrl: "2", origin: "b", name: "Legend", author: "Someone")
+        ]
+        let merged = SearchResultMerge.merge(books, keyword: "Legend", precision: true)
+        XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(merged.first?.origins, ["a", "b"])
+    }
+
+    func testTheOriginOfABookIsAlwaysThere() {
+        let books = [SearchBook(bookUrl: "1", origin: "a", name: "Legend", author: "Someone")]
+        let merged = SearchResultMerge.merge(books, keyword: "Legend", precision: true)
+        XCTAssertEqual(merged.first?.origins, ["a"])
+    }
+
+    func testTheSameOriginIsNotCountedTwice() {
+        let books = [
+            SearchBook(bookUrl: "1", origin: "a", name: "Legend", author: "Someone"),
+            SearchBook(bookUrl: "2", origin: "a", name: "Legend", author: "Someone")
+        ]
+        let merged = SearchResultMerge.merge(books, keyword: "Legend", precision: true)
+        XCTAssertEqual(merged.first?.origins, ["a"])
+    }
+
+    func testTheBooksAreSortedByTheirOrigins() {
+        // Upstream `sortByDescending { it.origins.size }`.
+        let books = [
+            SearchBook(bookUrl: "1", origin: "a", name: "Legend", author: "Someone"),
+            SearchBook(bookUrl: "2", origin: "b", name: "Legend two", author: "Someone"),
+            SearchBook(bookUrl: "3", origin: "c", name: "Legend", author: "Someone"),
+            SearchBook(bookUrl: "4", origin: "d", name: "Legend", author: "Someone")
+        ]
+        let merged = SearchResultMerge.merge(books, keyword: "Legend", precision: false)
+        // The book of the three origins comes first, the book of one origin
+        // comes after it.
+        XCTAssertEqual(merged.first?.bookUrl, "1")
+        XCTAssertEqual(merged.first?.origins.count, 3)
+        XCTAssertEqual(merged[1].bookUrl, "2")
+    }
+
+    func testTheSearchBooksAreEqualByTheirUrl() {
+        // Upstream `SearchBook.equals` — the address is the identity.
+        let one = SearchBook(bookUrl: "1", name: "Legend", author: "Someone")
+        let two = SearchBook(bookUrl: "1", name: "Other", author: "Nobody")
+        XCTAssertEqual(one, two)
+        XCTAssertEqual(one.hashValue, two.hashValue)
+    }
+
+    func testTheKindsOfABookAreSplit() {
+        // Upstream `SearchBook.getKindList`.
+        let book = SearchBook(bookUrl: "1", name: "Legend", kind: "玄幻, 都市,修真")
+        XCTAssertEqual(book.kindList, ["玄幻", "都市", "修真"])
+        XCTAssertEqual(SearchBook(bookUrl: "2", name: "Other").kindList, [])
+        XCTAssertEqual(SearchBook(bookUrl: "3", name: "Other", kind: "").kindList, [])
+    }
+
     // MARK: - The history
 
     func testTheHistoryKeepsTheKeywords() throws {

@@ -16,10 +16,11 @@ The feature-by-feature status lives in
 [`Plan/00-feature-parity-matrix.md`](Plan/00-feature-parity-matrix.md) — every
 upstream feature is listed with its upstream file, the Swift implementation and
 its state (`[x]` done, `[~]` partial, `[ ]` not started), followed by the
-deliberate deviations.
+deliberate deviations. The plain-language summary — **what is done and what is
+not** — is [`Plan/01-feature-status.md`](Plan/01-feature-status.md).
 
-The port is ~65,530 lines of Swift in 247 files, with ~14,640 lines of tests
-(1,164 unit tests: 1,084 in `LegadoCoreTests`, 80 in `LegadoServerTests`) next to them.
+The port is ~65,780 lines of Swift in 247 files, with ~14,690 lines of tests
+(1,170 unit tests: 1,090 in `LegadoCoreTests`, 80 in `LegadoServerTests`) next to them.
 
 ## What is in here
 
@@ -34,7 +35,7 @@ Sources/
   LegadoServer/        the local HTTP + WebSocket server (the upstream web API)
   LegadoApp/           a command-line shell with a headless smoke test
   LegadoAppUI/         the iOS entry point (`@main`) + the Info.plist
-Tests/                 1,164 unit tests
+Tests/                 1,170 unit tests
 project.yml            the XcodeGen spec of the iOS application target
 Scripts/
   sw.sh                the build/test/run helper (WSL, a clean PATH, a scratch dir)
@@ -187,9 +188,14 @@ A **second wave** of four fresh audits (2026-11-04, the reports in
 wave had missed — the in-app file browser of the local import, the manga's
 horizontal scroll and zoom, the RSS favourites editor, the search row's
 labels, the tip colour pickers, … They are listed in **§8.7** of the matrix
-and are the current work list; the reader, the manga, the local import and
-the RSS rows are closed there now, the discover + search, the bookshelf + TOC
+and are the current work list; the reader, the manga, the local import, the
+RSS and the discover + search rows are closed there now, the bookshelf + TOC
 and the settings + sources rows are what is left.
+
+[`Plan/01-feature-status.md`](Plan/01-feature-status.md) turns all of that
+into a plain list: **what works today**, **what works but differs from the
+upstream**, **what is still missing** (≈60 items, ranked P0/P1/P2) and **what
+is deliberately not ported** (the Android-only abilities).
 
 ## The security differences from the Android app
 
