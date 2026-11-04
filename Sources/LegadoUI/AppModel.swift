@@ -197,6 +197,123 @@ public final class LegadoAppModel: ObservableObject {
         }
     }
 
+    /// Exports a book and **writes it to disk** — upstream
+    /// `ExportBookService.exportTxt` / `exportEpub`.
+    ///
+    /// The upstream writes the file into the folder the user picked and
+    /// uploads it to the WebDAV `books/` folder when `AppConfig.exportToWebDav`
+    /// is on; the port writes into the documents directory (visible in the
+    /// Files app) and uploads the same way.
+    @discardableResult
+    public func exportBookToFile(
+        book: Book,
+        format: BookExportFormat,
+        options: BookExportOptions = BookExportOptions()
+    ) async throws -> WrittenExport {
+        let settings = environment.settings
+        let suffix = format == .txt ? "txt" : "epub"
+        let template = settings.bookExportFileName
+        let fileName = ExportFileName.name(
+            book: book,
+            suffix: suffix,
+            template: template,
+            engine: environment.scriptEngine
+        )
+        var options = options
+        if options.fileName == nil || options.fileName?.isEmpty == true {
+            options.fileName = fileName
+        }
+
+        let chapters = try environment.chapters(of: book)
+        let titleRules = (try? environment.store.replaceRulesForTitle(name: book.name, origin: book.origin)) ?? []
+        let contentRules = (try? environment.store.replaceRulesForContent(name: book.name, origin: book.origin)) ?? []
+        let dependencies = AnalyzeUrlDependencies(
+            httpClient: environment.httpClient,
+            cookieStore: environment.cookieStore,
+            scriptEngine: environment.scriptEngine
+        )
+        let cache = environment.cacheStorage
+        let source = try environment.source(for: book)
+        let content: (BookChapter) async throws -> String? = { chapter in
+            if let cached = cache?.content(book: book, chapter: chapter) {
+                return cached
+            }
+            guard let source else { return nil }
+            return try await WebBook.getContent(
+                bookSource: source,
+                book: book,
+                bookChapter: chapter,
+                dependencies: dependencies
+            )
+        }
+
+        // The images of the book — upstream `BookHelp.getImage`.
+        let imageProvider: (String) -> Data? = { source in
+            guard let cache else { return nil }
+            if let data = cache.image(book: book, src: source) { return data }
+            return nil
+        }
+        // The cover of the book — upstream `Book.getCoverUrl` / the cover cache.
+        let coverProvider: (Book) -> Data? = { target in
+            guard let cache else { return nil }
+            return cache.image(book: target, src: target.coverUrl ?? "")
+        }
+
+        var written: WrittenExport
+        switch format {
+        case .txt:
+            let result = try await BookExporter.exportTxt(
+                book: book,
+                chapters: chapters,
+                titleRules: titleRules,
+                contentRules: contentRules,
+                options: options,
+                imageProvider: imageProvider,
+                content: content
+            )
+            written = try BookExportFileWriter.write(
+                file: result.file,
+                images: result.images,
+                to: BookExportFileWriter.exportDirectory(),
+                charset: ExportCharset(rawValue: settings.exportCharset) ?? .utf8
+            )
+        case .epub:
+            let file = try await BookExporter.exportEpub(
+                book: book,
+                chapters: chapters,
+                titleRules: titleRules,
+                contentRules: contentRules,
+                options: options,
+                imageProvider: imageProvider,
+                coverProvider: coverProvider,
+                content: content
+            )
+            written = try BookExportFileWriter.write(
+                file: file,
+                to: BookExportFileWriter.exportDirectory()
+            )
+        }
+
+        // Upstream `AppWebDav.exportWebDav(bookDoc.uri, filename)`.
+        if settings.exportToWebDav, let service = webDavService() {
+            try? await service.uploadBook(
+                data: try Data(contentsOf: written.url),
+                fileName: written.fileName
+            )
+        }
+        return written
+    }
+
+    /// The WebDAV client built from the settings — upstream `AppWebDav.upConfig`.
+    public func webDavService() -> WebDavService? {
+        let account = environment.settings.appWebDav
+        guard account.isConfigured else { return nil }
+        return WebDavService(
+            configuration: account.serviceConfiguration,
+            httpClient: environment.httpClient
+        )
+    }
+
     /// Stops caching a book.
     public func stopCaching(book: Book) async {
         await cacheManager?.stop(bookUrl: book.bookUrl)

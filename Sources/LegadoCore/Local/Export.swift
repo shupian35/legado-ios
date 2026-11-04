@@ -123,9 +123,11 @@ public enum BookExporter {
         titleRules: [ReplaceRule] = [],
         contentRules: [ReplaceRule] = [],
         options: BookExportOptions = BookExportOptions(),
+        imageProvider: ((String) -> Data?)? = nil,
         content: (BookChapter) async throws -> String?
     ) async throws -> TxtExportResult {
         guard !chapters.isEmpty else { throw BookExportError.emptyBook }
+        let provider = imageProvider ?? BookExporter.imageProvider
 
         let useReplace = options.useReplaceRule && book.useReplaceRule
         var text = bookHeader(book)
@@ -153,9 +155,9 @@ public enum BookExporter {
                 let found = imageSources(in: raw, chapterURL: chapter.url)
                 for (index, source) in found {
                     // `getImage` is not part of the core; the caller supplies
-                    // the bytes via `BookExporter.imageProvider` if it wants
+                    // the bytes via the `imageProvider` hook if it wants
                     // sidecar files. Without it the reference is skipped.
-                    guard let data = imageProvider?(source) else { continue }
+                    guard let data = provider?(source) else { continue }
                     images.append(
                         ExportedImage(
                             directory: directory,
@@ -193,10 +195,14 @@ public enum BookExporter {
         titleRules: [ReplaceRule] = [],
         contentRules: [ReplaceRule] = [],
         options: BookExportOptions = BookExportOptions(),
+        imageProvider: ((String) -> Data?)? = nil,
+        coverProvider: ((Book) -> Data?)? = nil,
         content: (BookChapter) async throws -> String?
     ) async throws -> ExportedFile {
         guard !chapters.isEmpty else { throw BookExportError.emptyBook }
 
+        let images = imageProvider ?? BookExporter.imageProvider
+        let cover = coverProvider ?? BookExporter.coverProvider
         let useReplace = options.useReplaceRule && book.useReplaceRule
         let epub = EpubBuilder(book: book)
         epub.addStylesheet()
@@ -226,8 +232,8 @@ public enum BookExporter {
                 href: "Text/intro.html"
             )
         )
-        if let cover = coverProvider?(book), !cover.isEmpty {
-            epub.setCover(data: cover, href: "Images/cover.jpg")
+        if let coverData = cover?(book), !coverData.isEmpty {
+            epub.setCover(data: coverData, href: "Images/cover.jpg")
         }
 
         for (index, chapter) in chapters.enumerated() {
@@ -236,7 +242,7 @@ public enum BookExporter {
             let fixed = EpubImages.fix(
                 content: source,
                 chapterURL: chapter.url,
-                provider: imageProvider
+                provider: images
             )
             let processed = try ReplaceRuleEngine.processContent(
                 book: book,

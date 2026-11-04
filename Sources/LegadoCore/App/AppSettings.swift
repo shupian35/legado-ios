@@ -974,6 +974,13 @@ public final class AppSettings {
         set { set(newValue, for: .bookExportFileName) }
     }
 
+    /// Whether the exported book is uploaded to the WebDAV — upstream
+    /// `AppConfig.exportToWebDav`.
+    public var exportToWebDav: Bool {
+        get { bool(.exportToWebDav, default: false) }
+        set { set(newValue, for: .exportToWebDav) }
+    }
+
     // MARK: - Backup / sync
 
     /// The backup folder — upstream `PreferKey.backupPath`.

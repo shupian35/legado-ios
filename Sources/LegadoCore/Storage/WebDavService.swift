@@ -119,6 +119,45 @@ public actor WebDavService {
         return remote.durChapterTime > local.durChapterTime
     }
 
+    // MARK: - Books and backgrounds
+
+    /// Uploads an exported book into the `books/` folder — upstream
+    /// `AppWebDav.exportWebDav(uri, filename)`.
+    public func uploadBook(data: Data, fileName: String) async throws {
+        try await client.upload(
+            data,
+            to: path(in: configuration.booksDirectory, fileName)
+        )
+    }
+
+    /// Every book the server holds.
+    public func bookFiles() async throws -> [WebDavFile] {
+        try await client.list(configuration.booksDirectory, depth: 1)
+            .filter { !$0.isDirectory }
+    }
+
+    /// Deletes a book from the server — upstream
+    /// `RemoteBookWebDav.delete(remoteBookUrl)`.
+    public func deleteBook(fileName: String) async throws {
+        try await client.delete(path(in: configuration.booksDirectory, fileName))
+    }
+
+    /// Uploads the reader background images — upstream `AppWebDav.upBgs`.
+    public func uploadBackgrounds(_ files: [(name: String, data: Data)]) async throws {
+        for file in files {
+            try await client.upload(
+                file.data,
+                to: path(in: configuration.backgroundDirectory, file.name)
+            )
+        }
+    }
+
+    /// Every background image the server holds — upstream `AppWebDav.downBgs`.
+    public func backgroundFiles() async throws -> [WebDavFile] {
+        try await client.list(configuration.backgroundDirectory, depth: 1)
+            .filter { !$0.isDirectory }
+    }
+
     // MARK: - Helpers
 
     private func path(in directory: String, _ name: String) -> String {

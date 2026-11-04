@@ -107,6 +107,16 @@ public struct DownloadManageView: View {
     @State private var exportCharset = "UTF-8"
     /// The export format (0 = txt, 1 = epub) — upstream `AppConfig.exportType`.
     @State private var exportType = 0
+    /// The file name template of the export — upstream
+    /// `AppConfig.bookExportFileName` (a JavaScript template).
+    @State private var exportNameTemplate = ""
+    /// The file that was exported last — it is offered to the share sheet.
+    @State private var exportedURL: URL?
+    @State private var isSharePresented = false
+    /// The dialog that edits the file name template — upstream
+    /// `CacheActivity.alertExportFileName`.
+    @State private var isNameTemplatePresented = false
+    @State private var nameTemplateDraft = ""
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -170,9 +180,12 @@ public struct DownloadManageView: View {
                             exportCharset = exportCharset == "UTF-8" ? "GBK" : "UTF-8"
                             model.environment.settings.set(exportCharset, for: .exportCharset)
                         }
-                        Button("导出文件名：\(exportFileName.isEmpty ? "默认" : exportFileName)") {
-                            exportFileName = exportFileName.isEmpty ? "{bookName}" : ""
-                            model.environment.settings.set(exportFileName, for: .episodeExportFileName)
+                        // Upstream `CacheActivity.alertExportFileName` — the
+                        // file name is a JavaScript template with the
+                        // variables `name`, `author` and `epubIndex`.
+                        Button("导出文件名：\(exportNameTemplate.isEmpty ? "默认" : exportNameTemplate)") {
+                            nameTemplateDraft = exportNameTemplate
+                            isNameTemplatePresented = true
                         }
                         Button("导出文件夹：\(exportFolder.isEmpty ? "默认" : exportFolder)") {
                             exportFolder = exportFolder.isEmpty ? "书籍导出" : ""
@@ -213,6 +226,29 @@ public struct DownloadManageView: View {
         .sheet(isPresented: $isLogPresented) {
             AppLogView()
         }
+        // The exported file is offered to the share sheet — the upstream
+        // writes it into the folder the user picked, the port writes it into
+        // the documents directory and lets the user send it on.
+        .sheet(isPresented: $isSharePresented) {
+            if let exportedURL {
+                ShareSheet(items: [exportedURL])
+            }
+        }
+        // Upstream `CacheActivity.alertExportFileName` — the file name is a
+        // JavaScript template with the variables `name`, `author` and
+        // `epubIndex`.
+        .alert("导出文件名", isPresented: $isNameTemplatePresented) {
+            TextField("文件名规则", text: $nameTemplateDraft)
+            Button("取消") { isNameTemplatePresented = false }
+            Button("确定") {
+                exportNameTemplate = nameTemplateDraft
+                model.environment.settings.bookExportFileName =
+                    nameTemplateDraft.isEmpty ? nil : nameTemplateDraft
+                isNameTemplatePresented = false
+            }
+        } message: {
+            Text("可用变量：name（书名）、author（作者）、epubIndex（分卷序号）。留空使用默认名称。")
+        }
         .alert("缓存管理", isPresented: Binding(
             get: { message != nil },
             set: { if !$0 { message = nil } }
@@ -236,6 +272,7 @@ public struct DownloadManageView: View {
             ? "UTF-8"
             : model.environment.settings.exportCharset
         exportFileName = model.environment.settings.string(.episodeExportFileName) ?? ""
+        exportNameTemplate = model.environment.settings.bookExportFileName ?? ""
         exportFolder = (try? model.environment.store.cache(
             "exportBookPath",
             now: Int64(Date().timeIntervalSince1970 * 1000)
@@ -257,12 +294,14 @@ public struct DownloadManageView: View {
     private func export(_ book: Book) {
         Task {
             do {
-                let file = try await model.exportBook(
+                let written = try await model.exportBookToFile(
                     book: book,
                     format: exportType == 0 ? .txt : .epub,
                     options: exportOptions(for: book)
                 )
-                message = "已导出：\(file.fileName)"
+                exportedURL = written.url
+                isSharePresented = true
+                message = "已导出：\(written.fileName)"
             } catch {
                 message = "导出失败：\(error.localizedDescription)"
             }
@@ -275,13 +314,15 @@ public struct DownloadManageView: View {
         Task {
             var exported = 0
             var failed = 0
+            var last: URL?
             for book in list {
                 do {
-                    _ = try await model.exportBook(
+                    let written = try await model.exportBookToFile(
                         book: book,
                         format: exportType == 0 ? .txt : .epub,
                         options: exportOptions(for: book)
                     )
+                    last = written.url
                     exported += 1
                 } catch {
                     failed += 1
@@ -290,6 +331,10 @@ public struct DownloadManageView: View {
             message = failed == 0
                 ? "已导出 \(exported) 本书"
                 : "已导出 \(exported) 本，失败 \(failed) 本"
+            if let last {
+                exportedURL = last
+                isSharePresented = true
+            }
         }
     }
 
@@ -301,7 +346,7 @@ public struct DownloadManageView: View {
             includeChapterTitle: !settings.exportNoChapterName,
             useReplaceRule: settings.exportUseReplace,
             exportPictureFile: settings.exportPictureFile,
-            fileName: exportFileName.isEmpty ? nil : exportFileName
+            fileName: exportNameTemplate.isEmpty ? nil : exportNameTemplate
         )
     }
 
