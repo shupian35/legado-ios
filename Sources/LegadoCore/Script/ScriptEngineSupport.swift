@@ -174,6 +174,9 @@ public final class ScriptEnvironment {
     /// The verification — upstream `java.getVerificationCode` and
     /// `java.startBrowserAwait` ask the user to solve a captcha.
     public var verification: ScriptVerificationHandling?
+    /// The confirmation of an external link — upstream `java.openUrl(url,
+    /// mimeType)` asks the user before the link is opened.
+    public var openURL: ScriptOpenURLHandling?
     /// The key of the source that is being evaluated — the verification
     /// dialog shows the name of the source (upstream `sourceOrigin`).
     public var sourceKey: String?
@@ -195,6 +198,7 @@ public final class ScriptEnvironment {
         source: ScriptSourceBridge? = nil,
         login: SourceLoginService? = nil,
         verification: ScriptVerificationHandling? = nil,
+        openURL: ScriptOpenURLHandling? = nil,
         sourceKey: String? = nil,
         sourceName: String = "",
         defaultHeaders: [String: String] = [:],
@@ -207,6 +211,7 @@ public final class ScriptEnvironment {
         self.source = source
         self.login = login
         self.verification = verification
+        self.openURL = openURL
         self.sourceKey = sourceKey
         self.sourceName = sourceName
         self.defaultHeaders = defaultHeaders

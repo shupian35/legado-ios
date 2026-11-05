@@ -266,15 +266,46 @@ open class UIViewController: NSObject {
     open var children: [UIViewController] = []
     open var title: String?
 
+    /// `UIViewController.extensionContext` — the context of a share /
+    /// Today extension. The real declaration lives in Foundation; the stub
+    /// puts it here so that the extension sources type-check on Linux.
+    open var extensionContext: NSExtensionContext? { nil }
+
     open func addChild(_ child: UIViewController) {}
     open func removeFromParent() {}
     open func didMove(toParent parent: UIViewController?) {}
     open func willMove(toParent parent: UIViewController?) {}
 
+    // The life cycle of the view controller — the stub declares it so that the
+    // subclasses (the share extension) type-check.
+    open func viewDidLoad() {}
+    open func viewWillAppear(_ animated: Bool) {}
+    open func viewDidAppear(_ animated: Bool) {}
+    open func viewWillDisappear(_ animated: Bool) {}
+    open func viewDidDisappear(_ animated: Bool) {}
+
     open var prefersStatusBarHidden: Bool { false }
     open var preferredStatusBarUpdateAnimation: UIStatusBarAnimation { .none }
     open var childForStatusBarHidden: UIViewController? { nil }
     open func setNeedsStatusBarAppearanceUpdate() {}
+}
+
+/// `Foundation.NSItemProvider` — the stub of the extension attachment.
+open class NSItemProvider: NSObject {
+    open func loadItem(forTypeIdentifier typeIdentifier: String, options: [Any]? = nil, completionHandler: ((Any?, Error?) -> Void)? = nil) {}
+}
+
+/// `Foundation.NSExtensionItem` — the stub of an extension input item.
+open class NSExtensionItem: NSObject {
+    open var attachments: [NSItemProvider]?
+}
+
+/// `Foundation.NSExtensionContext` — the stub of the extension context.
+open class NSExtensionContext: NSObject {
+    open var inputItems: [Any] { [] }
+    open var completeItems: [Any] = []
+    open func completeRequest(returningItems items: [Any]?, completionHandler: ((Bool) -> Void)? = nil) {}
+    open func open(_ url: URL, completionHandler: ((Bool) -> Void)? = nil) {}
 }
 
 /// `SwiftUI.UIHostingController` — the stub puts it into UIKit so that the

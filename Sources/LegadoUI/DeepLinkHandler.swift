@@ -60,6 +60,13 @@ public final class DeepLinkHandler: ObservableObject {
             await perform(shortcut, model: model)
             return
         }
+        // The search of a shared text — upstream
+        // `SharedReceiverActivity.dispose(text)` opens `SearchActivity` when
+        // the text is not an address.
+        if let keyword = DeepLinkSearch.keyword(from: url) {
+            model.search(keyword)
+            return
+        }
         isWorking = true
         defer { isWorking = false }
         do {
@@ -354,6 +361,11 @@ public struct LegadoRootScene: View {
                             }
                         }
                 }
+            }
+            // The jump a rule script asked for — upstream
+            // `OpenUrlConfirmDialog`.
+            if let request = model.pendingOpenURL {
+                OpenUrlConfirmView(model: model, request: request)
             }
             // The source verification — the captcha dialog or the
             // anti-scraping page (upstream `VerificationCodeActivity`).

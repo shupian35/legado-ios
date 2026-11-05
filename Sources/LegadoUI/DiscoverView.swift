@@ -96,6 +96,14 @@ public struct DiscoverView: View {
                     loadCategories()
                 }
             }
+            // A search that a link asked for — upstream
+            // `SharedReceiverActivity.dispose(text)` opens the search screen.
+            .onChange(of: model.pendingSearchKeyword) { pending in
+                guard let pending, !pending.isEmpty else { return }
+                keyword = pending
+                model.pendingSearchKeyword = nil
+                isSearchPresented = true
+            }
         }
     }
 

@@ -19,6 +19,7 @@ import LegadoUIShim
 #endif
 
 import LegadoCore
+import Foundation
 
 /// The version of the port, shown in the "about" screen.
 ///
@@ -30,4 +31,24 @@ public enum LegadoAppInfo {
     public static let upstreamPath = "app/src/main/java/io/legado/app"
     /// The version of the port.
     public static let version = "1.0.0"
+
+    /// The download page — upstream `R.string.app_share_description`.
+    public static let downloadURL = "https://github.com/gedoor/legado/releases"
+
+    /// The text that is shared — upstream `R.string.app_share_description`
+    /// ("Legado (YueDu 3.0) download link：\n https://github.com/gedoor/legado/releases").
+    public static let shareDescription = "Legado (YueDu 3.0) download link：\n \(downloadURL)"
+
+    /// The App Store identifier of the port.
+    ///
+    /// Upstream `AboutActivity.menu_scoring` opens
+    /// `market://details?id=$packageName`; on iOS the equivalent is the App
+    /// Store page. The identifier is empty until the port is published.
+    public static let appStoreID = ""
+
+    /// The URL that asks for a rating — upstream `menu_scoring`.
+    public static var reviewURL: URL? {
+        guard !appStoreID.isEmpty else { return nil }
+        return URL(string: "https://apps.apple.com/app/id\(appStoreID)?action=write-review")
+    }
 }

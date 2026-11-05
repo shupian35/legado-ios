@@ -1163,10 +1163,15 @@ public struct AboutView: View {
 
     @ObservedObject var model: LegadoAppModel
 
+    /// Opens a link — upstream `utils.openUrl`.
+    @Environment(\.openURL) private var openURL
+
     @State private var updateMessage: String?
     @State private var updateInfo: AppUpdateInfo?
     @State private var logMessage: String?
     @State private var contactMessage: String?
+    /// Whether the share sheet is shown — upstream `AboutActivity.menu_share_it`.
+    @State private var isSharePresented = false
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -1195,6 +1200,16 @@ public struct AboutView: View {
                 Link("邮箱", destination: URL(string: "mailto:gekunfei@live.com")!)
                 Button("公众号") {
                     copyPublicAccount()
+                }
+                // Upstream `AboutActivity.onCompatOptionsItemSelected` —
+                // `menu_share_it` shares the download link.
+                Button("分享") {
+                    isSharePresented = true
+                }
+                // Upstream `AboutActivity.onCompatOptionsItemSelected` —
+                // `menu_scoring` opens the store page of the app.
+                Button("去评分") {
+                    rateApp()
                 }
                 if let contactMessage {
                     Text(contactMessage)
@@ -1261,6 +1276,20 @@ public struct AboutView: View {
             }
         }
         .navigationTitle("关于")
+        .sheet(isPresented: $isSharePresented) {
+            // Upstream `AboutActivity.menu_share_it` — the share sheet with
+            // the download link.
+            ShareSheet(items: [LegadoAppInfo.shareDescription])
+        }
+    }
+
+    /// Asks for a rating — upstream `AboutActivity.menu_scoring`.
+    private func rateApp() {
+        guard let url = LegadoAppInfo.reviewURL else {
+            contactMessage = "当前版本尚未上架应用商店"
+            return
+        }
+        openURL(url)
     }
 
     /// Saves the log into the backup directory — upstream

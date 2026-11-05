@@ -453,13 +453,15 @@ public final class LegadoAppModel: ObservableObject {
         themeManager: ThemeManager = ThemeManager(),
         localImporter: LocalBookImporter? = nil,
         cacheManager: CacheBookManager? = nil,
-        verification: SourceVerificationCoordinator? = nil
+        verification: SourceVerificationCoordinator? = nil,
+        openURL: OpenURLCoordinator? = nil
     ) {
         self.environment = environment
         self.themeManager = themeManager
         self.localImporter = localImporter
         self.cacheManager = cacheManager
         self.verification = verification
+        self.openURL = openURL
     }
 
     /// The cache queue (upstream `CacheBook`).
@@ -469,6 +471,27 @@ public final class LegadoAppModel: ObservableObject {
     /// `SourceVerificationHelp`). The rule scripts ask it for the captcha
     /// answer; the app shows the dialog and hands the answer back.
     public let verification: SourceVerificationCoordinator?
+
+    /// The coordinator of the external links (upstream
+    /// `OpenUrlConfirmActivity`). A rule script that calls `java.openUrl`
+    /// waits for the user to confirm the jump.
+    public let openURL: OpenURLCoordinator?
+
+    /// The jump a rule script asked for — upstream the confirmation dialog of
+    /// `OpenUrlConfirmDialog`.
+    @Published public var pendingOpenURL: OpenURLRequest?
+
+    /// The user accepted the jump — the link is opened.
+    public func confirmOpenURL() {
+        pendingOpenURL = nil
+        openURL?.complete(true)
+    }
+
+    /// The user refused the jump (or closed the dialog).
+    public func cancelOpenURL() {
+        pendingOpenURL = nil
+        openURL?.complete(false)
+    }
 
     /// The verification the user has to solve — the captcha dialog or the
     /// anti-scraping page.
@@ -557,13 +580,18 @@ public final class LegadoAppModel: ObservableObject {
         // The verification of a source (upstream `SourceVerificationHelp`):
         // the rule scripts park until the user has solved the captcha.
         let verification = SourceVerificationCoordinator()
+        // The confirmation of an external link (upstream
+        // `OpenUrlConfirmActivity`): a rule script that calls `java.openUrl`
+        // waits for the user.
+        let openURL = OpenURLCoordinator()
         let scriptEngine = ScriptEngineFactory.make(
             login: loginService,
             cookieStore: cookieStore,
             httpClient: httpClient,
             userAgent: settings.userAgent,
             sandboxDirectory: cacheRoot.path,
-            verification: verification
+            verification: verification,
+            openURL: openURL
         )
         // The importer runs the JavaScript rule of the file names, so it needs
         // the script engine.
@@ -591,13 +619,20 @@ public final class LegadoAppModel: ObservableObject {
                 storage: cacheStorage,
                 notificationSink: NotificationService.shared
             ),
-            verification: verification
+            verification: verification,
+            openURL: openURL
         )
         // The rule scripts park on a background thread; the request has to
         // reach the UI on the main thread.
         verification.onRequest = { request in
             DispatchQueue.main.async {
                 model.pendingVerification = request
+            }
+        }
+        // The same for the confirmation of an external link.
+        openURL.onRequest = { request in
+            DispatchQueue.main.async {
+                model.pendingOpenURL = request
             }
         }
         return model
@@ -918,6 +953,65 @@ public final class LegadoAppModel: ObservableObject {
             return books.first
         } catch {
             errorMessage = "解压失败：\(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    // MARK: - The books of a download service
+
+    /// The files that can be downloaded for a book — upstream
+    /// `BookInfoViewModel.loadWebFile`.
+    ///
+    /// A source of the type "file" (only a download service) fills the
+    /// `downloadUrls` of the book with the addresses of the files.
+    public func webFiles(for book: Book) -> [WebFile] {
+        guard let urls = book.downloadUrls, !urls.isEmpty else { return [] }
+        return WebFileBook.files(book: book, urls: urls)
+    }
+
+    /// Downloads a file of a book and imports it — upstream
+    /// `BookInfoViewModel.importOrDownloadWebFile`.
+    ///
+    /// A file the port can read is imported as a local book; an archive is
+    /// unpacked and its books are imported.
+    ///
+    /// - Returns: the imported book (the first one of an archive).
+    @discardableResult
+    public func importWebFile(_ file: WebFile, book: Book) async -> Book? {
+        guard let localImporter else {
+            errorMessage = "本地书导入不可用"
+            return nil
+        }
+        do {
+            let response = try await environment.httpClient.send(
+                HttpRequest(url: file.url, method: "GET")
+            )
+            guard let data = response.data, !data.isEmpty else {
+                errorMessage = "下载失败：\(file.name)"
+                return nil
+            }
+            try FileManager.default.createDirectory(
+                at: localImporter.booksDirectory,
+                withIntermediateDirectories: true
+            )
+            let destination = localImporter.booksDirectory.appendingPathComponent(file.name)
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try? FileManager.default.removeItem(at: destination)
+            }
+            try data.write(to: destination)
+            if file.isSupportDecompress {
+                let books = try localImporter.importArchive(from: destination)
+                reloadLocalBooks()
+                reloadBookshelf()
+                return books.first
+            }
+            let imported = try localImporter.importBook(from: destination)
+            reloadLocalBooks()
+            reloadBookshelf()
+            return imported
+        } catch {
+            errorMessage = "导入失败：\(error.localizedDescription)"
+            AppLog.shared.put("ImportWebFileError\n\(error.localizedDescription)", error: error)
             return nil
         }
     }
@@ -2001,6 +2095,23 @@ public final class LegadoAppModel: ObservableObject {
     }
 
     // MARK: - The shortcuts of the home screen
+
+    /// The keyword of a search that a link asked for — upstream
+    /// `SearchActivity.start(this, text)` (the shared text of the
+    /// `SharedReceiverActivity`).
+    @Published public var pendingSearchKeyword: String?
+
+    /// Searches for a keyword.
+    ///
+    /// Upstream the shared text that is not an address is searched for in
+    /// `SearchActivity`; the port opens the same screen through the discover
+    /// tab.
+    public func search(_ keyword: String) {
+        let trimmed = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        pendingSearchKeyword = trimmed
+        selectTab(.explore)
+    }
 
     /// Opens the book that was read last.
     ///

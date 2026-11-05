@@ -136,6 +136,16 @@ if ! swiftc -typecheck -parse-as-library -module-name LegadoAppUI -swift-version
     FAILED=1
 fi
 
+# The share extension — it only exists in the Xcode project (it is an app
+# extension target), so the Linux build never compiles it. It is the file that
+# must not break.
+echo "== LegadoShareExtension (the share extension) =="
+SHARE_SOURCES=$(find "$REPO/Sources/LegadoShareExtension" -name '*.swift' | sort)
+# shellcheck disable=SC2086
+if ! swiftc -typecheck -parse-as-library -module-name LegadoShareExtension -swift-version 5 $SEARCH $SHARE_SOURCES ; then
+    FAILED=1
+fi
+
 if [ "$FAILED" -ne 0 ]; then
     echo "!! the Apple-only code paths do NOT type-check"
     exit 1

@@ -107,6 +107,9 @@ import JavaScriptCore
     // The source verification — upstream `JsExtensions.kt`.
     func getVerificationCode(_ imageURL: String) -> String
     func startBrowserAwait(_ url: String, title: String) -> String
+    // The external links — upstream `java.openUrl(url, mimeType)`.
+    func openUrl(_ url: String)
+    func openUrl(_ url: String, mimeType: String?)
 }
 
 /// The `java` facade implementation.
@@ -389,6 +392,33 @@ import JavaScriptCore
     private func raise(_ error: Error) {
         let reason = (error as? ScriptEngineError).map { String(describing: $0) } ?? error.localizedDescription
         NSException(name: NSExceptionName("LegadoScriptError"), reason: reason, userInfo: nil).raise()
+    }
+
+    // MARK: - The external links
+
+    /// Upstream `java.openUrl(url, mimeType)` — the script does not open the
+    /// link itself: the confirmation dialog of
+    /// `OpenUrlConfirmActivity` asks the user first.
+    public func openUrl(_ url: String, mimeType: String?) {
+        guard let handler = environment.openURL else {
+            raise(ScriptEngineError.notImplemented("java.openUrl requires an open url handler"))
+            return
+        }
+        do {
+            _ = try handler.confirmOpenURL(
+                url: url,
+                mimeType: mimeType,
+                sourceKey: environment.sourceKey ?? "",
+                sourceName: environment.sourceName
+            )
+        } catch {
+            raise(error)
+        }
+    }
+
+    /// Upstream `java.openUrl(url)` — the overload without the type.
+    public func openUrl(_ url: String) {
+        openUrl(url, mimeType: nil)
     }
 }
 

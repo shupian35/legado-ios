@@ -63,6 +63,12 @@ public struct BookDetailView: View {
     /// press.
     @State private var isCoverPreviewPresented = false
 
+    /// Whether the picker of the downloadable files is shown — upstream
+    /// `BookInfoActivity.showWebFileDownloadAlert`.
+    @State private var isWebFilePickerPresented = false
+    /// Whether the reader is opened after the file is imported.
+    @State private var pendingWebFileRead = false
+
     /// Whether the book is being cached (upstream `CacheBook`).
     private var isCaching: Bool {
         let progress = model.cacheProgress[book.bookUrl]
@@ -101,7 +107,13 @@ public struct BookDetailView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("阅读") {
-                    openReader()
+                    // Upstream `BookInfoActivity.kt:437-447` — a book of a
+                    // download service asks for the file first.
+                    if isWebFileBook {
+                        showWebFilePicker(then: true)
+                    } else {
+                        openReader()
+                    }
                 }
             }
             ToolbarItem(placement: .secondaryAction) {
@@ -124,7 +136,14 @@ public struct BookDetailView: View {
                         }
                     }
                     Button(isOnShelf ? "移出书架" : "加入书架") {
-                        toggleShelf()
+                        // Upstream `BookInfoActivity.kt:448-461` — a book of a
+                        // download service is downloaded before it is put on
+                        // the shelf.
+                        if isWebFileBook, !isOnShelf {
+                            showWebFilePicker(then: false)
+                        } else {
+                            toggleShelf()
+                        }
                     }
                     // Upstream `BookInfoActivity.menu_change_group`.
                     Button("换分组") {
@@ -290,6 +309,16 @@ public struct BookDetailView: View {
             // Upstream `BookInfoActivity.ivCover`'s long press — the
             // full-screen preview.
             BookCoverPreviewView(url: displayCoverUrl, title: current.name)
+        }
+        // Upstream `BookInfoActivity.showWebFileDownloadAlert` — the picker of
+        // the files of a book of a download service.
+        .sheet(isPresented: $isWebFilePickerPresented) {
+            NavigationStack {
+                WebFilePickerView(files: webFiles) { file in
+                    isWebFilePickerPresented = false
+                    importWebFile(file)
+                }
+            }
         }
         .sheet(isPresented: $isSharePresented) {
             ShareSheet(items: [shareText])
@@ -696,6 +725,47 @@ public struct BookDetailView: View {
         // An image book opens the manga reader (upstream `ContextExtensions`).
         Task {
             await model.openReader(for: current, chapterIndex: chapterIndex.map(Int.init))
+        }
+    }
+
+    // MARK: - The books of a download service
+
+    /// The files that can be downloaded for the book — upstream
+    /// `BookInfoViewModel.loadWebFile`.
+    private var webFiles: [WebFile] {
+        model.webFiles(for: current)
+    }
+
+    /// Whether the book comes from a source that only offers a download
+    /// service — upstream `Book.isWebFile`.
+    private var isWebFileBook: Bool {
+        current.isWebFile
+    }
+
+    /// Opens the picker of the files — upstream
+    /// `BookInfoActivity.showWebFileDownloadAlert`.
+    private func showWebFilePicker(then read: Bool) {
+        guard !webFiles.isEmpty else {
+            errorMessage = "没有可下载的文件"
+            return
+        }
+        pendingWebFileRead = read
+        isWebFilePickerPresented = true
+    }
+
+    /// Downloads the picked file and imports it — upstream
+    /// `BookInfoViewModel.importOrDownloadWebFile`.
+    private func importWebFile(_ file: WebFile) {
+        Task {
+            guard let imported = await model.importWebFile(file, book: current) else { return }
+            current = imported
+            isOnShelf = true
+            chapters = (try? model.environment.chapters(of: imported)) ?? []
+            model.reloadBookshelf()
+            if pendingWebFileRead {
+                pendingWebFileRead = false
+                openReader()
+            }
         }
     }
 }

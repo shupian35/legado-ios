@@ -134,9 +134,12 @@ public struct LocalBookView: View {
 
     /// The accepted file types — upstream `AppPattern` supports
     /// `txt|epub|umd|pdf|mobi|azw3|azw`.
+    ///
+    /// iOS has no system type for MOBI / AZW3 / AZW, so `.data` stays in the
+    /// list as the catch-all.
     public static var contentTypes: [UTType] {
         var types: [UTType] = [.data]
-        for ext in ["txt", "epub", "umd", "pdf"] {
+        for ext in ["txt", "epub", "umd", "pdf", "mobi", "azw3", "azw"] {
             if let type = UTType(filenameExtension: ext) {
                 types.append(type)
             }

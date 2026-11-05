@@ -291,30 +291,70 @@ public struct CrashLogView: View {
 
 // MARK: - Saving the logs
 
-/// The log exporter — upstream `AboutFragment.saveLog` (L124-141).
+/// The log exporter — upstream `AboutFragment.saveLog` (L124-141) and
+/// `AboutFragment.copyLogs` (L167-187).
 public enum LogExporter {
 
     /// The name of the file — upstream `logs.zip`.
     public static let fileName = "logs.zip"
 
-    /// Writes the log into the backup directory.
+    /// The name of the log entry inside the archive — upstream the `logs`
+    /// folder.
+    public static let logEntryName = "logs/logs.txt"
+
+    /// The name of the crash entry inside the archive — upstream the `crash`
+    /// folder.
+    public static let crashEntryName = "crash/crash.txt"
+
+    /// The text of the log — the entries of the in-memory log, the newest
+    /// first (upstream `AppLog.logs`).
+    public static func logText() -> String {
+        format(AppLog.shared.logs)
+    }
+
+    /// The text of the crash log — the entries that carry an error (upstream
+    /// the `crash` folder).
+    public static func crashText() -> String {
+        format(AppLog.shared.logs.filter { $0.errorDescription != nil })
+    }
+
+    /// The archive with the logs — upstream `ZipUtils.zipFiles(listOf(logs,
+    /// crash, logcat), zipFile)`.
     ///
-    /// The upstream zips the log files, the crash files and the logcat into
-    /// `logs.zip`; the port writes the in-memory log as a text file.
+    /// iOS has no `logcat`, so the archive holds the log and the crash log.
+    public static func archive() throws -> Data {
+        try ZipWriter.archive([
+            ZipWriteEntry(name: logEntryName, string: logText()),
+            ZipWriteEntry(name: crashEntryName, string: crashText())
+        ])
+    }
+
+    /// Writes the log archive into the backup directory.
+    ///
+    /// - Returns: the file that was written (`logs.zip`).
     @discardableResult
     public static func export(to directory: URL) throws -> URL {
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let file = directory.appendingPathComponent(fileName)
+        try archive().write(to: file, options: .atomic)
+        return file
+    }
+
+    /// Formats the entries — upstream the format of `AppLogDialog`.
+    private static func format(_ entries: [AppLog.Entry]) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "MM-dd HH:mm:ss"
         var text = ""
-        for entry in AppLog.shared.logs {
+        for entry in entries {
             text += "[\(formatter.string(from: entry.time))] \(entry.message)\n"
             if let error = entry.errorDescription {
                 text += "\(error)\n"
             }
         }
-        let file = directory.appendingPathComponent("logs.txt")
-        try text.write(to: file, atomically: true, encoding: .utf8)
-        return file
+        return text
     }
 }

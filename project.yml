@@ -31,6 +31,11 @@ targets:
         product: LegadoUI
       - package: legado
         product: LegadoServer
+      # The share extension — the iOS counterpart of the upstream
+      # `SharedReceiverActivity` (the `ACTION_SEND` / `ACTION_PROCESS_TEXT`
+      # receiver). It is embedded into the app.
+      - target: LegadoShareExtension
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.legado.ios.Legado
@@ -52,6 +57,34 @@ targets:
     # carries the deep-link scheme, the document types, the launcher icons,
     # the camera usage description and the audio background mode.
 
+  # The share extension — the iOS counterpart of the upstream
+  # `SharedReceiverActivity`: the shared text of another app is read and the
+  # app is opened with it (an address is imported, anything else is searched
+  # for).
+  LegadoShareExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Sources/LegadoShareExtension
+        excludes:
+          - "Info.plist"
+    dependencies:
+      - package: legado
+        product: LegadoCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.legado.ios.Legado.Share
+        PRODUCT_NAME: LegadoShare
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Sources/LegadoShareExtension/Info.plist
+        SKIP_INSTALL: YES
+
 schemes:
   LegadoApp:
     build:
@@ -61,3 +94,12 @@ schemes:
       config: Debug
     archive:
       config: Release
+
+  # The share extension — the iOS counterpart of the upstream
+  # `SharedReceiverActivity`.
+  LegadoShareExtension:
+    build:
+      targets:
+        LegadoShareExtension: all
+    run:
+      config: Debug

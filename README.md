@@ -19,8 +19,8 @@ its state (`[x]` done, `[~]` partial, `[ ]` not started), followed by the
 deliberate deviations. The plain-language summary — **what is done and what is
 not** — is [`Plan/01-feature-status.md`](Plan/01-feature-status.md).
 
-The port is ~75,747 lines of Swift in 275 files, with ~16,946 lines of tests
-(1,387 unit tests: 1,307 in `LegadoCoreTests`, 80 in `LegadoServerTests`) next to them.
+The port is ~78,370 lines of Swift in 290 files, with ~17,943 lines of tests
+(1,500 unit tests: 1,420 in `LegadoCoreTests`, 80 in `LegadoServerTests`) next to them.
 
 ## What is in here
 
@@ -35,7 +35,8 @@ Sources/
   LegadoServer/        the local HTTP + WebSocket server (the upstream web API)
   LegadoApp/           a command-line shell with a headless smoke test
   LegadoAppUI/         the iOS entry point (`@main`) + the Info.plist
-Tests/                 1,387 unit tests
+  LegadoShareExtension/ the share extension (the upstream SharedReceiverActivity)
+Tests/                 1,500 unit tests
 project.yml            the XcodeGen spec of the iOS application target
 Scripts/
   sw.sh                the build/test/run helper (WSL, a clean PATH, a scratch dir)
@@ -204,12 +205,18 @@ the first-run help → the crash prompt, the deep links import the themes, the
 reader styles and the shelf books, the `yuedu://` alias scheme and the home
 screen shortcuts work, the start page of the preference is applied, the update
 check follows the beta channel and **the book export writes a real file**.
-**≈26 items are still open** — the export folder / type / charset pickers,
-the parallel export, the local-book rename / share / keep-the-file, the
-WebDAV server management, the remote-book screen, the real file manager, the
-read-aloud chapter jumps and the per-book TTS engine, the HTTP-TTS
-management, the dictionary rule management, the book metadata's type
-selector, … — and they are listed in **§3** of the status document.
+**That wave is closed now as well (2026-11-05)**: the export folder / type /
+charset pickers, the parallel export, the local-book storage folder, the
+deletion of the original file, the delete confirmation, the `bookUrl#bookJson`
+share payload, the WebDAV server management, the remote-book browser, the real
+file manager, the automatic backup + the background-image sync, the read-aloud
+chapter jumps and the per-book TTS engine, the HTTP-TTS management, the
+dictionary rule management, the book metadata's type selector, the webFile book
+import, the shared layout, the zipped log, the about page's share / rate, the
+MOBI / AZW3 picker, the **share extension** (a real second target) and the
+**confirmation before a script opens an external link** are all in.
+**One item is left** — the local book's merge into the WebDAV remote — and it
+is listed in **§3** of the status document.
 
 [`Plan/01-feature-status.md`](Plan/01-feature-status.md) turns all of that
 into a plain list: **what works today**, **what works but differs from the

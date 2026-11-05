@@ -31,6 +31,8 @@ public enum ScriptEngineFactory {
     ///     (upstream the cache directory of the app).
     ///   - verification: the coordinator of the source verification — the
     ///     captcha dialog the user has to solve.
+    ///   - openURL: the coordinator of the external links — the confirmation
+    ///     dialog of `java.openUrl(url, mimeType)`.
     /// - Returns: the engine, or `nil` when the platform has no JavaScript
     ///   engine (the Linux CI build).
     public static func make(
@@ -39,7 +41,8 @@ public enum ScriptEngineFactory {
         httpClient: HttpClient,
         userAgent: String = AppSettings.defaultUserAgent,
         sandboxDirectory: String,
-        verification: ScriptVerificationHandling? = nil
+        verification: ScriptVerificationHandling? = nil,
+        openURL: ScriptOpenURLHandling? = nil
     ) -> RuleScriptEngine? {
         #if canImport(JavaScriptCore)
         let environment = ScriptEnvironment(
@@ -53,6 +56,7 @@ public enum ScriptEngineFactory {
             cache: MemoryScriptCache(),
             login: login,
             verification: verification,
+            openURL: openURL,
             defaultHeaders: userAgent.isEmpty ? [:] : ["User-Agent": userAgent],
             capabilities: .default
         )
