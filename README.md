@@ -72,6 +72,55 @@ app shell never drift apart. The bundle registers the `legado://` URL scheme
 (the upstream deep links), the file sharing (the local book import) and the
 ATS exceptions the HTTP book sources need.
 
+### The unsigned `.ipa` (GitHub Actions, no Mac needed)
+
+`.github/workflows/unsigned-ipa.yml` builds the app **without any signing** and
+publishes it as an `.ipa`, so a machine with no Mac and no Apple developer
+account can still produce an installable artifact:
+
+```text
+Actions → "Unsigned IPA" → Run workflow        # or push a v* tag
+```
+
+The job runs on `macos-15`, picks the newest Xcode (the package needs a Swift 6
+toolchain), installs XcodeGen, generates the project, resolves the SwiftPM
+package, and then builds with code signing turned off:
+
+```bash
+xcodebuild build -project LegadoApp.xcodeproj -scheme LegadoApp \
+  -configuration Release -destination 'generic/platform=iOS' \
+  -derivedDataPath .build/xcode-ios \
+  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+  CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" PROVISIONING_PROFILE_SPECIFIER=""
+```
+
+`Scripts/package_ipa.sh` then stages the bundle as `Payload/Legado.app`, strips
+any `_CodeSignature` left by an earlier signed build, zips it into
+`dist/Legado-<version>-unsigned.ipa` and writes the size, the sha256 and the
+architectures next to it. The artifact is uploaded as `Legado-unsigned-ipa`
+(kept 90 days); a `v*` tag additionally attaches the same files to the GitHub
+release. The workflow asserts before packaging that the bundle really is
+unsigned (`codesign -d` must fail), and uploads the `xcodebuild` log when the
+build breaks.
+
+> An unsigned `.ipa` **does not install by itself**: iOS refuses a bundle with no
+> signature. Sign it on your side with **Sideloadly**, **AltStore** or
+> **TrollStore** (they re-sign it with your own certificate or the device's
+> trust cache), or open the generated project in Xcode and run it from there.
+
+The same packaging can be done locally on a Mac:
+
+```bash
+bash Scripts/package_ipa.sh \
+  .build/xcode-ios/Build/Products/Release-iphoneos/Legado.app dist
+# dist/Legado-<version>-unsigned.ipa + dist/Legado-<version>-unsigned.ipa.txt
+```
+
+`Scripts/check_package_ipa.sh` verifies the script (and the workflow YAML) on
+Linux with a fake bundle, so the packaging logic is covered even without a Mac:
+it checks `bash -n`, the YAML parse, the `Payload/Legado.app` layout and that no
+`_CodeSignature`/`*.mobileprovision` survives into the archive.
+
 ### The engine and the tests (Linux, macOS or Windows + WSL)
 
 The package itself builds and tests anywhere Swift runs:
@@ -108,8 +157,11 @@ pagination and the local API):
 ### The continuous integration
 
 `.github/workflows/ios.yml` runs the Linux job (the package builds, the tests
-run and the Apple-only code paths are type-checked) and the macOS job (the same,
-plus the `xcodebuild` of the iOS bundle).
+run and the Apple-only code paths are type-checked), the macOS job (the same,
+plus the `xcodebuild` of the iOS bundle) and the packaging job (the unsigned
+`.ipa` packager exercised with a fake bundle). `.github/workflows/
+unsigned-ipa.yml` is the release path: it builds the signing-free bundle and
+packages the unsigned `.ipa` (see above).
 
 ### The Apple-only code paths (the type check)
 

@@ -42,21 +42,24 @@ jobs:
   # The app shell is SwiftUI, so it only exists on Apple platforms.
   macos:
     name: App shell (macOS, Swift ${{ matrix.swift }})
-    runs-on: macos-14
+    runs-on: macos-15
     strategy:
       fail-fast: false
       matrix:
         swift: ["6.0"]
     steps:
       - uses: actions/checkout@v4
-      - name: Select Xcode
-        # The image ships one Xcode; the version is only reported so that a
+      - name: Select the newest Xcode
+        # The package is swift-tools-version 6.0, so a Swift 6 toolchain is
+        # required: take the newest Xcode on the image and report it, so a
         # failure in the log says which one was used.
         run: |
-          if [ -d /Applications/Xcode_15.4.app ]; then
-            sudo xcode-select -s /Applications/Xcode_15.4.app
-          fi
+          set -euo pipefail
+          ls -d /Applications/Xcode*.app
+          latest="$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          sudo xcode-select -s "$latest"
           xcode-select -p
+          xcodebuild -version
           swift --version
       - name: Build the package
         run: swift build
@@ -92,3 +95,19 @@ jobs:
           name: LegadoApp-ios
           path: .build/xcode-ios/Build/Products/Debug-iphoneos/Legado.app
           if-no-files-found: ignore
+
+  # The unsigned ipa itself is produced on macOS (`.github/workflows/
+  # unsigned-ipa.yml`), but the packaging script — the staging, the signature
+  # stripping, the zip layout — is platform independent: this job exercises it
+  # with a fake bundle so it cannot rot unnoticed.
+  packaging:
+    name: Unsigned ipa packaging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install zip and PyYAML
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zip python3-yaml
+      - name: Check the packager and the workflow files
+        run: bash Scripts/check_package_ipa.sh

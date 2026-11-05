@@ -1,0 +1,153 @@
+name: Unsigned IPA
+
+# Builds the iOS app with code signing turned off and packages the bundle into an
+# unsigned `.ipa` — the file a sideloading tool (Sideloadly / AltStore /
+# TrollStore) or a local `codesign` pass needs. Nothing is uploaded to Apple and
+# no certificate or profile is used, so the workflow runs on every fork without
+# secrets.
+#
+# Trigger it by hand from the Actions tab, or by pushing a `v*` tag, which also
+# attaches the ipa to a GitHub release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: "Xcode configuration"
+        default: Release
+        type: choice
+        options: [Release, Debug]
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  SCHEME: LegadoApp
+  PROJECT: LegadoApp.xcodeproj
+  APP_NAME: Legado
+  DERIVED: .build/xcode-ios
+  CONFIGURATION: ${{ inputs.configuration || 'Release' }}
+
+jobs:
+  unsigned-ipa:
+    name: Build the unsigned .ipa
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      # The package is swift-tools-version 6.0, so the image must provide a
+      # Swift 6 toolchain: pick the newest Xcode installed on the runner rather
+      # than trusting whichever one is selected by default.
+      - name: Select the newest Xcode
+        run: |
+          set -euo pipefail
+          ls -d /Applications/Xcode*.app
+          latest="$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          sudo xcode-select -s "$latest"
+          xcode-select -p
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      # project.yml is the source of truth for the bundle: it wires the SwiftPM
+      # package, the @main scene and the share extension into one app target.
+      - name: Generate the Xcode project
+        run: |
+          xcodegen --version
+          xcodegen generate
+
+      - name: Resolve the packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project "$PROJECT" \
+            -scheme "$SCHEME"
+
+      # No certificate, no team, no profile: the bundle ships unsigned. The
+      # empty CODE_SIGN_IDENTITY overrides are what stop Xcode from trying the
+      # keychain-less "sign to run locally" path.
+      - name: Build the app without code signing
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$DERIVED" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            EXPANDED_CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            | tee /tmp/xcodebuild.log | tail -n 40
+
+      - name: Assert the bundle is unsigned
+        run: |
+          set -euo pipefail
+          APP="$DERIVED/Build/Products/${CONFIGURATION}-iphoneos/$APP_NAME.app"
+          ls -la "$DERIVED/Build/Products/${CONFIGURATION}-iphoneos"
+          if [ ! -d "$APP" ]; then
+            echo "error: $APP was not produced" >&2
+            exit 1
+          fi
+          if [ -d "$APP/_CodeSignature" ]; then
+            echo "error: the app came out signed" >&2
+            exit 1
+          fi
+          if codesign -d "$APP" >/dev/null 2>&1; then
+            echo "error: codesign reports a signature" >&2
+            exit 1
+          fi
+          echo "unsigned bundle: $(find "$APP" -maxdepth 1 -mindepth 1 | wc -l) entries"
+          find "$APP/PlugIns" -maxdepth 2 -name "*.appex" 2>/dev/null || true
+
+      - name: Package the unsigned .ipa
+        run: |
+          bash Scripts/package_ipa.sh \
+            "$DERIVED/Build/Products/${CONFIGURATION}-iphoneos/$APP_NAME.app" \
+            dist
+
+      - name: Upload the ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: Legado-unsigned-ipa
+          path: |
+            dist/*.ipa
+            dist/*.ipa.txt
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload the build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: /tmp/xcodebuild.log
+          if-no-files-found: ignore
+
+      # A tag build publishes the artifact, so a release page carries the ipa
+      # next to the notes without any further step.
+      - name: Attach the ipa to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.ipa
+            dist/*.ipa.txt
+          generate_release_notes: true
+          body: |
+            Unsigned iOS build of Legado `${{ github.ref_name }}`.
+
+            The `.ipa` is **not signed**: install it with Sideloadly, AltStore or
+            TrollStore (they sign it with your own certificate), or open the app
+            bundle in Xcode. The `sha256` in the `.txt` file verifies the
+            download.
