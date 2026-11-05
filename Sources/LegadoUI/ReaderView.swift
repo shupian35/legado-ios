@@ -242,6 +242,18 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
         // posts the read-aloud state with the six media actions).
         self.readAloud.bookName = book.name
         self.readAloud.notificationSink = NotificationService.shared
+        // The engine of the book wins over the global one — upstream
+        // `ReadAloud.ttsEngine` (`ReadBook.book?.getTtsEngine() ?:
+        // AppConfig.ttsEngine`).
+        self.readAloud.useHttpTts(
+            TtsEngine.profile(
+                of: TtsEngine.resolve(
+                    bookEngine: TtsEngine.engine(of: book),
+                    globalEngine: environment.settings.ttsEngine
+                ),
+                store: environment.store
+            )
+        )
         self.autoPager = AutoPager(
             configuration: AutoPager.Configuration(
                 speed: environment.settings.autoReadSpeed,
@@ -1525,6 +1537,39 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
             : "切换为朗读选择内容"
     }
 
+    /// Stores the read-aloud engine of this book — upstream
+    /// `Book.setTtsEngine` (`data/entities/Book.kt:241-246`).
+    ///
+    /// The engine of the book wins over the global one
+    /// (`ReadAloud.ttsEngine`).
+    public func setTtsEngine(_ engine: String?) {
+        var updated = book
+        var config = updated.readConfigBox
+        config.ttsEngine = engine
+        updated.readConfigBox = config
+        try? environment.store.update(updated)
+        book = updated
+    }
+
+    /// Moves the read aloud to the previous chapter — upstream
+    /// `ReadAloudDialog`: `ReadBook.moveToPrevChapter(upContent = true,
+    /// toLast = false)`.
+    public func readAloudPreviousChapter() {
+        Task {
+            guard await readBook.moveToPrevChapter() else { return }
+            await startReadAloud()
+        }
+    }
+
+    /// Moves the read aloud to the next chapter — upstream
+    /// `ReadAloudDialog`: `ReadBook.moveToNextChapter(true)`.
+    public func readAloudNextChapter() {
+        Task {
+            guard await readBook.moveToNextChapter() else { return }
+            await startReadAloud()
+        }
+    }
+
     /// Reads the selected text aloud — upstream `aloudStartSelect` /
     /// `speak(selectedText)`.    ///
     /// The upstream's preference `contentSelectSpeakMod` decides what the
@@ -2223,25 +2268,51 @@ public struct ReaderView: View {
     @ViewBuilder
     private var readAloudBar: some View {
         if readAloud.state != .stopped {
-            HStack {
-                Button("上一段") {
-                    readAloud.previousParagraph()
-                }
-                Spacer()
-                Button(readAloud.state == .playing ? "暂停" : "继续") {
-                    if readAloud.state == .playing {
-                        readAloud.pause()
-                    } else {
-                        readAloud.resume()
+            VStack(spacing: 4) {
+                // The live timer — upstream `BaseReadAloudService.timeMinute`
+                // (the seek bar of `dialog_read_aloud`).
+                if readAloud.remainingMinutes > 0 {
+                    HStack {
+                        Text("剩余 \(readAloud.remainingMinutes) 分钟")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        // Upstream `BaseReadAloudService.addTimer` — ten more
+                        // minutes.
+                        Button("+10 分钟") {
+                            readAloud.addTimer()
+                        }
+                        .font(.system(size: 11))
                     }
                 }
-                Spacer()
-                Button("下一段") {
-                    readAloud.nextParagraph()
-                }
-                Spacer()
-                Button("停止") {
-                    readAloud.stop()
+                HStack {
+                    // Upstream `ReadAloudDialog`: `tvPre` / `tvNext` jump to
+                    // the previous / the next chapter.
+                    Button("上一章") {
+                        controller.readAloudPreviousChapter()
+                    }
+                    Button("上一段") {
+                        readAloud.previousParagraph()
+                    }
+                    Spacer()
+                    Button(readAloud.state == .playing ? "暂停" : "继续") {
+                        if readAloud.state == .playing {
+                            readAloud.pause()
+                        } else {
+                            readAloud.resume()
+                        }
+                    }
+                    Spacer()
+                    Button("下一段") {
+                        readAloud.nextParagraph()
+                    }
+                    Button("下一章") {
+                        controller.readAloudNextChapter()
+                    }
+                    Spacer()
+                    Button("停止") {
+                        readAloud.stop()
+                    }
                 }
             }
             .font(.system(size: 13))

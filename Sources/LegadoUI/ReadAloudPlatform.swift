@@ -480,6 +480,8 @@ public final class ReadAloudService: ObservableObject {
     public func stop() {
         controller.stop()
         cancelTimer()
+        timer.cancel()
+        remainingMinutes = 0
         #if canImport(AVFoundation)
         speechEngine?.stop()
         audioPlayer.stop()
@@ -489,7 +491,20 @@ public final class ReadAloudService: ObservableObject {
     /// The auto-stop timer in minutes — upstream `ReadAloud.setTimer`.
     ///
     /// `0` disables the timer.
-    public private(set) var timerMinutes: Int = 0
+    public var timerMinutes: Int {
+        get { timer.minutes }
+        set { startTimer(minutes: newValue) }
+    }
+
+    /// The minutes that are left — upstream `BaseReadAloudService.timeMinute`.
+    ///
+    /// The upstream counts it down every minute and posts it to the UI
+    /// (`EventBus.READ_ALOUD_DS`); the timer does not run while the speech is
+    /// paused.
+    @Published public private(set) var remainingMinutes: Int = 0
+
+    /// The countdown itself — upstream `BaseReadAloudService.doDs`.
+    private var timer = ReadAloudTimer()
 
     /// The task of the auto-stop timer.
     private var timerTask: Task<Void, Never>?
@@ -499,15 +514,35 @@ public final class ReadAloudService: ObservableObject {
     ///
     /// The speech stops when the timer expires.
     public func startTimer(minutes: Int) {
-        timerMinutes = max(0, minutes)
+        timer.start(minutes: minutes)
+        remainingMinutes = timer.remaining
         cancelTimer()
-        guard timerMinutes > 0 else { return }
-        let seconds = timerMinutes * 60
+        guard timer.minutes > 0 else { return }
         timerTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
-            guard !Task.isCancelled else { return }
-            self?.stop()
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 60 * 1_000_000_000)
+                guard !Task.isCancelled else { return }
+                guard let self else { return }
+                // The upstream does not count while the speech is paused.
+                let expired = self.timer.tick(paused: self.state == .paused)
+                self.remainingMinutes = self.timer.remaining
+                if expired {
+                    self.stop()
+                    return
+                }
+            }
         }
+    }
+
+    /// Adds ten minutes to the timer — upstream `BaseReadAloudService.addTimer`.
+    ///
+    /// The upstream stops at 180 minutes and wraps around to zero.
+    public func addTimer() {
+        timer.add()
+        remainingMinutes = timer.remaining
+        cancelTimer()
+        guard timer.minutes > 0 else { return }
+        startTimer(minutes: timer.minutes)
     }
 
     /// Cancels the auto-stop timer.

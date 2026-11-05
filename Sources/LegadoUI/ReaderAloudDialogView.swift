@@ -167,14 +167,27 @@ public struct ReaderAloudDialogView: View {
     /// Loads the HTTP TTS engines of the user — upstream `HttpTTSDao.all`.
     private func loadEngines() {
         engines = (try? controller.environment.store.allHttpTTS()) ?? []
-        let stored = settings.ttsEngineId
+        // Upstream `ReadAloud.ttsEngine`: the engine of the book wins over
+        // the global one.
+        let bookEngine = TtsEngine.engine(of: controller.book)
+        let resolved = TtsEngine.resolve(
+            bookEngine: bookEngine,
+            globalEngine: settings.ttsEngine
+        )
+        let stored = TtsEngine.profileId(of: resolved) ?? 0
         selectedEngineId = engines.contains(where: { $0.id == stored }) ? stored : 0
         selectEngine(id: selectedEngineId)
     }
 
     /// Switches the engine — upstream `ReadAloud.setTts`.
+    ///
+    /// The upstream writes the engine twice: `AppConfig.ttsEngine` is the
+    /// global default and `Book.config.ttsEngine` overrides it for the book
+    /// that is open (`SpeakEngineDialog.kt:143-152`).
     private func selectEngine(id: Int64) {
-        settings.ttsEngineId = id
+        let value = id == 0 ? nil : String(id)
+        settings.ttsEngine = value
+        controller.setTtsEngine(value)
         let engine = engines.first(where: { $0.id == id })
         controller.readAloud.useHttpTts(engine)
     }

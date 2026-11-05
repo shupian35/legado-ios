@@ -830,6 +830,12 @@ public final class LegadoStore {
         try tables.allRows(in: "httpTTS").map { HttpTTS(row: $0) }
     }
 
+    /// One HTTP TTS engine — upstream `HttpTTSDao.get(id)`.
+    public func httpTTS(id: Int64) throws -> HttpTTS? {
+        try tables.firstRow(in: "httpTTS", where: .equals(column: "id", value: .integer(id)))
+            .map { HttpTTS(row: $0) }
+    }
+
     /// Inserts or replaces an HTTP TTS engine.
     ///
     /// Upstream `HttpTTS` has an auto-generated primary key, so an engine
