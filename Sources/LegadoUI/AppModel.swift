@@ -957,6 +957,67 @@ public final class LegadoAppModel: ObservableObject {
         }
     }
 
+    /// Downloads the file of a local book that lives on the WebDAV server —
+    /// upstream `LocalBook.downloadRemoteBook`.
+    ///
+    /// The upstream downloads the file when the local copy is missing (the
+    /// book keeps the address of the remote file in its origin).
+    ///
+    /// - Returns: the book with the local address, or `nil` when the file
+    ///   could not be downloaded.
+    @discardableResult
+    public func downloadRemoteLocalBook(_ book: Book) async -> Book? {
+        guard let localImporter else { return nil }
+        guard let path = RemoteBookOrigin.remotePath(of: book) else { return nil }
+        // The local copy is still there — nothing to do.
+        if let url = localImporter.fileURL(for: book),
+           FileManager.default.fileExists(atPath: url.path) {
+            return book
+        }
+        guard let client = remoteBookClient(for: book) else { return nil }
+        let name = RemoteBookOrigin.remoteFileName(of: book) ?? book.originName
+        guard !name.isEmpty else { return nil }
+        do {
+            let data = try await client.download(path)
+            try FileManager.default.createDirectory(
+                at: localImporter.booksDirectory,
+                withIntermediateDirectories: true
+            )
+            let destination = localImporter.booksDirectory.appendingPathComponent(name)
+            try data.write(to: destination)
+            var updated = book
+            updated.bookUrl = destination.absoluteString
+            if updated.originName.isEmpty {
+                updated.originName = name
+            }
+            try environment.store.update(updated)
+            return updated
+        } catch {
+            AppLog.shared.put("自动下载webDav书籍失败", error: error)
+            return nil
+        }
+    }
+
+    /// The client of the server a book lives on — the server of the origin's
+    /// `serverID` attribute, otherwise the server of the remote browser.
+    private func remoteBookClient(for book: Book) -> WebDavClient? {
+        if let serverID = RemoteBookOrigin.serverID(of: book),
+           let server = webDavServers.first(where: { $0.id == serverID }),
+           let credentials = ServerManager.credentials(of: server) {
+            let configuration = WebDavConfiguration(
+                url: credentials.url,
+                username: credentials.username,
+                password: credentials.password,
+                backupDirectory: "",
+                bookProgressDirectory: "bookProgress/",
+                booksDirectory: "",
+                backgroundDirectory: "background/"
+            )
+            return WebDavClient(configuration: configuration, httpClient: environment.httpClient)
+        }
+        return remoteBookImporter()?.client
+    }
+
     // MARK: - The books of a download service
 
     /// The files that can be downloaded for a book — upstream
@@ -1006,9 +1067,15 @@ public final class LegadoAppModel: ObservableObject {
                 return books.first
             }
             let imported = try localImporter.importBook(from: destination)
+            // The information of the online book wins — upstream
+            // `LocalBook.mergeBook(localBook, onLineBook)`.
+            let merged = LocalBookMerge.merge(local: imported, online: book)
+            if merged != imported {
+                try environment.store.update(merged)
+            }
             reloadLocalBooks()
             reloadBookshelf()
-            return imported
+            return merged
         } catch {
             errorMessage = "导入失败：\(error.localizedDescription)"
             AppLog.shared.put("ImportWebFileError\n\(error.localizedDescription)", error: error)
@@ -2029,6 +2096,13 @@ public final class LegadoAppModel: ObservableObject {
     /// `showMangaUi` is on — upstream `ContextExtensions.kt:64-78`.
     public func openReader(for book: Book, chapterIndex: Int? = nil, chapterPos: Int? = nil) async {
         do {
+            var book = book
+            // The local copy of a book that lives on the WebDAV server may be
+            // missing — upstream `LocalBook.getBookInputStream` downloads it.
+            if book.isLocal, LocalBookReader.fileURL(for: book) == nil,
+               let downloaded = await downloadRemoteLocalBook(book) {
+                book = downloaded
+            }
             var chapters = try environment.chapters(of: book)
             if chapters.isEmpty, let source = try environment.source(for: book) {
                 chapters = try await environment.loadChapterList(book: book, source: source).chapters

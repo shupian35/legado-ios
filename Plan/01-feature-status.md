@@ -10,11 +10,11 @@
 
 | | |
 |---|---|
-| 代码规模 | **290 个 Swift 文件 / 78,370 行**（`Sources/`），**117 个测试文件 / 17,943 行**（`Tests/`） |
-| 自动化测试 | **1,500 个单元测试**（1,420 `LegadoCoreTests` + 80 `LegadoServerTests`），全绿 |
+| 代码规模 | **292 个 Swift 文件 / 78,544 行**（`Sources/`），**119 个测试文件 / 18,077 行**（`Tests/`） |
+| 自动化测试 | **1,515 个单元测试**（1,435 `LegadoCoreTests` + 80 `LegadoServerTests`），全绿 |
 | 验证环境 | Linux（WSL2 + Swift 6.4.2）跑核心与 UI 类型检查；macOS CI 编译 iOS App |
 | 功能覆盖 | 阅读器、书源引擎、本地书、RSS、离线缓存、Web 服务等**主干功能已全部移植并可用** |
-| 剩余缺口 | **约 3 项**（见 §3；2026-11-05 第三轮审计的 26 项已全部补齐，只剩 3 项与上游行为有关的小差异），另有 **6 项 Android 专属能力有意不做**（见 §4） |
+| 剩余缺口 | **0 项**（见 §3；2026-11-05 第三轮审计的 26 项已全部补齐） |
 | 风险提示 | 界面层在 Linux 上只做**类型检查**（SwiftUI shim），未在真机渲染验证过 |
 
 ---
@@ -96,7 +96,8 @@
 - **备份配置文件**：备份包内含 `readConfig.json` / `themeConfig.json` / `coverRule.json` / `directLinkUploadRule.json`，恢复时逐个还原
 - **真实文件管理器**：目录浏览（面包屑 + 返回上级）、搜索、分享、删除、文件夹大小统计（上游 `FileManageActivity`）
 - **书籍信息编辑**：**书籍类型选择器**（文本/音频/图片）、**选择本地封面**、**换封面**、**刷新封面**、自定义简介（上游 `BookInfoEditActivity`）
-- **webFile 类型书籍**：只提供下载服务的书源，列出可下载文件（按上游 `UrlUtil` 规则取名与后缀）、下载并导入为本地书（上游 `showWebFileDownloadAlert`）
+- **webFile 类型书籍**：只提供下载服务的书源，列出可下载文件（按上游 `UrlUtil` 规则取名与后缀）、下载并导入为本地书（上游 `showWebFileDownloadAlert`），导入后**合并在线书籍信息（在线 > 本地）**
+- **本地书与 WebDAV 远程书籍**：本地副本丢失时自动从 WebDAV 重新下载（上游 `LocalBook.downloadRemoteBook`），远程地址保存在书籍的 origin 里
 - **共享排版**：`shareLayout` 开关 + 独立的 `shareReadConfig.json`，导出排版时使用共享布局（上游 `ReadBookConfig.getExportConfig`）
 - **日志打包 zip**、**关于页的分享与评分**、**mobi/azw3 文件选择器**
 - **分享扩展（Share Extension）**：独立的 `LegadoShareExtension` target，接收其它 App 分享的文本/链接，按上游 `SharedReceiverActivity` 的规则决定「导入地址 / 搜索 / 朗读」
@@ -151,17 +152,11 @@
 
 ### P1 —— 体验细节
 
-**数据面（导出与本地书）**
-
-- 本地书与 WebDAV 远程书籍合并（上游把本地书合并进远程目录）
-
-**阅读周边**
-
-- （无）
+（无 —— 第三轮审计的 26 项已全部补齐）
 
 ### P2 —— 其它
 
-- （无）
+（无 —— 分享扩展与外部链接确认都已实现）
 
 > 说明：此前记录的三项（书源编辑器的帮助动作、直链上传的测试结果、RSS 的「检查选中源定时」）均已处理或被核实为**上游并不存在的功能**——
 > 上游的 `res/menu/rss_source_sel.xml` 只有 启用/禁用所选、加入/移除分组、置顶/置底所选、导出所选、分享选中源、检查所选区间 九项，没有定时检查；

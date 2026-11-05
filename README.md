@@ -19,8 +19,8 @@ its state (`[x]` done, `[~]` partial, `[ ]` not started), followed by the
 deliberate deviations. The plain-language summary — **what is done and what is
 not** — is [`Plan/01-feature-status.md`](Plan/01-feature-status.md).
 
-The port is ~78,370 lines of Swift in 290 files, with ~17,943 lines of tests
-(1,500 unit tests: 1,420 in `LegadoCoreTests`, 80 in `LegadoServerTests`) next to them.
+The port is ~78,544 lines of Swift in 292 files, with ~18,077 lines of tests
+(1,515 unit tests: 1,435 in `LegadoCoreTests`, 80 in `LegadoServerTests`) next to them.
 
 ## What is in here
 
@@ -36,7 +36,7 @@ Sources/
   LegadoApp/           a command-line shell with a headless smoke test
   LegadoAppUI/         the iOS entry point (`@main`) + the Info.plist
   LegadoShareExtension/ the share extension (the upstream SharedReceiverActivity)
-Tests/                 1,500 unit tests
+Tests/                 1,515 unit tests
 project.yml            the XcodeGen spec of the iOS application target
 Scripts/
   sw.sh                the build/test/run helper (WSL, a clean PATH, a scratch dir)
@@ -214,9 +214,10 @@ chapter jumps and the per-book TTS engine, the HTTP-TTS management, the
 dictionary rule management, the book metadata's type selector, the webFile book
 import, the shared layout, the zipped log, the about page's share / rate, the
 MOBI / AZW3 picker, the **share extension** (a real second target) and the
-**confirmation before a script opens an external link** are all in.
-**One item is left** — the local book's merge into the WebDAV remote — and it
-is listed in **§3** of the status document.
+**confirmation before a script opens an external link** are all in. The last
+one — the local book's merge with the WebDAV remote — is in as well: the
+online information wins when a download-service book is imported, and a local
+copy that is missing is downloaded again. **The third wave is closed.**
 
 [`Plan/01-feature-status.md`](Plan/01-feature-status.md) turns all of that
 into a plain list: **what works today**, **what works but differs from the
