@@ -135,7 +135,10 @@ final class ExportFileTests: XCTestCase {
         let name = ExportFileName.name(
             book: makeBook(),
             suffix: "txt",
-            template: "$name-$author",
+            // The template is JavaScript: the bindings are the variables
+            // `name`, `author` and `epubIndex` (the `$name` of the default
+            // name is Kotlin interpolation, not JavaScript).
+            template: "name + '-' + author",
             engine: engine
         )
         XCTAssertEqual(name, "书名-作者.txt")

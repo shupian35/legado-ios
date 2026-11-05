@@ -126,6 +126,15 @@ import JavaScriptCore
     /// The files `java.cacheFile` downloaded — upstream the `CacheManager`
     /// (the key is the `md5Encode16` of the address).
     private let fileCache = ScriptFileCache()
+    /// The first error a facade method hit during the current evaluation.
+    ///
+    /// JavaScriptCore cannot bridge a Swift error into a JS exception, and the
+    /// documented alternative — raising an `NSException` — is not caught by
+    /// every JavaScriptCore build: on macOS the exception escapes
+    /// `evaluateScript` and terminates the process. The methods therefore
+    /// record the error and return a default; `JavaScriptCoreEngine.evaluate`
+    /// throws it once the script returns.
+    private var pendingError: ScriptEngineError?
 
     public init(environment: ScriptEnvironment) {
         self.environment = environment
@@ -164,15 +173,15 @@ import JavaScriptCore
 
     private func perform(_ body: (ScriptNetworkClient) throws -> String) -> String {
         guard environment.capabilities.contains(.network) else {
-            raise(ScriptEngineError.capabilityDenied("network"))
+            return fail(ScriptEngineError.capabilityDenied("network"))
         }
         guard let client = environment.network else {
-            raise(ScriptEngineError.notImplemented("java.ajax requires a network client"))
+            return fail(ScriptEngineError.notImplemented("java.ajax requires a network client"))
         }
         do {
             return try body(client)
         } catch {
-            raise(error)
+            return fail(error)
         }
     }
 
@@ -180,30 +189,30 @@ import JavaScriptCore
 
     public func getFile(_ path: String) -> String {
         guard environment.capabilities.contains(.fileRead) else {
-            raise(ScriptEngineError.capabilityDenied("fileRead"))
+            return fail(ScriptEngineError.capabilityDenied("fileRead"))
         }
         guard let files = environment.files else {
-            raise(ScriptEngineError.notImplemented("java.getFile requires a file sandbox"))
+            return fail(ScriptEngineError.notImplemented("java.getFile requires a file sandbox"))
         }
         do {
             let resolved = try files.resolvedPath(path)
             return resolved
         } catch {
-            raise(error)
+            return fail(error)
         }
     }
 
     public func readFile(_ path: String) -> String {
         guard environment.capabilities.contains(.fileRead) else {
-            raise(ScriptEngineError.capabilityDenied("fileRead"))
+            return fail(ScriptEngineError.capabilityDenied("fileRead"))
         }
         guard let files = environment.files else {
-            raise(ScriptEngineError.notImplemented("java.readFile requires a file sandbox"))
+            return fail(ScriptEngineError.notImplemented("java.readFile requires a file sandbox"))
         }
         do {
             return try files.readScriptFile(path)
         } catch {
-            raise(error)
+            return fail(error)
         }
     }
 
@@ -211,31 +220,31 @@ import JavaScriptCore
 
     public func writeFile(_ path: String, content: String) -> String {
         guard environment.capabilities.contains(.fileWrite) else {
-            raise(ScriptEngineError.capabilityDenied("fileWrite"))
+            return fail(ScriptEngineError.capabilityDenied("fileWrite"))
         }
         guard let files = environment.files else {
-            raise(ScriptEngineError.notImplemented("java.writeFile requires a file sandbox"))
+            return fail(ScriptEngineError.notImplemented("java.writeFile requires a file sandbox"))
         }
         do {
             try files.writeScriptFile(path, content: content)
             return ""
         } catch {
-            raise(error)
+            return fail(error)
         }
     }
 
     public func deleteFile(_ path: String) -> String {
         guard environment.capabilities.contains(.fileWrite) else {
-            raise(ScriptEngineError.capabilityDenied("fileWrite"))
+            return fail(ScriptEngineError.capabilityDenied("fileWrite"))
         }
         guard let files = environment.files else {
-            raise(ScriptEngineError.notImplemented("java.deleteFile requires a file sandbox"))
+            return fail(ScriptEngineError.notImplemented("java.deleteFile requires a file sandbox"))
         }
         do {
             try files.deleteScriptFile(path)
             return ""
         } catch {
-            raise(error)
+            return fail(error)
         }
     }
 
@@ -248,7 +257,7 @@ import JavaScriptCore
         do {
             return try files.listScriptDirectory(path)
         } catch {
-            raise(error)
+            fail(error)
             return []
         }
     }
@@ -303,16 +312,16 @@ import JavaScriptCore
     /// returns the path RELATIVE to the cache directory.
     public func downloadFile(_ url: String) -> String {
         guard environment.capabilities.contains(.network) else {
-            raise(ScriptEngineError.capabilityDenied("network"))
+            return fail(ScriptEngineError.capabilityDenied("network"))
         }
         guard environment.capabilities.contains(.fileWrite) else {
-            raise(ScriptEngineError.capabilityDenied("fileWrite"))
+            return fail(ScriptEngineError.capabilityDenied("fileWrite"))
         }
         guard let client = environment.network else {
-            raise(ScriptEngineError.notImplemented("java.downloadFile requires a network client"))
+            return fail(ScriptEngineError.notImplemented("java.downloadFile requires a network client"))
         }
         guard let files = environment.files else {
-            raise(ScriptEngineError.notImplemented("java.downloadFile requires a file sandbox"))
+            return fail(ScriptEngineError.notImplemented("java.downloadFile requires a file sandbox"))
         }
         do {
             return try fileCache.download(
@@ -322,7 +331,7 @@ import JavaScriptCore
                 headers: requestHeaders()
             )
         } catch {
-            raise(error)
+            return fail(error)
         }
     }
 
@@ -334,16 +343,16 @@ import JavaScriptCore
     /// directory of the app and remembers the paths for the session.
     public func cacheFile(_ url: String, saveTime: Int) -> String {
         guard environment.capabilities.contains(.network) else {
-            raise(ScriptEngineError.capabilityDenied("network"))
+            return fail(ScriptEngineError.capabilityDenied("network"))
         }
         guard environment.capabilities.contains(.fileWrite) else {
-            raise(ScriptEngineError.capabilityDenied("fileWrite"))
+            return fail(ScriptEngineError.capabilityDenied("fileWrite"))
         }
         guard let client = environment.network else {
-            raise(ScriptEngineError.notImplemented("java.cacheFile requires a network client"))
+            return fail(ScriptEngineError.notImplemented("java.cacheFile requires a network client"))
         }
         guard let files = environment.files else {
-            raise(ScriptEngineError.notImplemented("java.cacheFile requires a file sandbox"))
+            return fail(ScriptEngineError.notImplemented("java.cacheFile requires a file sandbox"))
         }
         do {
             return try fileCache.cacheFile(
@@ -354,7 +363,7 @@ import JavaScriptCore
                 headers: requestHeaders()
             )
         } catch {
-            raise(error)
+            return fail(error)
         }
     }
 
@@ -362,42 +371,43 @@ import JavaScriptCore
 
     public func put(_ key: String, value: String) -> String {
         guard environment.capabilities.contains(.sourceData) else {
-            raise(ScriptEngineError.capabilityDenied("sourceData"))
+            return fail(ScriptEngineError.capabilityDenied("sourceData"))
         }
         return environment.source?.put(key, value: value) ?? value
     }
 
     public func get(_ key: String) -> String {
         guard environment.capabilities.contains(.sourceData) else {
-            raise(ScriptEngineError.capabilityDenied("sourceData"))
+            return fail(ScriptEngineError.capabilityDenied("sourceData"))
         }
         return environment.source?.get(key) ?? ""
     }
 
     public func putLoginHeader(_ header: String) -> String {
         guard environment.capabilities.contains(.sourceData) else {
-            raise(ScriptEngineError.capabilityDenied("sourceData"))
+            return fail(ScriptEngineError.capabilityDenied("sourceData"))
         }
         return environment.source?.putLoginHeader(header) ?? ""
     }
 
     public func getLoginHeader() -> String {
         guard environment.capabilities.contains(.sourceData) else {
-            raise(ScriptEngineError.capabilityDenied("sourceData"))
+            return fail(ScriptEngineError.capabilityDenied("sourceData"))
         }
         return environment.source?.getLoginHeader() ?? ""
     }
 
     public func removeLoginHeader() -> String {
         guard environment.capabilities.contains(.sourceData) else {
-            raise(ScriptEngineError.capabilityDenied("sourceData"))
+            return fail(ScriptEngineError.capabilityDenied("sourceData"))
         }
         return environment.source?.removeLoginHeader() ?? ""
     }
 
     public func putLoginInfo(_ info: String) -> Bool {
         guard environment.capabilities.contains(.sourceData) else {
-            raise(ScriptEngineError.capabilityDenied("sourceData"))
+            fail(ScriptEngineError.capabilityDenied("sourceData"))
+            return false
         }
         return environment.source?.putLoginInfo(info) ?? false
     }
@@ -424,8 +434,7 @@ import JavaScriptCore
     /// source and waits for the user to type the code.
     public func getVerificationCode(_ imageURL: String) -> String {
         guard let verification = environment.verification else {
-            raise(ScriptEngineError.notImplemented("java.getVerificationCode requires a verification handler"))
-            return ""
+            return fail(ScriptEngineError.notImplemented("java.getVerificationCode requires a verification handler"))
         }
         do {
             return try verification.verificationCode(
@@ -434,8 +443,7 @@ import JavaScriptCore
                 sourceName: environment.sourceName
             )
         } catch {
-            raise(error)
-            return ""
+            return fail(error)
         }
     }
 
@@ -446,8 +454,7 @@ import JavaScriptCore
     /// text of the page, which is what the scripts use.
     public func startBrowserAwait(_ url: String, title: String) -> String {
         guard let verification = environment.verification else {
-            raise(ScriptEngineError.notImplemented("java.startBrowserAwait requires a verification handler"))
-            return ""
+            return fail(ScriptEngineError.notImplemented("java.startBrowserAwait requires a verification handler"))
         }
         do {
             return try verification.browserResult(
@@ -456,20 +463,26 @@ import JavaScriptCore
                 sourceName: environment.sourceName
             )
         } catch {
-            raise(error)
-            return ""
+            return fail(error)
         }
     }
 
-    /// Throws an Objective-C exception, which JavaScriptCore turns into a JS
-    /// exception the rule script can catch. Declared `-> Never` because the
-    /// ObjC exception unwinds: without it the compiler cannot tell that the
-    /// `guard` bodies and `catch` blocks below never fall through (the
-    /// callers are `String`/`Bool` returning methods).
-    private func raise(_ error: Error) -> Never {
-        let reason = (error as? ScriptEngineError).map { String(describing: $0) } ?? error.localizedDescription
-        NSException(name: NSExceptionName("LegadoScriptError"), reason: reason, userInfo: nil).raise()
-        fatalError("NSException.raise() returned for: \(reason)")
+    /// Records `error` and returns the empty string, so a facade method that
+    /// hit an error can keep the `String` return type. `evaluate` throws the
+    /// recorded error once the script has returned.
+    @discardableResult
+    private func fail(_ error: Error) -> String {
+        if pendingError == nil {
+            pendingError = (error as? ScriptEngineError)
+                ?? .scriptFailed(error.localizedDescription)
+        }
+        return ""
+    }
+
+    /// Returns and clears the error of the current evaluation.
+    func consumeError() -> ScriptEngineError? {
+        defer { pendingError = nil }
+        return pendingError
     }
 
     // MARK: - The external links
@@ -479,7 +492,7 @@ import JavaScriptCore
     /// `OpenUrlConfirmActivity` asks the user first.
     public func openUrl(_ url: String, mimeType: String?) {
         guard let handler = environment.openURL else {
-            raise(ScriptEngineError.notImplemented("java.openUrl requires an open url handler"))
+            fail(ScriptEngineError.notImplemented("java.openUrl requires an open url handler"))
             return
         }
         do {
@@ -490,7 +503,7 @@ import JavaScriptCore
                 sourceName: environment.sourceName
             )
         } catch {
-            raise(error)
+            fail(error)
         }
     }
 
@@ -553,10 +566,16 @@ public final class JavaScriptCoreEngine: RuleScriptEngine {
         for (key, value) in bindings {
             context.setObject(Self.toJS(value, in: context), forKeyedSubscript: key as NSString)
         }
+        // A previous evaluation may have recorded an error that the script
+        // itself caught.
+        _ = javaFacade.consumeError()
         // Evaluated on every call: the old cache stored the *result* of the
         // first evaluation, so a second run of the same script returned the
         // stale value instead of running it again.
         let result = context.evaluateScript(script)
+        if let error = javaFacade.consumeError() {
+            throw ScriptEngineError.scriptFailed(error.message)
+        }
         if let exception = context.exception {
             context.exception = nil
             throw ScriptEngineError.scriptFailed(Self.describe(exception))

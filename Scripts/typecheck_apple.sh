@@ -26,7 +26,10 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="${SWIFT_REPO:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 STUBS="$REPO/Scripts/apple-stubs"
-SCRATCH="${SWIFT_SCRATCH:-/home/shupian/.cache/legado-swift-build}"
+# The scratch directory is where `swift build` put its modules. By default
+# that is the standard `.build` of the checkout; `SWIFT_SCRATCH` overrides it
+# for a custom build directory (the local WSL cache).
+SCRATCH="${SWIFT_SCRATCH:-$REPO/.build}"
 OUT="$SCRATCH/apple-typecheck"
 PREBUILT="$SCRATCH/debug"
 CZMAP="$SCRATCH/out/Intermediates.noindex/GeneratedModuleMaps-linux-x86_64"

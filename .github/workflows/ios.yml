@@ -34,12 +34,10 @@ jobs:
       # build — the stub modules under `Scripts/apple-stubs` make
       # `canImport` true, so the Apple-only code is type-checked here too.
       - name: Type-check the Apple-only code paths
-        env:
-          # A container job interpolates `github.workspace` to the host path,
-          # while the checkout lives at `/__w/<repo>/<repo>`; the script
-          # derives the repository from its own location, so only the scratch
-          # (relative to the checkout) is passed.
-          SWIFT_SCRATCH: .build/typecheck
+        # A container job interpolates `github.workspace` to the host path,
+        # while the checkout lives at `/__w/<repo>/<repo>`; the script derives
+        # the repository from its own location and looks for the modules of
+        # `swift build` in the standard `.build` of the checkout.
         run: bash Scripts/typecheck_apple.sh
 
   # The app shell is SwiftUI, so it only exists on Apple platforms.
