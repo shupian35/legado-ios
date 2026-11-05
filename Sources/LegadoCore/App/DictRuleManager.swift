@@ -71,6 +71,31 @@ public enum DictRuleManager {
     /// The name of the exported file — upstream `exportDictRule.json`.
     public static let exportFileName = "exportDictRule.json"
 
+    /// The copy of one rule — upstream `DictRuleEditDialog.copyRule`:
+    /// `context.sendToClip(GSON.toJson(dictRule))`.
+    public static func copyJSON(_ rule: DictRule) -> String {
+        DocumentExport.jsonValue(rule.row).jsonString
+    }
+
+    /// The paste of one rule — upstream `DictRuleEditDialog.pasteRule`:
+    /// the clipboard text is parsed as a rule; an empty clipboard or a
+    /// malformed document is an error.
+    public static func paste(_ text: String) throws -> DictRule {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw DictRuleImportError.invalidJSON }
+        let value: JSONValue
+        do {
+            value = try JSONValue.parse(trimmed)
+        } catch {
+            throw DictRuleImportError.invalidJSON
+        }
+        guard case .object = value else { throw DictRuleImportError.invalidJSON }
+        guard let rule = DictRuleJSONBridge.decode(value) else {
+            throw DictRuleImportError.noRule
+        }
+        return rule
+    }
+
     /// The import of a document — upstream `DictRuleActivity.menu_import_local`
     /// (a `txt` or a `json` file) and `menu_import_onLine`.
     ///

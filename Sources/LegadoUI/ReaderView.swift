@@ -1854,7 +1854,7 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
         guard let storage = environment.cacheStorage else { return }
         let absolute = NetworkUtils.absoluteURL(base: book.tocUrl, src)
         storage.deleteImage(book: book, src: absolute)
-        _ = try? await contentProvider.chapterImages(
+        _ = await contentProvider.chapterImages(
             book: book,
             chapter: currentChapter,
             sources: [src]
@@ -1937,7 +1937,7 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
                 return
             }
             guard let toc = candidate.toc else { return }
-            let switched = try ChangeSourceService.switchSource(
+            let switched = ChangeSourceService.switchSource(
                 oldBook: book,
                 newBook: candidate.book,
                 toc: toc

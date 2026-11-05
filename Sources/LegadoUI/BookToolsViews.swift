@@ -292,7 +292,7 @@ public struct ChangeSourceView: View {
                     bookScores: config.bookScores,
                     sourceScores: config.sourceScores
                 )
-                let found = try await ChangeSourceService.search(
+                let found = await ChangeSourceService.search(
                     book: book,
                     sources: sources,
                     options: options,
@@ -368,7 +368,7 @@ public struct ChangeSourceView: View {
 
     private func switchSource(_ candidate: ChangeSourceCandidate) {
         do {
-            let switched = try ChangeSourceService.switchSource(
+            let switched = ChangeSourceService.switchSource(
                 oldBook: book,
                 newBook: candidate.book,
                 toc: candidate.toc
@@ -573,7 +573,7 @@ public struct ChangeChapterSourceView: View {
                 // Upstream `ChangeChapterSourceViewModel.getEnabledPartByGroup`.
                 let sources = ChangeSourceService.sources(all, group: group.isEmpty ? nil : group)
                 let options = ChangeSourceOptions(checkAuthor: checkAuthor, group: group.isEmpty ? nil : group)
-                let found = try await ChangeSourceService.search(
+                let found = await ChangeSourceService.search(
                     book: book,
                     sources: sources,
                     options: options,

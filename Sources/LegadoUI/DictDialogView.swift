@@ -3,6 +3,9 @@ import SwiftUI
 #else
 import LegadoUIShim
 #endif
+#if canImport(WebKit)
+import WebKit
+#endif
 import LegadoCore
 
 /// The result of a dictionary lookup — upstream `DictDialog`.
@@ -21,6 +24,39 @@ public struct DictLookupResult: Identifiable, Equatable, Sendable {
         self.word = word
         self.result = result
         self.ruleName = ruleName
+    }
+}
+
+/// The answer of a dictionary rule — upstream `tvDict.setHtml(it)`.
+///
+/// The upstream shows the answer in a `TextView` that renders the HTML
+/// (`LinkMovementMethod` makes the links clickable). The port uses a web
+/// view on the Apple platforms; the Linux build (the SwiftUI shim) shows the
+/// text.
+public struct DictAnswerView: View {
+
+    /// The HTML of the answer.
+    public let html: String
+
+    #if canImport(WebKit)
+    @State private var webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+    #endif
+
+    public init(html: String) {
+        self.html = html
+    }
+
+    public var body: some View {
+        #if canImport(WebKit)
+        WebViewRepresentable(webView: webView, url: "", html: html)
+            .frame(minHeight: 200)
+        #else
+        ScrollView {
+            Text(html)
+                .font(.system(size: 15))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        #endif
     }
 }
 
@@ -91,11 +127,8 @@ public struct DictDialogView: View {
                     .font(.system(size: 13))
                     .foregroundColor(.secondary)
             }
-            ScrollView {
-                Text(result)
-                    .font(.system(size: 15))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            // Upstream `binding.tvDict.setHtml(it)` — the answer is HTML.
+            DictAnswerView(html: DictAnswer.html(result))
         }
         .padding(16)
         .task {

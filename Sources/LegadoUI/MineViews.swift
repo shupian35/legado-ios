@@ -468,11 +468,13 @@ public struct DictRuleHelpView: View {
     }
 }
 
-/// The editor of a dictionary rule.
+/// The editor of a dictionary rule — upstream `DictRuleEditDialog`.
 struct DictRuleEditor: View {
 
     @State var rule: DictRule
     let onSave: (DictRule) -> Void
+
+    @State private var message: String?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -494,7 +496,55 @@ struct DictRuleEditor: View {
                         dismiss()
                     }
                 }
+                // Upstream `R.menu.dict_rule_edit` — `menu_copy_rule` and
+                // `menu_paste_rule`.
+                ToolbarItem(placement: .secondaryAction) {
+                    Menu {
+                        Button("复制规则") {
+                            copyRule()
+                        }
+                        Button("粘贴规则") {
+                            pasteRule()
+                        }
+                    } label: {
+                        Text("更多")
+                    }
+                }
             }
+            .alert(
+                "字典规则",
+                isPresented: Binding(
+                    get: { message != nil },
+                    set: { if !$0 { message = nil } }
+                )
+            ) {
+                Button("好") { message = nil }
+            } message: {
+                Text(message ?? "")
+            }
+        }
+    }
+
+    /// Copies the rule as JSON — upstream `DictRuleEditDialog.copyRule`:
+    /// `context.sendToClip(GSON.toJson(dictRule))`.
+    private func copyRule() {
+        UIPasteboardShim.copy(DictRuleManager.copyJSON(rule))
+        message = "已复制规则"
+    }
+
+    /// Pastes a rule from the clipboard — upstream
+    /// `DictRuleEditDialog.pasteRule`: an empty clipboard → "剪贴板没有内容",
+    /// a malformed document → "格式不对".
+    private func pasteRule() {
+        guard let text = UIPasteboardShim.paste(), !text.isEmpty else {
+            message = "剪贴板没有内容"
+            return
+        }
+        do {
+            rule = try DictRuleManager.paste(text)
+            message = "已粘贴规则"
+        } catch {
+            message = "格式不对"
         }
     }
 }
@@ -789,7 +839,7 @@ public struct HttpTTSView: View {
 
     /// Deletes an engine — upstream `ivMenuDelete` → `httpTTSDao.delete`.
     private func delete(_ engine: HttpTTS) {
-        try? model.environment.store.deleteHttpTTS(engine)
+        _ = try? model.environment.store.deleteHttpTTS(engine)
         reload()
     }
 
@@ -1150,7 +1200,7 @@ public struct FileManageView: View {
             return
         }
         for book in model.books {
-            try? storage.clearCache(book: book)
+            storage.clearCache(book: book)
         }
         message = "缓存已清空"
     }

@@ -185,4 +185,41 @@ final class DictRuleManagerTests: XCTestCase {
         let rows = try store.allDictRules()
         XCTAssertEqual(rows.map(\.sortNumber).sorted(), [1, 2])
     }
+
+    // MARK: - The copy and the paste (upstream `DictRuleEditDialog`)
+
+    func testTheCopyOfARuleIsItsJSON() throws {
+        let json = DictRuleManager.copyJSON(rule("a"))
+        let value = try JSONValue.parse(json)
+        guard case .object(let fields) = value else {
+            return XCTFail("the copy is not an object")
+        }
+        XCTAssertEqual(fields["name"]?.textValue, "a")
+        XCTAssertEqual(fields["urlRule"]?.textValue, "https://dict.example.com/a")
+        XCTAssertEqual(fields["showRule"]?.textValue, "$.result")
+        XCTAssertEqual(fields["enabled"]?.boolValue, true)
+    }
+
+    func testThePasteReadsTheRule() throws {
+        let pasted = try DictRuleManager.paste(DictRuleManager.copyJSON(rule("a")))
+        XCTAssertEqual(pasted.name, "a")
+        XCTAssertEqual(pasted.urlRule, "https://dict.example.com/a")
+        XCTAssertEqual(pasted.showRule, "$.result")
+    }
+
+    func testThePasteOfAnEmptyClipboardFails() {
+        XCTAssertThrowsError(try DictRuleManager.paste("   "))
+    }
+
+    func testThePasteOfAMalformedDocumentFails() {
+        XCTAssertThrowsError(try DictRuleManager.paste("not a json"))
+    }
+
+    func testThePasteOfADocumentWithoutANameFails() {
+        XCTAssertThrowsError(try DictRuleManager.paste("{\"urlRule\":\"https://x\"}"))
+    }
+
+    func testThePasteOfAnArrayFails() {
+        XCTAssertThrowsError(try DictRuleManager.paste("[{\"name\":\"a\"}]"))
+    }
 }

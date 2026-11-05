@@ -176,7 +176,7 @@ public struct PageTurnContainer<Content: View>: View {
                 if session.startPoint == nil {
                     session.begin(at: CGPointLike(x: Double(value.startLocation.x), y: Double(value.startLocation.y)))
                 }
-                session.update(
+                _ = session.update(
                     pointers: [CGPointLike(x: Double(value.location.x), y: Double(value.location.y))],
                     viewWidth: viewWidth
                 )
