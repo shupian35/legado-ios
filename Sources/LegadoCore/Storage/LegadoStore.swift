@@ -499,6 +499,18 @@ public final class LegadoStore {
         return lastGeneratedId
     }
 
+    /// The highest order of the replace rules — upstream
+    /// `ReplaceRuleDao.maxOrder`.
+    ///
+    /// The upstream API appends a new rule with `maxOrder + 1`, so it lands
+    /// at the end of the list.
+    public func maxReplaceRuleOrder() throws -> Int64 {
+        try tables
+            .rows(in: "replace_rules", where: .all, orderBy: [])
+            .compactMap { $0["sortOrder"]?.intValue }
+            .max() ?? 0
+    }
+
     /// Deletes a replace rule.
     public func deleteReplaceRule(id: Int64) throws {
         try tables.delete(from: "replace_rules", where: .equals(column: "id", value: .integer(id)))

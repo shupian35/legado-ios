@@ -423,7 +423,10 @@ public enum ReplaceRuleJSONBridge {
         rule.isEnabled = fields["isEnabled"]?.boolValue ?? true
         rule.isRegex = fields["isRegex"]?.boolValue ?? false
         rule.timeoutMillisecond = fields["timeoutMillisecond"]?.intValue ?? 0
-        rule.sortOrder = fields["sortOrder"]?.intValue ?? 0
+        // Upstream `ReplaceRule.order` — the JSON field is `order` (the
+        // database column is `sortOrder`). The port accepts both so that the
+        // backups of the earlier versions still restore.
+        rule.sortOrder = fields["order"]?.intValue ?? fields["sortOrder"]?.intValue ?? 0
         return rule
     }
 
@@ -442,7 +445,7 @@ public enum ReplaceRuleJSONBridge {
             "isEnabled": .bool(rule.isEnabled),
             "isRegex": .bool(rule.isRegex),
             "timeoutMillisecond": .number(Double(rule.timeoutMillisecond)),
-            "sortOrder": .number(Double(rule.sortOrder))
+            "order": .number(Double(rule.sortOrder))
         ]
         if let excludeScope = rule.excludeScope {
             fields["excludeScope"] = .string(excludeScope)

@@ -155,9 +155,17 @@ enum LegadoSmokeTest {
                 let body = String(decoding: response.body, as: UTF8.self)
                 print("[ok]   local API answered \(response.code) on port \(port) (\(body.count) bytes)")
 
-                // The upstream web bookshelf (the Vue bundle) is served by
-                // the same server.
-                let web = server.respond(to: HTTPRequestHead(method: "GET", target: "/", headers: [:]))
+                // The upstream web clients are served by the same server: the
+                // legacy navigation page at `/` and the Vue bookshelf under
+                // `/vue/`.
+                let legacy = server.respond(to: HTTPRequestHead(method: "GET", target: "/", headers: [:]))
+                let legacyBody = String(decoding: legacy.body, as: UTF8.self)
+                if legacy.code == 200 && legacyBody.contains("vue/index.html") {
+                    print("[ok]   legacy web page served (\(legacyBody.count) bytes)")
+                } else {
+                    print("[FAIL] legacy web page: \(legacy.code)")
+                }
+                let web = server.respond(to: HTTPRequestHead(method: "GET", target: "/vue/", headers: [:]))
                 let webBody = String(decoding: web.body, as: UTF8.self)
                 if web.code == 200 && webBody.contains("id=\"app\"") {
                     print("[ok]   web bookshelf served (\(webBody.count) bytes)")

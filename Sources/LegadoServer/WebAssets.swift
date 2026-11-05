@@ -4,15 +4,21 @@
 //
 //  The web bookshelf.
 //
-//  Upstream ships a Vue 3 single page application (`modules/web`, built by
-//  its own CI into `app/src/main/assets/web/vue`) that talks to the local
-//  HTTP API. The port serves **that very bundle** — it is copied verbatim
-//  into `Resources/WebUI` — so the browser experience is identical to the
-//  Android app, including the source editor and the source debug console.
+//  Upstream ships two web clients in `app/src/main/assets/web`:
+//
+//  * the legacy navigation page (`index.html`) with the `help`, `uploadBook`,
+//    `images` and `assets` folders — `web/HttpServer.kt` serves it at `/`;
+//  * a Vue 3 single page application (`vue/`, built by its own CI from
+//    `modules/web`) that talks to the local HTTP API — it is served at
+//    `/vue/`.
+//
+//  The port serves **both** — they are copied verbatim into
+//  `Resources/WebUI` — so the browser experience is identical to the Android
+//  app, including the source editor and the source debug console.
 //
 //  The upstream client needs no token (the Android server has no
 //  authentication at all); the port requires a bearer token, so the served
-//  `index.html` is patched with a small inline script that adds the
+//  `vue/index.html` is patched with a small inline script that adds the
 //  `Authorization` header to every same-origin request and the `token`
 //  query parameter to the WebSocket URL.
 //
@@ -35,7 +41,7 @@ public enum WebAssets {
 
     /// The response for a path, or `nil` when the path is not an asset.
     public static func response(for path: String) -> HTTPResponseMessage? {
-        // The upstream bundle first: it is the real web UI.
+        // The upstream assets first: they are the real web UI.
         if let response = upstreamResponse(for: path) { return response }
         switch path {
         case indexPath, "/index.html":
@@ -55,6 +61,9 @@ public enum WebAssets {
     // MARK: - The upstream bundle
 
     /// The root of the copied upstream bundle.
+    ///
+    /// It mirrors the upstream `app/src/main/assets/web` folder: the legacy
+    /// navigation page at the root and the Vue bookshelf under `vue/`.
     private static let upstreamBundle: URL? = {
         #if SWIFT_PACKAGE
         return Bundle.module.url(forResource: "WebUI", withExtension: nil)
@@ -67,16 +76,12 @@ public enum WebAssets {
     private static func upstreamResponse(for path: String) -> HTTPResponseMessage? {
         guard let root = upstreamBundle else { return nil }
         var relative = path == "/" || path.isEmpty ? "index.html" : String(path.dropFirst())
-        // Upstream keeps the Vue application in the `web/vue` folder, so the
-        // bundle is reachable under `/vue/` as well.
-        if relative.hasPrefix("vue/") {
-            relative = String(relative.dropFirst("vue/".count))
-            if relative.isEmpty { relative = "index.html" }
-        }
+        // Upstream `web/HttpServer.kt`: `if (uri.endsWith("/")) uri += "index.html"`.
+        if relative.hasSuffix("/") { relative += "index.html" }
         guard !relative.isEmpty, !relative.contains("..") else { return nil }
         let file = root.appendingPathComponent(relative)
         guard let data = try? Data(contentsOf: file) else { return nil }
-        if relative == "index.html" {
+        if relative == "vue/index.html" {
             // Patch the token into the page.
             var response = HTTPResponseMessage.binary(data, contentType: "text/html; charset=utf-8")
             let html = String(decoding: data, as: UTF8.self)

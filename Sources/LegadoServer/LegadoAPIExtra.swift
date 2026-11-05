@@ -37,13 +37,23 @@ extension LegadoAPI {
                     guard let book = try context.store.book(url: url) else {
                         return .apiError("未在数据库找到对应书籍，请先添加")
                     }
-                    guard let provider = context.chapterListProvider else {
-                        return .apiError("未找到对应书源,请换源")
+                    let chapters: [BookChapter]
+                    if book.isLocal {
+                        // Upstream `BookController.refreshToc` reads the table of
+                        // contents of a local book with `LocalBook.getChapterList`.
+                        guard let provider = context.localChapterListProvider else {
+                            return .apiError("未找到对应书源,请换源")
+                        }
+                        chapters = try await provider(book)
+                    } else {
+                        guard let provider = context.chapterListProvider else {
+                            return .apiError("未找到对应书源,请换源")
+                        }
+                        guard let source = try context.store.source(url: book.origin) else {
+                            return .apiError("未找到对应书源,请换源")
+                        }
+                        chapters = try await provider(source, book)
                     }
-                    guard let source = try context.store.source(url: book.origin) else {
-                        return .apiError("未找到对应书源,请换源")
-                    }
-                    let chapters = try await provider(source, book)
                     try context.store.deleteChapters(bookUrl: book.bookUrl)
                     try context.store.insert(chapters)
                     var updated = book
@@ -63,10 +73,13 @@ extension LegadoAPI {
                     guard let provider = context.imageProvider else {
                         return .apiError("获取图片失败")
                     }
-                    guard let image = try await provider(path) else {
+                    guard let image = try await provider(path, nil) else {
                         return .apiError("获取封面失败")
                     }
-                    return .binary(image, contentType: "image/jpeg")
+                    // Upstream sends a PNG (`web/HttpServer.kt:103-114`); the
+                    // port sends the original bytes, so the content type has
+                    // to describe them.
+                    return .binary(image, contentType: ImageContentType.detect(image))
                 }
             },
             Route(method: "GET", path: "/image") { request, context in
@@ -83,10 +96,13 @@ extension LegadoAPI {
                     guard let provider = context.imageProvider else {
                         return .apiError("获取图片失败")
                     }
-                    guard let image = try await provider(path) else {
+                    // Upstream `BookController.getImg`: the default width is
+                    // 640 and the image is scaled to it.
+                    let width = request.query("width").flatMap(Int.init) ?? 640
+                    guard let image = try await provider(path, width) else {
                         return .apiError("获取图片失败")
                     }
-                    return .binary(image, contentType: "image/jpeg")
+                    return .binary(image, contentType: ImageContentType.detect(image))
                 }
             },
 
@@ -170,8 +186,14 @@ extension LegadoAPI {
 
             Route(method: "POST", path: "/saveReplaceRule") { request, context in
                 await handle(request, context) { request in
-                    guard let rule = try replaceRuleFromBody(request.body) else {
+                    guard var rule = try replaceRuleFromBody(request.body) else {
                         return .apiError("格式不对")
+                    }
+                    // Upstream `ReplaceRuleController.saveRule`:
+                    // `if (rule.order == Int.MIN_VALUE) rule.order = maxOrder + 1`
+                    // — a rule without an order lands at the end of the list.
+                    if !replaceRuleHasOrder(request.body) {
+                        rule.sortOrder = (try context.store.maxReplaceRuleOrder()) + 1
                     }
                     try context.store.insert(rule)
                     return .api(JSONValue.string(""))
@@ -282,6 +304,19 @@ extension LegadoAPI {
         guard !text.isEmpty else { return nil }
         let json = try JSONValue.parse(text)
         return ReplaceRuleJSONBridge.decode(json)
+    }
+
+    /// Whether the posted rule carries an order.
+    ///
+    /// Upstream `ReplaceRuleController.saveRule`:
+    /// `if (rule.order == Int.MIN_VALUE) { rule.order = maxOrder + 1 }` — the
+    /// default order of `ReplaceRule.order` is `Int.MIN_VALUE`, so a rule
+    /// without an order lands at the end of the list.
+    static func replaceRuleHasOrder(_ body: Data) -> Bool {
+        let text = String(decoding: body, as: UTF8.self)
+        guard !text.isEmpty, let json = try? JSONValue.parse(text) else { return false }
+        guard case let .object(object) = json else { return false }
+        return object["order"] != nil || object["sortOrder"] != nil
     }
 
     /// The `{rule, text}` payload of the rule test — upstream

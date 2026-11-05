@@ -24,6 +24,23 @@ import Foundation
 import LegadoCore
 import LegadoServer
 
+#if canImport(UIKit)
+import UIKit
+#endif
+
+/// The errors of the local web service.
+public enum WebServiceError: Error, Equatable, LocalizedError {
+    /// The file of a local book is missing — upstream `NoBooksDirException`.
+    case localBookMissing
+
+    public var errorDescription: String? {
+        switch self {
+        case .localBookMissing:
+            return "找不到本地书籍文件"
+        }
+    }
+}
+
 /// The state of the application shell.
 public final class LegadoAppModel: ObservableObject {
 
@@ -2517,9 +2534,20 @@ public final class LegadoAppModel: ObservableObject {
             )
             return result?.chapters ?? []
         }
-        server.imageProvider = { [weak self] url in
+        // Upstream `BookController.refreshToc` reads the table of contents of
+        // a local book with `LocalBook.getChapterList(book)`.
+        server.localChapterListProvider = { [weak self] book in
+            guard let self else { return [] }
+            return try await self.webServiceLocalChapterList(book: book)
+        }
+        server.imageProvider = { [weak self] url, width in
             guard let self else { return nil }
-            return await self.webServiceImage(url: url)
+            return await self.webServiceImage(url: url, width: width)
+        }
+        // Upstream `BookController.saveBook` / `saveBookProgress` upload the
+        // progress to the WebDAV.
+        server.progressUploader = { [weak self] book in
+            await self?.webServiceUploadProgress(book: book)
         }
         do {
             try server.start()
@@ -2565,26 +2593,116 @@ public final class LegadoAppModel: ObservableObject {
 
     /// The content of a chapter for the local API — upstream
     /// `BookController.getBookContent`.
+    ///
+    /// The upstream runs the content through the processor:
+    /// `ContentProcessor.get(book.name, book.origin)
+    /// .getContent(book, chapter, content, includeTitle = false)`.
     private func webServiceContent(book: Book, chapter: BookChapter) async -> String? {
         // The cached content comes first — the upstream serves the cache too.
         if let cached = environment.cacheStorage?.content(book: book, chapter: chapter), !cached.isEmpty {
-            return cached
+            return processedWebServiceContent(book: book, chapter: chapter, raw: cached)
         }
         guard let source = try? environment.source(for: book) else { return nil }
         let dependencies = environment.dependencies()
-        return try? await WebBook.getContent(
+        guard let raw = try? await WebBook.getContent(
             bookSource: source,
             book: book,
             bookChapter: chapter,
             dependencies: dependencies
+        ) else {
+            return nil
+        }
+        return processedWebServiceContent(book: book, chapter: chapter, raw: raw)
+    }
+
+    /// The content processor of the local API — upstream
+    /// `ContentProcessor.getContent(book, chapter, content, includeTitle = false)`.
+    ///
+    /// The duplicated title is removed, the replace rules and the Chinese
+    /// conversion are applied.
+    private func processedWebServiceContent(book: Book, chapter: BookChapter, raw: String) -> String {
+        let titleRules = (try? environment.store.replaceRulesForTitle(name: book.name, origin: book.origin)) ?? []
+        let contentRules = (try? environment.store.replaceRulesForContent(name: book.name, origin: book.origin)) ?? []
+        let mode = ChineseConversionMode(rawValue: environment.settings.chineseConverterType) ?? .off
+        let processed = (try? ReplaceRuleEngine.processContent(
+            book: book,
+            chapter: chapter,
+            content: raw,
+            includeTitle: false,
+            useReplace: book.useReplaceRule,
+            chineseConvert: mode != .off,
+            reSegment: true,
+            titleRules: titleRules,
+            contentRules: contentRules,
+            conversionMode: mode,
+            converter: DefaultChineseConverter(),
+            scriptEngine: environment.scriptEngine
+        ))?.contents.joined(separator: "\n") ?? raw
+        return processed
+    }
+
+    /// The table of contents of a local book — upstream
+    /// `LocalBook.getChapterList(book)`.
+    private func webServiceLocalChapterList(book: Book) async throws -> [BookChapter] {
+        let importer = localImporter
+        guard let importer, let file = importer.fileURL(for: book) else {
+            throw WebServiceError.localBookMissing
+        }
+        let rules = (try? environment.store.enabledTxtTocRules()) ?? []
+        let imported = try LocalBook.importFile(
+            fileURL: file,
+            bookUrl: book.bookUrl,
+            tocRules: rules
         )
+        return imported.chapters
+    }
+
+    /// Uploads the reading progress to the WebDAV — upstream
+    /// `AppWebDav.uploadBookProgress`.
+    private func webServiceUploadProgress(book: Book) async {
+        guard environment.settings.appWebDav.isConfigured else { return }
+        guard let service = webDavService() else { return }
+        do {
+            try await service.uploadProgress(BookProgress(book: book))
+        } catch {
+            AppLog.shared.put("上传阅读进度失败", error: error)
+        }
     }
 
     /// The bytes of an image for the local API — upstream
     /// `BookController.getCover` / `getImage`.
-    private func webServiceImage(url: String) async -> Data? {
+    ///
+    /// The upstream scales the image to the requested width
+    /// (`ImageProvider.getImage(book, src, width)`) and sends a PNG
+    /// (`web/HttpServer.kt:103-114`).
+    private func webServiceImage(url: String, width: Int?) async -> Data? {
         guard let absolute = URL(string: url), absolute.scheme != nil else { return nil }
         let response = try? await environment.httpClient.send(HttpRequest(url: url, method: "GET"))
-        return response?.data
+        guard let data = response?.data, !data.isEmpty else { return nil }
+        return scaledWebServiceImage(data, width: width)
+    }
+
+    /// Scales an image to the width and converts it into a PNG.
+    ///
+    /// On the platforms without UIKit the original bytes are returned; the
+    /// server derives the content type from the bytes themselves.
+    private func scaledWebServiceImage(_ data: Data, width: Int?) -> Data {
+        #if canImport(UIKit)
+        guard let image = UIImage(data: data) else { return data }
+        let size = image.size
+        guard size.width > 0, size.height > 0 else { return data }
+        let targetWidth = CGFloat(width ?? Int(size.width))
+        guard targetWidth > 0, targetWidth < size.width else {
+            return image.pngData() ?? data
+        }
+        let target = CGSize(width: targetWidth, height: size.height * targetWidth / size.width)
+        let renderer = UIGraphicsImageRenderer(size: target)
+        let scaled = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: target))
+        }
+        return scaled.pngData() ?? data
+        #else
+        return data
+        #endif
     }
 }

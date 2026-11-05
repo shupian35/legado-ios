@@ -295,15 +295,17 @@ public final class LegadoServer: @unchecked Sendable {
         var chunk = [UInt8](repeating: 0, count: 8192)
         var pending = Data()
         let state = WebSocketSessionState()
+        startWebSocketHeartbeat(client, state: state)
         while true {
             let read = recv(client, &chunk, chunk.count, 0)
-            if read <= 0 { return }
+            if read <= 0 { break }
             pending.append(contentsOf: chunk[0..<read])
             while true {
                 let decoded: (frame: WebSocket.Frame, consumed: Int)?
                 do {
                     decoded = try WebSocket.decode(pending)
                 } catch {
+                    state.isFinished = true
                     return
                 }
                 guard let decoded else { break }
@@ -311,6 +313,7 @@ public final class LegadoServer: @unchecked Sendable {
                 switch decoded.frame.opcode {
                 case .close:
                     writeAll(client, WebSocket.encode(.init(opcode: .close)))
+                    state.isFinished = true
                     return
                 case .ping:
                     writeAll(client, WebSocket.encode(.init(opcode: .pong, payload: decoded.frame.payload)))
@@ -322,18 +325,37 @@ public final class LegadoServer: @unchecked Sendable {
                         switch outgoing {
                         case .text(let text):
                             self.writeAll(client, WebSocket.textFrame(text))
+                        case .ping:
+                            self.writeAll(client, WebSocket.encode(.init(opcode: .ping, payload: Data("ping".utf8))))
                         case .close:
                             self.writeAll(client, WebSocket.encode(.init(opcode: .close)))
                             state.isClosed = true
                         }
                     }
                     runAsync { await handler(path, message, send) }
-                    if state.isClosed { return }
+                    if state.isClosed { state.isFinished = true; return }
                 case .continuation, .pong:
                     continue
                 }
             }
         }
+        state.isFinished = true
+    }
+
+    /// Pings the client every 30 seconds while the socket is open.
+    ///
+    /// Upstream `BookSearchWebSocket.onOpen`:
+    /// `while (isOpen) { ping("ping".toByteArray()); delay(30000) }`.
+    private func startWebSocketHeartbeat(_ client: Int32, state: WebSocketSessionState) {
+        let thread = Thread { [weak self] in
+            while !state.isFinished {
+                Thread.sleep(forTimeInterval: 30)
+                if state.isFinished || state.isClosed { break }
+                self?.writeAll(client, WebSocket.encode(.init(opcode: .ping, payload: Data("ping".utf8))))
+            }
+        }
+        thread.name = "LegadoServer.webSocket.ping"
+        thread.start()
     }
 
     private func writeAll(_ fd: Int32, _ data: Data) {
@@ -405,10 +427,26 @@ public final class LegadoServer: @unchecked Sendable {
         set { chapterListProviderStorage = newValue }
     }
 
+    /// Reloads the table of contents of a local book (`/refreshToc`).
+    public var localChapterListProvider: (@Sendable (Book) async throws -> [BookChapter])? {
+        get { localChapterListProviderStorage }
+        set { localChapterListProviderStorage = newValue }
+    }
+
     /// Returns the bytes of an image (`/cover`, `/image`).
-    public var imageProvider: (@Sendable (String) async throws -> Data?)? {
+    ///
+    /// The width scales the image — upstream
+    /// `ImageProvider.getImage(book, src, width)`.
+    public var imageProvider: (@Sendable (String, Int?) async throws -> Data?)? {
         get { imageProviderStorage }
         set { imageProviderStorage = newValue }
+    }
+
+    /// Uploads the reading progress to the WebDAV (`/saveBook`,
+    /// `/saveBookProgress`) — upstream `AppWebDav.uploadBookProgress`.
+    public var progressUploader: (@Sendable (Book) async -> Void)? {
+        get { progressUploaderStorage }
+        set { progressUploaderStorage = newValue }
     }
 
     /// Stores a local book file (`/addLocalBook`).
@@ -418,7 +456,9 @@ public final class LegadoServer: @unchecked Sendable {
     }
 
     private var chapterListProviderStorage: (@Sendable (BookSource, Book) async throws -> [BookChapter])?
-    private var imageProviderStorage: (@Sendable (String) async throws -> Data?)?
+    private var localChapterListProviderStorage: (@Sendable (Book) async throws -> [BookChapter])?
+    private var imageProviderStorage: (@Sendable (String, Int?) async throws -> Data?)?
+    private var progressUploaderStorage: (@Sendable (Book) async -> Void)?
     private var localBookImporterStorage: (@Sendable (String, Data) async throws -> Bool)?
 
     private var apiContext: LegadoAPI.LegadoAPIRequestContext {
@@ -427,7 +467,9 @@ public final class LegadoServer: @unchecked Sendable {
             configuration: configuration,
             contentProvider: contentProviderStorage,
             chapterListProvider: chapterListProviderStorage,
+            localChapterListProvider: localChapterListProviderStorage,
             imageProvider: imageProviderStorage,
+            progressUploader: progressUploaderStorage,
             localBookImporter: localBookImporterStorage
         )
     }

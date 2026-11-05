@@ -5,6 +5,8 @@ import LegadoCore
 public enum LegadoWebSocketOutgoing: Equatable, Sendable {
     /// A text frame.
     case text(String)
+    /// A ping frame — upstream `BookSearchWebSocket.onOpen` pings every 30 s.
+    case ping
     /// The close frame; the connection ends afterwards.
     case close
 }
@@ -23,6 +25,8 @@ public typealias LegadoWebSocketHandler = @Sendable (
 /// The mutable state of a WebSocket session (the close flag).
 final class WebSocketSessionState: @unchecked Sendable {
     var isClosed = false
+    /// Set when the session ends for any reason (the heartbeat stops).
+    var isFinished = false
 }
 
 /// The three WebSocket endpoints of the upstream web service —
@@ -48,8 +52,9 @@ public enum LegadoWebSocketEndpoint: String, CaseIterable, Sendable {
 /// * `/bookSourceDebug` — the client sends `{"tag": "<sourceUrl>", "key": "<keyword>"}`;
 ///   the debug output is streamed back as text frames.
 /// * `/rssSourceDebug` — the same with an RSS source.
-/// * `/searchBook` — the client sends `{"key": "<keyword>"}`; the results are
-///   sent as one JSON array and the session is closed.
+/// * `/searchBook` — the client sends `{"key": "<keyword>"}`; the results of
+///   every source are sent as they finish (one JSON array per source) and the
+///   session is closed.
 public final class LegadoWebSocketService: @unchecked Sendable {
 
     /// The message upstream sends when the payload is not JSON.
@@ -185,7 +190,6 @@ public final class LegadoWebSocketService: @unchecked Sendable {
             return
         }
         let sources = (try? store.enabledSources()) ?? []
-        var results: [SearchBook] = []
         for source in sources {
             guard let books = try? await WebBook.searchBook(
                 bookSource: source,
@@ -194,9 +198,11 @@ public final class LegadoWebSocketService: @unchecked Sendable {
             ) else {
                 continue
             }
-            results.append(contentsOf: books)
+            // Upstream `BookSearchWebSocket.onSearchSuccess` sends the results
+            // of every source as they finish:
+            // `send(GSON.toJson(searchBooks))`.
+            send(.text(SearchBookJSON.encode(books)))
         }
-        send(.text(SearchBookJSON.encode(results)))
         send(.close)
     }
 

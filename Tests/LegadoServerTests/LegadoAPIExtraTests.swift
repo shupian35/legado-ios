@@ -112,6 +112,45 @@ final class LegadoAPIExtraTests: XCTestCase {
         XCTAssertEqual(response.code, 200)
     }
 
+    func testRefreshTocUsesTheLocalProviderForALocalBook() throws {
+        // Upstream `BookController.refreshToc`: `if (book.isLocal) {
+        // LocalBook.getChapterList(book) }`.
+        var book = makeBook()
+        book.type = BookType.local | BookType.text
+        try store.insert(book)
+        var called = false
+        server.localChapterListProvider = { _ in
+            called = true
+            return [BookChapter(url: "file:///local.txt#0", title: "Local", bookUrl: book.bookUrl, index: 0)]
+        }
+        let response = get("/refreshToc", query: [("url", book.bookUrl)])
+        XCTAssertEqual(response.code, 200)
+        XCTAssertTrue(called)
+        let chapters = try store.chapters(bookUrl: book.bookUrl)
+        XCTAssertEqual(chapters.map(\.title), ["Local"])
+    }
+
+    func testSaveBookUploadsTheProgress() throws {
+        var uploaded: [String] = []
+        server.progressUploader = { book in uploaded.append(book.bookUrl) }
+        let body = Data(#"{"bookUrl":"https://book.example/1","name":"Book","author":"Author"}"#.utf8)
+        let response = post("/saveBook", body: body)
+        XCTAssertEqual(response.code, 200)
+        XCTAssertEqual(uploaded, ["https://book.example/1"])
+    }
+
+    func testSaveBookProgressUploadsTheProgress() throws {
+        // Upstream `BookController.saveBookProgress` finds the book by its
+        // name and its author.
+        try store.insert(makeBook())
+        var uploaded: [String] = []
+        server.progressUploader = { book in uploaded.append(book.bookUrl) }
+        let body = Data(#"{"bookUrl":"https://book.example/1","name":"Book","author":"Author","durChapterIndex":3}"#.utf8)
+        let response = post("/saveBookProgress", body: body)
+        XCTAssertEqual(response.code, 200)
+        XCTAssertEqual(uploaded, ["https://book.example/1"])
+    }
+
     func testRefreshTocWithoutTheUrlIs400() {
         XCTAssertEqual(get("/refreshToc").code, 200)
     }
@@ -119,11 +158,19 @@ final class LegadoAPIExtraTests: XCTestCase {
     // MARK: - The images
 
     func testCoverReturnsTheImageBytes() {
-        server.imageProvider = { path in Data("cover:\(path)".utf8) }
+        server.imageProvider = { path, _ in Data("cover:\(path)".utf8) }
         let response = get("/cover", query: [("path", "https://img.example/a.jpg")])
         XCTAssertEqual(response.code, 200)
-        XCTAssertEqual(response.headers["Content-Type"], "image/jpeg")
+        // The content type is derived from the bytes themselves — the port
+        // serves the original image, the upstream converts it into a PNG.
+        XCTAssertEqual(response.headers["Content-Type"], "application/octet-stream")
         XCTAssertEqual(text(response), "cover:https://img.example/a.jpg")
+    }
+
+    func testCoverDetectsTheContentTypeOfTheImage() {
+        server.imageProvider = { _, _ in Data([0xFF, 0xD8, 0xFF, 0xE0]) }
+        let response = get("/cover", query: [("path", "https://img.example/a.jpg")])
+        XCTAssertEqual(response.headers["Content-Type"], "image/jpeg")
     }
 
     func testCoverWithoutAPathIs400() {
@@ -135,9 +182,37 @@ final class LegadoAPIExtraTests: XCTestCase {
     }
 
     func testImageForAnUnknownBookIs404() throws {
-        server.imageProvider = { _ in Data("x".utf8) }
+        server.imageProvider = { _, _ in Data("x".utf8) }
         let response = get("/image", query: [("url", "https://book.example/1"), ("path", "a.jpg")])
         XCTAssertEqual(response.code, 200)
+    }
+
+    func testImagePassesTheWidthToTheProvider() throws {
+        try store.insert(makeBook())
+        var received: Int?
+        server.imageProvider = { _, width in
+            received = width
+            return Data([0x89, 0x50, 0x4E, 0x47])
+        }
+        let response = get("/image", query: [
+            ("url", "https://book.example/1"),
+            ("path", "a.png"),
+            ("width", "320")
+        ])
+        XCTAssertEqual(response.code, 200)
+        XCTAssertEqual(received, 320)
+        XCTAssertEqual(response.headers["Content-Type"], "image/png")
+    }
+
+    func testImageUsesTheDefaultWidthOf640() throws {
+        try store.insert(makeBook())
+        var received: Int?
+        server.imageProvider = { _, width in
+            received = width
+            return Data([0x89, 0x50, 0x4E, 0x47])
+        }
+        _ = get("/image", query: [("url", "https://book.example/1"), ("path", "a.png")])
+        XCTAssertEqual(received, 640)
     }
 
     // MARK: - The web reading configuration
@@ -214,14 +289,52 @@ final class LegadoAPIExtraTests: XCTestCase {
         XCTAssertEqual(saved.code, 200)
         let list = get("/getReplaceRules")
         XCTAssertEqual(list.code, 200)
-        let json = try json(list)
-        guard case let .array(items) = json else { return XCTFail("expected an array") }
+        // Upstream `ReplaceRuleController.allRules`:
+        // `returnData.setData(GSON.toJson(rules))` — the data is the JSON
+        // TEXT of the array, not the array itself.
+        let payload = try json(list)
+        let arrayText = try XCTUnwrap(payload.textValue)
+        let parsed = try JSONValue.parse(arrayText)
+        guard case let .array(items) = parsed else { return XCTFail("expected an array") }
         XCTAssertEqual(items.count, 1)
         let stored = try XCTUnwrap(store.allReplaceRules().first)
         var toDelete = rule
         toDelete.id = stored.id
         XCTAssertEqual(post("/deleteReplaceRule", body: Data(ReplaceRuleJSONBridge.encode(toDelete).jsonString.utf8)).code, 200)
         XCTAssertEqual(try store.allReplaceRules().count, 0)
+    }
+
+    func testSaveReplaceRuleWithoutAnOrderLandsAtTheEnd() throws {
+        // Upstream `ReplaceRuleController.saveRule`:
+        // `if (rule.order == Int.MIN_VALUE) rule.order = maxOrder + 1`.
+        let first = ReplaceRule(id: 1, name: "First", group: "", pattern: "a", replacement: "b", scope: "content", isEnabled: true, isRegex: false)
+        _ = post("/saveReplaceRule", body: Data(ReplaceRuleJSONBridge.encode(first).jsonString.utf8))
+        let withoutOrder = JSONValue.object([
+            "name": .string("Second"),
+            "pattern": .string("c"),
+            "replacement": .string("d"),
+            "isEnabled": .bool(true)
+        ])
+        _ = post("/saveReplaceRule", body: Data(withoutOrder.jsonString.utf8))
+        let rules = try store.allReplaceRules()
+        XCTAssertEqual(rules.count, 2)
+        let orders = rules.map(\.sortOrder).sorted()
+        XCTAssertEqual(orders, orders.sorted())
+        XCTAssertEqual(rules.map(\.name).sorted(), ["First", "Second"])
+        // The new rule has the highest order.
+        let second = try XCTUnwrap(rules.first { $0.name == "Second" })
+        let firstRule = try XCTUnwrap(rules.first { $0.name == "First" })
+        XCTAssertGreaterThan(second.sortOrder, firstRule.sortOrder)
+    }
+
+    func testTheReplaceRuleJSONUsesTheOrderField() throws {
+        let rule = ReplaceRule(id: 3, name: "Rule", group: "", pattern: "a", replacement: "b", scope: "content", isEnabled: true, isRegex: false)
+        let json = ReplaceRuleJSONBridge.encode(rule)
+        let object = try JSONValue.parse(json.jsonString)
+        guard case let .object(fields) = object else { return XCTFail("expected an object") }
+        // The upstream field is `order` (`ReplaceRule.order`).
+        XCTAssertNotNil(fields["order"])
+        XCTAssertNil(fields["sortOrder"])
     }
 
     func testTestReplaceRuleAppliesAPlainPattern() throws {

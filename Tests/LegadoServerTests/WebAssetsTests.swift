@@ -17,25 +17,38 @@ final class WebAssetsTests: XCTestCase {
 
     /// The upstream Vue bundle is copied into the package resources, so the
     /// port serves the very same web UI as the Android app.
+    ///
+    /// The upstream serves the legacy navigation page at `/` and the Vue
+    /// application under `/vue/` (`web/HttpServer.kt:97-100`).
     func testTheUpstreamVueBundleIsServed() {
         XCTAssertTrue(WebAssets.hasUpstreamBundle)
-        let response = WebAssets.response(for: "/")
+        let response = WebAssets.response(for: "/vue/")
         XCTAssertNotNil(response)
         XCTAssertEqual(response?.code, 200)
         let body = String(decoding: response?.body ?? Data(), as: UTF8.self)
-        // The upstream `index.html` of the Vue application.
+        // The upstream `vue/index.html` of the Vue application.
         XCTAssertTrue(body.contains("<div id=\"app\"></div>"), body.prefix(200).description)
         XCTAssertTrue(body.contains("./assets/index-"), body.prefix(400).description)
     }
 
+    /// The legacy navigation page is served at the root — the upstream
+    /// `assets/web/index.html`.
+    func testTheLegacyNavigationPageIsServedAtTheRoot() {
+        let response = WebAssets.response(for: "/")
+        XCTAssertEqual(response?.code, 200)
+        let body = String(decoding: response?.body ?? Data(), as: UTF8.self)
+        XCTAssertTrue(body.contains("vue/index.html"), body.prefix(200).description)
+        XCTAssertTrue(body.contains("uploadBook/index.html"), body.prefix(400).description)
+    }
+
     func testTheBundleAssetsAreServedWithTheirContentType() {
-        let index = String(decoding: WebAssets.response(for: "/")?.body ?? Data(), as: UTF8.self)
+        let index = String(decoding: WebAssets.response(for: "/vue/")?.body ?? Data(), as: UTF8.self)
         guard let range = index.range(of: "./assets/index-") else {
             return XCTFail("no bundle entry in the index")
         }
         let rest = index[range.upperBound...]
         let name = "index-" + String(rest.prefix(while: { $0 != "\"" }))
-        let response = WebAssets.response(for: "/assets/\(name)")
+        let response = WebAssets.response(for: "/vue/assets/\(name)")
         XCTAssertEqual(response?.code, 200)
         XCTAssertEqual(response?.headers["Content-Type"], "application/javascript; charset=utf-8")
         XCTAssertGreaterThan(response?.body.count ?? 0, 1000)
@@ -43,14 +56,14 @@ final class WebAssetsTests: XCTestCase {
 
     func testTheTokenIsInjectedIntoTheIndexPage() {
         WebAssets.accessToken = "s3cret"
-        let body = String(decoding: WebAssets.response(for: "/")?.body ?? Data(), as: UTF8.self)
+        let body = String(decoding: WebAssets.response(for: "/vue/")?.body ?? Data(), as: UTF8.self)
         XCTAssertTrue(body.contains("s3cret"), "the token script is missing")
         XCTAssertTrue(body.contains("Authorization"))
     }
 
     func testWithoutATokenThePageIsNotPatched() {
         WebAssets.accessToken = nil
-        let body = String(decoding: WebAssets.response(for: "/")?.body ?? Data(), as: UTF8.self)
+        let body = String(decoding: WebAssets.response(for: "/vue/")?.body ?? Data(), as: UTF8.self)
         XCTAssertFalse(body.contains("Authorization"))
     }
 
@@ -98,11 +111,20 @@ final class WebAssetsTests: XCTestCase {
 
     func testTheServerServesTheWebBookshelf() {
         let server = LegadoServer(configuration: LegadoAPIConfiguration(token: "t"))
-        let request = HTTPRequestHead(method: "GET", target: "/", headers: [:], body: Data())
+        let request = HTTPRequestHead(method: "GET", target: "/vue/", headers: [:], body: Data())
         let response = server.respond(to: request)
         XCTAssertEqual(response.code, 200)
         let body = String(decoding: response.body, as: UTF8.self)
         XCTAssertTrue(body.contains("<div id=\"app\"></div>"), body.prefix(200).description)
+    }
+
+    func testTheServerServesTheLegacyPageAtTheRoot() {
+        let server = LegadoServer(configuration: LegadoAPIConfiguration(token: "t"))
+        let request = HTTPRequestHead(method: "GET", target: "/", headers: [:], body: Data())
+        let response = server.respond(to: request)
+        XCTAssertEqual(response.code, 200)
+        let body = String(decoding: response.body, as: UTF8.self)
+        XCTAssertTrue(body.contains("vue/index.html"), body.prefix(200).description)
     }
 
     func testAnUnknownPathIsStillNotFound() {

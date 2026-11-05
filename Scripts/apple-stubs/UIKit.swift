@@ -145,6 +145,10 @@ open class UIImage: NSObject {
     public init?(named: String) { super.init() }
     open func pngData() -> Data? { nil }
     open func jpegData(compressionQuality: CGFloat) -> Data? { nil }
+    /// The size of the image in points.
+    open var size: CGSize { CGSize(width: 0, height: 0) }
+    /// Draws the image into the rectangle.
+    open func draw(in rect: CGRect) {}
 }
 
 // MARK: - UIFont

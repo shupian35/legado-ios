@@ -68,8 +68,17 @@ public enum LegadoAPI {
         public let contentProvider: (@Sendable (Book, BookChapter) async throws -> String?)?
         /// Reloads the table of contents of a book (upstream `refreshToc`).
         public let chapterListProvider: (@Sendable (BookSource, Book) async throws -> [BookChapter])?
+        /// Reloads the table of contents of a LOCAL book — upstream
+        /// `LocalBook.getChapterList(book)`.
+        public let localChapterListProvider: (@Sendable (Book) async throws -> [BookChapter])?
         /// Returns the bytes of an image (the cover or a chapter image).
-        public let imageProvider: (@Sendable (String) async throws -> Data?)?
+        ///
+        /// The width scales the image — upstream
+        /// `ImageProvider.getImage(book, src, width)`.
+        public let imageProvider: (@Sendable (String, Int?) async throws -> Data?)?
+        /// Uploads the reading progress to the WebDAV — upstream
+        /// `AppWebDav.uploadBookProgress`.
+        public let progressUploader: (@Sendable (Book) async -> Void)?
         /// Stores a local book file and imports it.
         public let localBookImporter: (@Sendable (String, Data) async throws -> Bool)?
 
@@ -78,14 +87,18 @@ public enum LegadoAPI {
             configuration: LegadoAPIConfiguration,
             contentProvider: (@Sendable (Book, BookChapter) async throws -> String?)? = nil,
             chapterListProvider: (@Sendable (BookSource, Book) async throws -> [BookChapter])? = nil,
-            imageProvider: (@Sendable (String) async throws -> Data?)? = nil,
+            localChapterListProvider: (@Sendable (Book) async throws -> [BookChapter])? = nil,
+            imageProvider: (@Sendable (String, Int?) async throws -> Data?)? = nil,
+            progressUploader: (@Sendable (Book) async -> Void)? = nil,
             localBookImporter: (@Sendable (String, Data) async throws -> Bool)? = nil
         ) {
             self.store = store
             self.configuration = configuration
             self.contentProvider = contentProvider
             self.chapterListProvider = chapterListProvider
+            self.localChapterListProvider = localChapterListProvider
             self.imageProvider = imageProvider
+            self.progressUploader = progressUploader
             self.localBookImporter = localBookImporter
         }
     }
@@ -214,6 +227,9 @@ public enum LegadoAPI {
                     } else {
                         try context.store.insert(book)
                     }
+                    // Upstream `BookController.saveBook` uploads the book to the
+                    // WebDAV before it saves it.
+                    await context.progressUploader?(book)
                     return .api(JSONValue.string(""))
                 }
             },
@@ -239,13 +255,20 @@ public enum LegadoAPI {
                     book.durChapterTime = progress.durChapterTime
                     if let title = progress.durChapterTitle { book.durChapterTitle = title }
                     try context.store.updateProgress(book: book)
+                    // Upstream `BookController.saveBookProgress` uploads the
+                    // progress to the WebDAV.
+                    await context.progressUploader?(book)
                     return .api(JSONValue.string(""))
                 }
             },
             Route(method: "GET", path: "/getReplaceRules") { _, context in
                 await handle(nil, context) { _ in
                     let rules = try context.store.allReplaceRules()
-                    return .api(JSONValue.array(rules.map(replaceRuleJSON)))
+                    // Upstream `ReplaceRuleController.allRules`:
+                    // `returnData.setData(GSON.toJson(rules))` — the data is a
+                    // JSON **string**, not an array.
+                    let json = JSONValue.array(rules.map(replaceRuleJSON)).jsonString
+                    return .api(JSONValue.string(json))
                 }
             }
         ] + extraRoutes()
@@ -459,7 +482,9 @@ public enum LegadoAPI {
             "scopeTitle": .bool(rule.scopeTitle),
             "scopeContent": .bool(rule.scopeContent),
             "timeoutMillisecond": .number(Double(rule.timeoutMillisecond)),
-            "sortOrder": .number(Double(rule.sortOrder)),
+            // Upstream `ReplaceRule.order` — the JSON field is `order` (the
+            // database column is `sortOrder`).
+            "order": .number(Double(rule.sortOrder)),
             "excludeScope": rule.excludeScope.map(JSONValue.string) ?? .null
         ])
     }
