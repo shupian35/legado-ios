@@ -8,6 +8,9 @@
 //  The user browses the folders of the server, picks the books and imports
 //  them into the library.
 //
+//  The upstream menu (`R.menu.book_remote`) also holds the server
+//  configuration, the log and the help — all three are ported here.
+//
 
 #if canImport(SwiftUI)
 import SwiftUI
@@ -33,6 +36,14 @@ public struct RemoteBookView: View {
     @State private var webDavUrl: String = ""
     @State private var webDavAccount: String = ""
     @State private var webDavPassword: String = ""
+    /// The search text — upstream `onSearchTextChange`.
+    @State private var searchText: String = ""
+    /// The server configuration — upstream `menu_server_config`.
+    @State private var isServersPresented = false
+    /// The log — upstream `menu_log`.
+    @State private var isLogPresented = false
+    /// The help — upstream `menu_help` (the `webDavBookHelp` document).
+    @State private var isHelpPresented = false
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -41,13 +52,31 @@ public struct RemoteBookView: View {
     public var body: some View {
         VStack(spacing: 0) {
             header
+            // Upstream `searchView` — the list is filtered by the file name.
+            HStack {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                TextField("搜索", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                if !searchText.isEmpty {
+                    Button("清除") {
+                        searchText = ""
+                    }
+                    .font(.system(size: 12))
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
             if isLoading {
                 ProgressView("加载中")
                     .padding()
-            } else if books.isEmpty {
+            } else if visibleBooks.isEmpty {
                 EmptyState(text: "没有远程书籍")
             } else {
-                List(books, id: \.path) { book in
+                List(visibleBooks, id: \.path) { book in
                     row(book)
                 }
                 .listStyle(PlainListStyle())
@@ -84,16 +113,58 @@ public struct RemoteBookView: View {
                     Text("排序")
                 }
             }
+            ToolbarItem(placement: .secondaryAction) {
+                // Upstream `menu_server_config` — the `ServersDialog`.
+                Button("服务器配置") {
+                    isServersPresented = true
+                }
+            }
+            ToolbarItem(placement: .secondaryAction) {
+                // Upstream `menu_log` — the `AppLogDialog`.
+                Button("日志") {
+                    isLogPresented = true
+                }
+            }
+            ToolbarItem(placement: .secondaryAction) {
+                // Upstream `menu_help` — the `webDavBookHelp` document.
+                Button("帮助") {
+                    isHelpPresented = true
+                }
+            }
+        }
+        .sheet(isPresented: $isServersPresented) {
+            NavigationStack {
+                ServersView(model: model)
+            }
+        }
+        .sheet(isPresented: $isLogPresented) {
+            NavigationStack {
+                AppLogView()
+            }
+        }
+        .sheet(isPresented: $isHelpPresented) {
+            NavigationStack {
+                WebDavBookHelpView()
+            }
         }
         .onAppear {
             webDavUrl = model.environment.settings.webDavUrl ?? ""
             webDavAccount = model.environment.settings.webDavAccount ?? ""
             webDavPassword = model.environment.settings.webDavPassword ?? ""
+            model.reloadWebDavServers()
             load()
         }
     }
 
     // MARK: - The parts
+
+    /// The books that match the search — upstream
+    /// `RemoteBookViewModel.updateCallBackFlow` → `it.filename.contains(key)`.
+    private var visibleBooks: [RemoteBook] {
+        let key = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return books }
+        return books.filter { $0.filename.contains(key) }
+    }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -176,18 +247,7 @@ public struct RemoteBookView: View {
     }
 
     private func importer() -> RemoteBookImporter? {
-        guard !webDavUrl.isEmpty, !webDavAccount.isEmpty, !webDavPassword.isEmpty else { return nil }
-        let configuration = WebDavConfiguration(
-            url: webDavUrl,
-            username: webDavAccount,
-            password: webDavPassword,
-            backupDirectory: "",
-            bookProgressDirectory: "bookProgress/",
-            booksDirectory: "books/",
-            backgroundDirectory: "background/"
-        )
-        let client = WebDavClient(configuration: configuration, httpClient: model.environment.httpClient)
-        return RemoteBookImporter(client: client, rootPath: "books/")
+        model.remoteBookImporter()
     }
 
     private func load() {
@@ -221,5 +281,22 @@ public struct RemoteBookView: View {
             isLoading = false
             load()
         }
+    }
+}
+
+/// The help of the remote-book browser — upstream `menu_help` (the
+/// `webDavBookHelp` document).
+public struct WebDavBookHelpView: View {
+
+    public init() {}
+
+    public var body: some View {
+        ScrollView {
+            Text(AppHelpDocuments.webDavBookHelp)
+                .font(.system(size: 13))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+        }
+        .navigationTitle("帮助")
     }
 }

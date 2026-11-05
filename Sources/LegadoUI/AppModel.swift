@@ -829,6 +829,84 @@ public final class LegadoAppModel: ObservableObject {
         return imported
     }
 
+    // MARK: - The WebDAV servers
+
+    /// The synchronisation servers — upstream `ServersDialog`.
+    @Published public var webDavServers: [Server] = []
+
+    /// Reloads the synchronisation servers.
+    public func reloadWebDavServers() {
+        do {
+            webDavServers = ServerManager.sorted(try environment.store.allServers())
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Saves a synchronisation server — upstream `ServersViewModel.save`.
+    public func saveWebDavServer(_ server: Server) {
+        do {
+            try environment.store.insert(server)
+            reloadWebDavServers()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Deletes a synchronisation server — upstream `ServersViewModel.delete`.
+    public func deleteWebDavServer(_ server: Server) {
+        do {
+            try environment.store.deleteServer(server)
+            if selectedRemoteServerId == server.id {
+                setSelectedRemoteServerId(ServerManager.defaultServerId)
+            }
+            reloadWebDavServers()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// The id of the server the remote-book browser uses — upstream
+    /// `AppConfig.remoteServerId`.
+    public var selectedRemoteServerId: Int64 {
+        ServerManager.selectedServerId(environment.settings)
+    }
+
+    /// Picks the server the remote-book browser uses.
+    public func setSelectedRemoteServerId(_ id: Int64) {
+        ServerManager.selectServer(id, settings: environment.settings)
+        objectWillChange.send()
+    }
+
+    /// The credentials of the remote-book browser — upstream
+    /// `RemoteBookViewModel.initData`.
+    public func remoteBookCredentials() -> WebDavCredentials? {
+        ServerManager.bookCredentials(settings: environment.settings, servers: webDavServers)
+    }
+
+    /// The client of the remote-book browser — upstream
+    /// `RemoteBookViewModel.remoteBookWebDav`.
+    public func remoteBookImporter() -> RemoteBookImporter? {
+        guard let credentials = remoteBookCredentials() else { return nil }
+        let configuration = WebDavConfiguration(
+            url: credentials.url,
+            username: credentials.username,
+            password: credentials.password,
+            backupDirectory: "",
+            bookProgressDirectory: "bookProgress/",
+            booksDirectory: "books/",
+            backgroundDirectory: "background/"
+        )
+        let client = WebDavClient(configuration: configuration, httpClient: environment.httpClient)
+        let isDefault = selectedRemoteServerId == ServerManager.defaultServerId
+        let serverID: Int64? = isDefault ? nil : selectedRemoteServerId
+        return RemoteBookImporter(
+            client: client,
+            rootPath: ServerManager.booksRoot(isDefault: isDefault),
+            serverID: serverID
+        )
+    }
+
     // MARK: - The replace rules
 
     /// Reloads the replace rules.

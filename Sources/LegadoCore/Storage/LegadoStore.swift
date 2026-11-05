@@ -950,6 +950,17 @@ public final class LegadoStore {
         }
     }
 
+    /// A synchronisation server by its id — upstream `serverDao.get(id)`.
+    public func server(id: Int64) throws -> Server? {
+        try allServers().first { $0.id == id }
+    }
+
+    /// Deletes a synchronisation server — upstream `ServersViewModel.delete`.
+    @discardableResult
+    public func deleteServer(_ server: Server) throws -> Int {
+        try tables.delete(from: "servers", where: .equals(column: "id", value: .integer(server.id)))
+    }
+
     /// Every rule subscription.
     public func allRuleSubs() throws -> [RuleSub] {
         try tables.allRows(in: "ruleSubs").map { RuleSub(row: $0) }

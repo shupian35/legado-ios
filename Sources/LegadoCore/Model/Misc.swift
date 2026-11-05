@@ -415,7 +415,7 @@ public struct KeyboardAssist: Equatable {
 }
 
 /// A synchronisation server — upstream `data/entities/Server.kt`.
-public struct Server: Equatable {
+public struct Server: Equatable, Identifiable {
     /// The upstream server kinds.
     public enum Kind {
         public static let webDav = "webDav"
