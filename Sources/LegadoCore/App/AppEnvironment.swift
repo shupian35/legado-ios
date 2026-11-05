@@ -158,6 +158,9 @@ public final class AppEnvironment {
 
     /// Imports book sources from a JSON array (upstream `SourceManager.importBookSource`).
     ///
+    /// The import goes through `BookSourceImport.prepare` so that the order of
+    /// the local source survives the import (upstream `importSelect`).
+    ///
     /// - Returns: the number of imported sources.
     @discardableResult
     public func importSources(json: String) throws -> Int {
@@ -173,8 +176,60 @@ public final class AppEnvironment {
             if let source = BookSourceJSONBridge.decode(item) { sources.append(source) }
         }
         guard !sources.isEmpty else { throw AppEnvironmentError.noValidSource }
-        try store.insert(sources)
-        return sources.count
+        return try importSources(sources, options: BookSourceImport.Options())
+    }
+
+    /// The preview of the import of the book sources — upstream
+    /// `ImportBookSourceViewModel.comparisonSource`.
+    public func sourceImportPreview(_ sources: [BookSource]) throws -> [BookSourceImport.Item] {
+        BookSourceImport.items(sources, local: try store.allSources())
+    }
+
+    /// The book sources of an import document — upstream
+    /// `ImportBookSourceViewModel.importSource`.
+    ///
+    /// The document holds the sources themselves or a list of urls
+    /// (`sourceUrls`); every url of the list is downloaded and parsed.
+    public func bookSourcesOfImport(json: String) async throws -> [BookSource] {
+        let urls = (try? BookSourceImport.sourceURLs(json: json)) ?? []
+        if !urls.isEmpty {
+            var sources: [BookSource] = []
+            for url in urls {
+                sources += try await bookSourcesOfImport(url: url)
+            }
+            return sources
+        }
+        return try BookSourceImport.sources(json: json)
+    }
+
+    /// The book sources of an import url — upstream
+    /// `ImportBookSourceViewModel.importSourceUrl`.
+    public func bookSourcesOfImport(url: String) async throws -> [BookSource] {
+        let body = try await download(url: url)
+        return try await bookSourcesOfImport(json: body)
+    }
+
+    /// Imports the book sources with the options of the upstream — upstream
+    /// `ImportBookSourceViewModel.importSelect`.
+    ///
+    /// The selected sources keep the name, the group and the enabled state of
+    /// the local source when the matching option is on; the order always comes
+    /// from the local source.
+    ///
+    /// - Returns: the number of imported sources.
+    @discardableResult
+    public func importSources(
+        _ sources: [BookSource],
+        options: BookSourceImport.Options
+    ) throws -> Int {
+        guard !sources.isEmpty else { throw AppEnvironmentError.noValidSource }
+        let local = try store.allSources()
+        let items = BookSourceImport.items(sources, local: local)
+        let prepared = BookSourceImport.prepare(items, local: local, options: options)
+        guard !prepared.isEmpty else { throw AppEnvironmentError.noValidSource }
+        try store.insert(prepared)
+        try? AppMaintenance.adjustSourceOrder(store: store)
+        return prepared.count
     }
 
     /// Exports the book sources as a JSON array (upstream `SourceManager.exportBookSource`).

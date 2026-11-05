@@ -45,6 +45,10 @@ public struct SourceManagerView: View {
     // The sheets.
     @State private var isImportPresented = false
     @State private var importText: String = ""
+    /// The sources of the import — upstream `ImportBookSourceDialog` shows
+    /// the preview before the sources are inserted.
+    @State private var importSources: [BookSource] = []
+    @State private var isImportPreviewPresented = false
     @State private var isFileImporterPresented = false
     @State private var isQRScannerPresented = false
     @State private var qrResult: String?
@@ -291,7 +295,24 @@ public struct SourceManagerView: View {
                 }
             }
             .sheet(isPresented: $isImportPresented) {
-                ImportDocumentView(model: model, kind: .bookSource, text: $importText)
+                ImportDocumentView(
+                    model: model,
+                    kind: .bookSource,
+                    text: $importText,
+                    onSources: { sources in
+                        importSources = sources
+                        isImportPreviewPresented = true
+                    }
+                )
+            }
+            .sheet(isPresented: $isImportPreviewPresented) {
+                NavigationStack {
+                    BookSourceImportPreviewView(model: model, sources: importSources) { prepared in
+                        let count = model.importBookSources(prepared)
+                        message = "导入 \(count) 个书源"
+                        isImportPreviewPresented = false
+                    }
+                }
             }
             .sheet(isPresented: $isCheckPresented) {
                 NavigationStack {
@@ -364,7 +385,7 @@ public struct SourceManagerView: View {
                 guard let value, !value.isEmpty else { return }
                 qrResult = nil
                 Task {
-                    message = await DocumentImporter.importText(value, kind: .bookSource, model: model)
+                    await importPayload(value)
                 }
             }
             .onAppear {
@@ -553,7 +574,34 @@ public struct SourceManagerView: View {
                 message = DocumentImporter.failureMessage
                 return
             }
-            message = await DocumentImporter.importText(text, kind: .bookSource, model: model)
+            await importPayload(text)
+        }
+    }
+
+    /// Parses an imported document and shows the preview of the import —
+    /// upstream `ImportBookSourceDialog`.
+    ///
+    /// The document is either a JSON document with the sources, a document
+    /// with a list of `sourceUrls`, or the url of such a document.
+    private func importPayload(_ text: String) async {
+        let payload = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !payload.isEmpty else { return }
+        do {
+            let sources: [BookSource]
+            if BookSourceImport.isAbsoluteURL(payload) {
+                _ = ImportUrlHistory.add(payload, .bookSource, store: model.environment.store)
+                sources = try await model.environment.bookSourcesOfImport(url: payload)
+            } else {
+                sources = try await model.environment.bookSourcesOfImport(json: payload)
+            }
+            guard !sources.isEmpty else {
+                message = DocumentImporter.failureMessage
+                return
+            }
+            importSources = sources
+            isImportPreviewPresented = true
+        } catch {
+            message = DocumentImporter.failureMessage
         }
     }
 

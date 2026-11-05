@@ -639,6 +639,10 @@ public struct ImportDocumentView: View {
     /// The pasted text or the typed url.
     @Binding var text: String
 
+    /// The action of the book sources — upstream `ImportBookSourceDialog`
+    /// shows the preview of the import before the sources are inserted.
+    let onSources: (([BookSource]) -> Void)?
+
     @State private var isURL = false
     @State private var isLoading = false
     @State private var message: String?
@@ -648,10 +652,16 @@ public struct ImportDocumentView: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    public init(model: LegadoAppModel, kind: ImportKind, text: Binding<String>) {
+    public init(
+        model: LegadoAppModel,
+        kind: ImportKind,
+        text: Binding<String>,
+        onSources: (([BookSource]) -> Void)? = nil
+    ) {
         self.model = model
         self.kind = kind
         self._text = text
+        self.onSources = onSources
     }
 
     /// The cache key of the history of this kind of import.
@@ -747,7 +757,9 @@ public struct ImportDocumentView: View {
                 isLoading = false
             }
         } else {
-            message = importJSON(payload)
+            Task {
+                await importDocument(payload)
+            }
         }
     }
 
@@ -759,8 +771,7 @@ public struct ImportDocumentView: View {
         }
         // Upstream the url is remembered in the `ACache` before the import.
         rememberHistory(url)
-        message = DocumentImporter.importJSON(body, kind: kind, model: model)
-        dismiss()
+        await importDocument(body)
     }
 
     /// Reloads the history of the urls — upstream
@@ -784,12 +795,30 @@ public struct ImportDocumentView: View {
     }
 
     /// Imports the JSON document — upstream `DeepLink.importJSON`.
-    private func importJSON(_ json: String) -> String {
+    ///
+    /// The book sources are handed over to the preview of the import — the
+    /// upstream `ImportBookSourceDialog` shows the list of the sources before
+    /// they are inserted.
+    private func importDocument(_ json: String) async {
+        if kind == .bookSource, let onSources {
+            do {
+                let sources = try await model.environment.bookSourcesOfImport(json: json)
+                guard !sources.isEmpty else {
+                    message = DocumentImporter.failureMessage
+                    return
+                }
+                onSources(sources)
+                dismiss()
+            } catch {
+                message = DocumentImporter.failureMessage
+            }
+            return
+        }
         let result = DocumentImporter.importJSON(json, kind: kind, model: model)
+        message = result
         if result != DocumentImporter.failureMessage {
             dismiss()
         }
-        return result
     }
 }
 

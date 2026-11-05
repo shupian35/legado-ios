@@ -18,7 +18,7 @@ public struct UTType: Hashable, Sendable {
         case "txt", "text": identifier = "public.plain-text"
         case "epub": identifier = "org.idpf.epub-container"
         case "pdf": identifier = "com.adobe.pdf"
-        case "umd": identifier = "public.data"
+        case "umd": identifier = "io.legado.ios.umd"
         case "ttf", "otf": identifier = "public.font"
         default: identifier = "public.data"
         }
@@ -47,4 +47,9 @@ public struct UTType: Hashable, Sendable {
 
     /// `UTType.image` — the covers and the images of the welcome screen.
     public static let image = UTType(identifier: "public.image")
+
+    /// The UMD books — the app declares the type in its `Info.plist`
+    /// (`io.legado.ios.umd`); the upstream reads them with the vendored
+    /// `me.ag2s:umdlib` fork.
+    public static let umd = UTType(identifier: "io.legado.ios.umd")
 }

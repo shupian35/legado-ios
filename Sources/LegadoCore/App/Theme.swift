@@ -50,6 +50,18 @@ public struct AppTheme: Equatable, Codable, Sendable {
         self.bottomBackground = bottomBackground
     }
 
+    /// The E-Ink palette — upstream `ThemeConfig.applyTheme`
+    /// (`ThemeConfig.kt:244-251`): every colour is white except the accent,
+    /// which is black.
+    public static let eInk = AppTheme(
+        themeName: "墨水屏",
+        isNightTheme: false,
+        primaryColor: "#FFFFFF",
+        accentColor: "#000000",
+        backgroundColor: "#FFFFFF",
+        bottomBackground: "#FFFFFF"
+    )
+
     /// The themes upstream ships in `assets/defaultData/themeConfig.json`.
     public static let defaults: [AppTheme] = [
         AppTheme(
@@ -182,7 +194,14 @@ public final class ThemeManager {
     ///
     /// The night themes win over the day ones when the system is dark; the
     /// selected theme is used when the list has more than one entry.
+    ///
+    /// The E-Ink mode overrides the whole shell palette with the black and
+    /// white one — upstream `ThemeConfig.applyTheme` checks
+    /// `AppConfig.isEInkMode` FIRST (`ThemeConfig.kt:244`).
     public func currentTheme(isSystemDark: Bool) -> AppTheme {
+        if effectiveTheme(isSystemDark: isSystemDark) == .eInk {
+            return AppTheme.eInk
+        }
         let dark = effectiveTheme(isSystemDark: isSystemDark) != .light
         if themes.count > 1 {
             return themes[selectedIndex]

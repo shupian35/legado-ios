@@ -1179,11 +1179,26 @@ public final class AppSettings {
 
     /// The language of the interface — upstream `PreferKey.language`.
     ///
-    /// The upstream ships the translations; the port is Chinese-only, so the
-    /// value is kept but it does not change the interface.
+    /// The upstream ships the translations; the port's screens are Chinese, so
+    /// the value drives the locale of the app (the system dialogs and the
+    /// formatting) rather than the text of the screens —
+    /// `AppLanguage.apply(_:)`.
     public var language: String {
         get { string(.language) ?? "" }
         set { set(newValue.isEmpty ? nil : newValue, for: .language) }
+    }
+
+    /// The language of the interface — upstream `AppConfig.language` and
+    /// `AppContextWrapper.getSetLocale` (`base/AppContextWrapper.kt:77-84`).
+    ///
+    /// The setter applies the locale of the app, like the upstream restart
+    /// (`OtherConfigFragment.kt:201` → `appCtx.restart()`).
+    public var appLanguage: AppLanguage {
+        get { AppLanguage.from(language) }
+        set {
+            language = newValue.rawValue
+            AppLanguage.apply(newValue)
+        }
     }
 
     /// The tab the app opens on — upstream `AppConfig.defaultHomePage`

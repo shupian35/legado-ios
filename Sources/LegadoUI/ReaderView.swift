@@ -994,6 +994,11 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
         chapterIndex = readBook.durChapterIndex
         chapterTitle = readBook.durChapterTitle
         readAloud.chapterTitle = chapterTitle
+        // Every page turn restarts the screen-off timer — upstream
+        // `screenOffTimerStart()` (`ReadBookActivity.kt:1712`).
+        Task { @MainActor in
+            system.noteInteraction()
+        }
     }
 
     // MARK: - The continuous-scroll reading mode

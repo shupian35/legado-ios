@@ -46,6 +46,15 @@ public final class ReaderSystemIntegration: ObservableObject {
     /// Whether the screen is kept awake.
     public var keepsScreenAwake: Bool = false
 
+    /// The screen timeout in seconds — upstream `PreferKey.keep_light`
+    /// (`ReadBookActivity.kt:1704`): 0 = the system timeout, -1 = always,
+    /// otherwise the number of idle seconds before the screen dims.
+    public private(set) var screenTimeout: Int = 0
+
+    /// The timer that releases the screen after the timeout — upstream
+    /// `screenOffRunnable` (`ReadBookActivity.kt:241`).
+    private var screenOffTask: Task<Void, Never>?
+
     /// The brightness that was active before the reader opened (`nil` = the
     /// user never set one).
     private var previousBrightness: Double?
@@ -69,9 +78,17 @@ public final class ReaderSystemIntegration: ObservableObject {
     @MainActor
     public func activate() {
         #if canImport(UIKit)
-        keepsScreenAwake = settings.bool(.keepLight, default: true)
-        if keepsScreenAwake {
+        keepsScreenAwake = false
+        // The screen timeout — upstream `upScreenTimeOut()`:
+        // `screenTimeOut = keepLightPrefer * 1000L` (the preference holds the
+        // number of seconds) and `screenOffTimerStart()` keeps the screen on
+        // while the time is left. The value 0 leaves the system timeout alone
+        // and -1 keeps the screen on forever.
+        screenTimeout = settings.keepLight
+        if screenTimeout != 0 {
+            keepsScreenAwake = true
             UIApplication.shared.isIdleTimerDisabled = true
+            startScreenOffTimer()
         }
 
         // The brightness: the upstream applies `brightness` in the day mode and
@@ -114,8 +131,48 @@ public final class ReaderSystemIntegration: ObservableObject {
             self.forcedOrientation = nil
         }
         #endif
+        screenOffTask?.cancel()
+        screenOffTask = nil
         keepsScreenAwake = false
     }
+
+    /// Restarts the screen timeout — upstream `screenOffTimerStart()`
+    /// (`ReadBookActivity.kt:1712`).
+    ///
+    /// The upstream calls it when the reader opens and after every page turn;
+    /// the port calls it whenever the page is refreshed, so the screen dims
+    /// after the configured number of idle seconds.
+    @MainActor
+    public func noteInteraction() {
+        #if canImport(UIKit)
+        startScreenOffTimer()
+        #endif
+    }
+
+    #if canImport(UIKit)
+    /// Keeps the screen on for the configured number of seconds.
+    @MainActor
+    private func startScreenOffTimer() {
+        screenOffTask?.cancel()
+        screenOffTask = nil
+        guard screenTimeout != 0 else { return }
+        if screenTimeout < 0 {
+            // Always on.
+            UIApplication.shared.isIdleTimerDisabled = true
+            return
+        }
+        UIApplication.shared.isIdleTimerDisabled = true
+        let seconds = screenTimeout
+        screenOffTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                UIApplication.shared.isIdleTimerDisabled = false
+                self?.keepsScreenAwake = false
+            }
+        }
+    }
+    #endif
 
     /// The brightness the reader applies (`0...100`).
     public var brightnessPercent: Int {

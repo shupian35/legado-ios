@@ -2154,6 +2154,30 @@ public final class LegadoAppModel: ObservableObject {
         }
     }
 
+    /// Imports the book sources with the options of the upstream — upstream
+    /// `ImportBookSourceViewModel.importSelect`.
+    ///
+    /// The name, the group and the enabled state of the local source win when
+    /// the matching option is on; the order always comes from the local
+    /// source.
+    ///
+    /// - Returns: the number of imported sources.
+    @discardableResult
+    public func importBookSources(
+        _ sources: [BookSource],
+        options: BookSourceImport.Options = BookSourceImport.Options()
+    ) -> Int {
+        do {
+            let count = try environment.importSources(sources, options: options)
+            reloadSources()
+            errorMessage = nil
+            return count
+        } catch {
+            errorMessage = error.localizedDescription
+            return 0
+        }
+    }
+
     /// The sources as a JSON document.
     public func exportedSources() -> String {
         (try? environment.exportSources()) ?? "[]"

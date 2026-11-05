@@ -107,11 +107,15 @@ public struct OtherSettingsView: View {
 
     private var otherSection: some View {
         Section("其它设置") {
-            HStack {
-                Text("语言")
-                Spacer()
-                Text(settings.language.isEmpty ? "跟随系统" : settings.language)
-                    .foregroundColor(.secondary)
+            // Upstream `ui/config/OtherConfigFragment.kt:201` — the language
+            // list (`AppContextWrapper.getSetLocale`).
+            Picker("语言", selection: Binding(
+                get: { settings.appLanguage },
+                set: { settings.appLanguage = $0 }
+            )) {
+                ForEach(AppLanguage.allCases) { language in
+                    Text(language.displayName).tag(language)
+                }
             }
             TextField("用户代理", text: Binding(
                 get: { settings.userAgent },

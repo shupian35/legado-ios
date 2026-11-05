@@ -24,9 +24,26 @@
 				<string>com.amazon.mobi</string>
 				<string>com.amazon.azw3</string>
 				<string>com.amazon.azw</string>
+				<string>io.legado.ios.umd</string>
 				<string>public.zip-archive</string>
 				<string>io.legado.ios.rar-archive</string>
 				<string>io.legado.ios.7z-archive</string>
+			</array>
+		</dict>
+		<!-- The upstream manifest declares the generic binary
+		     (`application/octet-stream`, `AndroidManifest.xml:395`) so that a
+		     book with an unknown extension can still be opened. iOS knows no
+		     such type; `public.data` is its equivalent. -->
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>未知格式的书籍</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.data</string>
 			</array>
 		</dict>
 		<dict>
@@ -78,6 +95,25 @@
 				<key>public.filename-extension</key>
 				<array>
 					<string>7z</string>
+				</array>
+			</dict>
+		</dict>
+		<!-- The UMD books (the upstream reads them with the vendored
+		     `me.ag2s:umdlib` fork). iOS has no built-in type for them. -->
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>io.legado.ios.umd</string>
+			<key>UTTypeDescription</key>
+			<string>UMD 书籍</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>umd</string>
 				</array>
 			</dict>
 		</dict>

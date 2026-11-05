@@ -157,6 +157,9 @@ public struct SourceCheckView: View {
         // Upstream `CheckSourceService` — a resident notification with the
         // progress of the check and a 取消 action.
         model.postCheckNotification(message: "正在检查书源", finished: 0, total: total)
+        // Upstream `BookSourceActivity.kt:507` — the screen is kept on while
+        // the check runs.
+        ScreenAwake.begin()
         checkTask = Task {
             var collected: [SourceCheckResult] = []
             for source in targets {
@@ -174,6 +177,9 @@ public struct SourceCheckView: View {
             }
             model.reloadSources()
             isLoading = false
+            // Upstream `BookSourceActivity.kt:629` — the screen may sleep
+            // again when the check is over.
+            ScreenAwake.end()
             // Upstream `BookSourceActivity.observeLiveBus` — the check of the
             // sources that failed shows them at the top of the list.
             if let failed = collected.first(where: { !$0.isSuccess }) {
@@ -201,6 +207,8 @@ public struct SourceCheckView: View {
         checkTask = nil
         model.sourceCheckTask.cancel()
         isLoading = false
+        // The screen may sleep again — upstream `BookSourceActivity.kt:629`.
+        ScreenAwake.end()
         message = "已取消校验"
     }
 
