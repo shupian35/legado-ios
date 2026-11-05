@@ -448,12 +448,28 @@ public struct ReadRecordView: View {
 
 // MARK: - The HTTP text to speech engines
 
-/// The HTTP TTS engines — upstream `HttpTTSActivity`.
+/// The HTTP TTS engines — upstream `HttpTTSActivity` / `SpeakEngineDialog`.
+///
+/// The upstream lists the system engines and the engines of the user; the
+/// toolbar adds an engine, restores the defaults, imports an engine from a
+/// file or from a URL and exports them all.
 public struct HttpTTSView: View {
 
     @ObservedObject var model: LegadoAppModel
     @State private var engines: [HttpTTS] = []
     @State private var editing: HttpTTS?
+    @State private var message: String?
+    /// The URL of the online import — upstream `SpeakEngineDialog.importAlert`.
+    @State private var importURL: String = ""
+    @State private var isImportURLPresented = false
+    /// The text of the online import — upstream `ImportHttpTtsDialog`.
+    @State private var importText: String = ""
+    @State private var isImportTextPresented = false
+    /// The local import — upstream `menu_import_local`.
+    @State private var isImportingFile = false
+    /// The export — upstream `menu_export`.
+    @State private var exportedURL: URL?
+    @State private var isSharePresented = false
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -467,6 +483,16 @@ public struct HttpTTSView: View {
                     Text(engine.url)
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
+                    HStack {
+                        Button("编辑") {
+                            editing = engine
+                        }
+                        .font(.system(size: 12))
+                        Button("删除") {
+                            delete(engine)
+                        }
+                        .font(.system(size: 12))
+                    }
                 }
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -488,12 +514,64 @@ public struct HttpTTSView: View {
                     reload()
                 }
             }
+            ToolbarItem(placement: .primaryAction) {
+                // Upstream `menu_import_local` — a `txt` or `json` file.
+                Button("导入本地") {
+                    isImportingFile = true
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                // Upstream `menu_import_onLine`.
+                Button("导入网络") {
+                    importURL = ""
+                    isImportURLPresented = true
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                // Upstream `menu_export` — the file `httpTts.json`.
+                Button("导出") {
+                    export()
+                }
+            }
         }
         .sheet(item: $editing) { engine in
-            HttpTTSEditor(engine: engine) { saved in
+            HttpTTSEditor(engine: engine, model: model) { saved in
                 model.saveHttpTTS(saved)
                 reload()
             }
+        }
+        .fileImporter(
+            isPresented: $isImportingFile,
+            allowedContentTypes: [.json, .plainText]
+        ) { result in
+            if case .success(let url) = result {
+                importText = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+                isImportTextPresented = true
+            }
+        }
+        .sheet(isPresented: $isImportURLPresented) {
+            HttpTTSImportURLSheet(url: $importURL) { url in
+                Task {
+                    await importFromURL(url)
+                }
+            }
+        }
+        .sheet(isPresented: $isImportTextPresented) {
+            HttpTTSImportTextSheet(text: importText) { text in
+                importText = text
+                importFromText(text)
+            }
+        }
+        .sheet(isPresented: $isSharePresented) {
+            ShareSheet(items: [exportedURL].compactMap { $0 })
+        }
+        .alert("提示", isPresented: Binding(
+            get: { message != nil },
+            set: { if !$0 { message = nil } }
+        )) {
+            Button("好") { message = nil }
+        } message: {
+            Text(message ?? "")
         }
         .onAppear {
             reload()
@@ -503,26 +581,151 @@ public struct HttpTTSView: View {
     private func reload() {
         engines = (try? model.environment.store.allHttpTTS()) ?? []
     }
+
+    /// Deletes an engine — upstream `ivMenuDelete` → `httpTTSDao.delete`.
+    private func delete(_ engine: HttpTTS) {
+        try? model.environment.store.deleteHttpTTS(engine)
+        reload()
+    }
+
+    /// Imports the engines of a JSON document — upstream `ImportHttpTtsDialog`.
+    private func importFromText(_ text: String) {
+        do {
+            let parsed = try HttpTTSManager.parse(text)
+            for engine in parsed {
+                try model.environment.store.insert(engine)
+            }
+            reload()
+            message = "导入 \(parsed.count) 个引擎"
+        } catch {
+            message = "导入失败：\(error.localizedDescription)"
+        }
+    }
+
+    /// Downloads the engines of a URL — upstream `menu_import_onLine`.
+    private func importFromURL(_ url: String) async {
+        guard let address = URL(string: url), !url.isEmpty else {
+            message = "地址无效"
+            return
+        }
+        do {
+            let response = try await model.environment.httpClient.send(
+                HttpRequest(url: address.absoluteString, method: "GET")
+            )
+            guard response.isSuccessful, let body = response.body,
+                  let text = String(data: Data(body.utf8), encoding: .utf8) else {
+                message = "下载失败"
+                return
+            }
+            importText = text
+            importFromText(text)
+        } catch {
+            message = "下载失败：\(error.localizedDescription)"
+        }
+    }
+
+    /// Exports the engines — upstream `menu_export` → `httpTts.json`.
+    private func export() {
+        let json = HttpTTSManager.exportJSON(engines)
+        let url = model.exportDirectory()
+            .appendingPathComponent(HttpTTSManager.exportFileName)
+        do {
+            try json.write(to: url, atomically: true, encoding: .utf8)
+            exportedURL = url
+            isSharePresented = true
+            message = "导出成功"
+        } catch {
+            message = "导出失败：\(error.localizedDescription)"
+        }
+    }
 }
 
-/// The editor of a HTTP TTS engine.
+/// The prompt of the online import — upstream `SpeakEngineDialog.importAlert`.
+struct HttpTTSImportURLSheet: View {
+
+    @Binding var url: String
+    let onImport: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("url", text: $url)
+            }
+            .navigationTitle("导入网络")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button("确定") {
+                        onImport(url)
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The preview of an import — upstream `ImportHttpTtsDialog`.
+struct HttpTTSImportTextSheet: View {
+
+    @State var text: String
+    let onImport: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextEditor(text: $text)
+            }
+            .navigationTitle("导入")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button("确定") {
+                        onImport(text)
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The editor of a HTTP TTS engine — upstream `HttpTtsEditDialog`.
+///
+/// The upstream edits all eight fields and its toolbar offers the login, the
+/// login header, the copy, the paste, the log and the help.
 struct HttpTTSEditor: View {
 
     @State var engine: HttpTTS
     /// The optional fields are edited as plain strings.
     @State var contentType: String = ""
+    @State var concurrentRate: String = ""
     @State var header: String = ""
     @State var loginUrl: String = ""
+    @State var loginUi: String = ""
+    @State var loginCheckJs: String = ""
+    @State var message: String?
+    @ObservedObject var model: LegadoAppModel
     let onSave: (HttpTTS) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
-    init(engine: HttpTTS, onSave: @escaping (HttpTTS) -> Void) {
+    init(engine: HttpTTS, model: LegadoAppModel, onSave: @escaping (HttpTTS) -> Void) {
         self.engine = engine
+        self.model = model
         self.onSave = onSave
         _contentType = State(initialValue: engine.contentType ?? "")
+        _concurrentRate = State(initialValue: engine.concurrentRate ?? "")
         _header = State(initialValue: engine.header ?? "")
         _loginUrl = State(initialValue: engine.loginUrl ?? "")
+        _loginUi = State(initialValue: engine.loginUi ?? "")
+        _loginCheckJs = State(initialValue: engine.loginCheckJs ?? "")
     }
 
     var body: some View {
@@ -532,23 +735,120 @@ struct HttpTTSEditor: View {
                     TextField("名称", text: $engine.name)
                     TextField("地址", text: $engine.url)
                     TextField("内容类型（正则）", text: $contentType)
-                    TextField("请求头（JSON）", text: $header)
+                    TextField("并发数", text: $concurrentRate)
+                }
+                Section("登录") {
                     TextField("登录地址", text: $loginUrl)
+                    TextField("登录界面（JSON）", text: $loginUi)
+                    TextField("登录校验（JS）", text: $loginCheckJs)
+                }
+                Section("请求头（JSON）") {
+                    TextField("请求头", text: $header, axis: .vertical)
+                        .lineLimit(6)
+                }
+                Section {
+                    // Upstream `menu_login` — the login of the engine.
+                    Button("登录") {
+                        login()
+                    }
+                    // Upstream `menu_show_login_header`.
+                    Button("查看登录头") {
+                        showLoginHeader()
+                    }
+                    // Upstream `menu_del_login_header`.
+                    Button("删除登录头") {
+                        removeLoginHeader()
+                    }
+                    // Upstream `menu_copy_source`.
+                    Button("复制") {
+                        let json = HttpTTSManager.exportJSON([engine])
+                        UIPasteboardShim.copy(json)
+                        message = "已复制"
+                    }
+                    // Upstream `menu_paste_source`.
+                    Button("粘贴") {
+                        paste()
+                    }
                 }
             }
             .navigationTitle("HTTP TTS")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
+                    // Upstream `menu_save`.
                     Button("保存") {
                         var updated = engine
                         updated.contentType = contentType.isEmpty ? nil : contentType
+                        updated.concurrentRate = concurrentRate.isEmpty ? nil : concurrentRate
                         updated.header = header.isEmpty ? nil : header
                         updated.loginUrl = loginUrl.isEmpty ? nil : loginUrl
+                        updated.loginUi = loginUi.isEmpty ? nil : loginUi
+                        updated.loginCheckJs = loginCheckJs.isEmpty ? nil : loginCheckJs
                         onSave(updated)
                         dismiss()
                     }
                 }
             }
+            .alert("提示", isPresented: Binding(
+                get: { message != nil },
+                set: { if !$0 { message = nil } }
+            )) {
+                Button("好") { message = nil }
+            } message: {
+                Text(message ?? "")
+            }
+        }
+    }
+
+    /// The login of the engine — upstream `menu_login`.
+    ///
+    /// The upstream opens the source login screen with the type `httpTts` and
+    /// the key of the engine.
+    private func login() {
+        guard let url = engine.loginUrl, !url.isEmpty else {
+            message = "登录url不能为空"
+            return
+        }
+        model.presentHttpTTSLogin(engine)
+    }
+
+    /// The stored login header — upstream `menu_show_login_header`.
+    private func showLoginHeader() {
+        let key = HttpTTSManager.key(for: engine.id)
+        let stored = (try? model.environment.loginService.loginHeader(for: key)) ?? ""
+        message = stored.isEmpty ? "没有登录头" : stored
+    }
+
+    /// Removes the login header — upstream `menu_del_login_header`.
+    private func removeLoginHeader() {
+        let key = HttpTTSManager.key(for: engine.id)
+        try? model.environment.loginService.removeLoginHeader(for: key)
+        message = "已删除登录头"
+    }
+
+    /// Imports an engine from the clipboard — upstream `menu_paste_source`.
+    private func paste() {
+        guard let text = UIPasteboardShim.paste() else {
+            message = "剪贴板为空"
+            return
+        }
+        do {
+            let parsed = try HttpTTSManager.parse(text)
+            guard let first = parsed.first else {
+                message = "剪贴板没有引擎"
+                return
+            }
+            var updated = first
+            updated.id = engine.id
+            engine = updated
+            contentType = updated.contentType ?? ""
+            concurrentRate = updated.concurrentRate ?? ""
+            header = updated.header ?? ""
+            loginUrl = updated.loginUrl ?? ""
+            loginUi = updated.loginUi ?? ""
+            loginCheckJs = updated.loginCheckJs ?? ""
+            message = "已粘贴"
+        } catch {
+            message = "粘贴失败：\(error.localizedDescription)"
         }
     }
 }

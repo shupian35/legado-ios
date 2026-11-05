@@ -436,6 +436,12 @@ public final class LegadoAppModel: ObservableObject {
         isLoginPresented = true
     }
 
+    /// Presents the login dialog of a HTTP TTS engine — upstream
+    /// `HttpTtsEditDialog.menu_login` (the type `httpTts`).
+    public func presentHttpTTSLogin(_ engine: HttpTTS) {
+        presentLogin(for: engine)
+    }
+
     /// Dismisses the login dialog.
     public func dismissPresentedSheet() {
         isLoginPresented = false

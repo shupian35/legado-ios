@@ -42,6 +42,9 @@ public struct UTType: Hashable, Sendable {
     /// `UTType.json` — the old Legado data (`myBookShelf.json` …).
     public static let json = UTType(identifier: "public.json")
 
+    /// `UTType.plainText` — the text files (the import of a HTTP TTS engine).
+    public static let plainText = UTType(identifier: "public.plain-text")
+
     /// `UTType.image` — the covers and the images of the welcome screen.
     public static let image = UTType(identifier: "public.image")
 }

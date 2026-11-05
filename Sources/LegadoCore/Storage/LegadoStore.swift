@@ -854,6 +854,12 @@ public final class LegadoStore {
         try tables.delete(from: "httpTTS", where: .lessThan(column: "id", value: 0))
     }
 
+    /// Deletes an HTTP TTS engine — upstream `HttpTTSDao.delete`.
+    @discardableResult
+    public func deleteHttpTTS(_ engine: HttpTTS) throws -> Int {
+        try tables.delete(from: "httpTTS", where: .equals(column: "id", value: .integer(engine.id)))
+    }
+
     /// Deletes the default RSS sources — upstream `RssSourceDao.deleteDefault`
     /// (`delete from rssSources where sourceGroup like 'legado'`).
     public func deleteDefaultRssSources() throws {
