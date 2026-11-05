@@ -18,6 +18,96 @@
 
 import Foundation
 
+// MARK: - The export type
+
+/// The format an export is written in — upstream `CacheActivity.exportTypes`
+/// (`arrayListOf("txt", "epub")`) together with `AppConfig.exportType`.
+public enum ExportType: Int, CaseIterable, Identifiable, Sendable {
+    case txt = 0
+    case epub = 1
+
+    public var id: Int { rawValue }
+
+    /// The file extension — upstream `exportTypes`.
+    public var fileExtension: String {
+        switch self {
+        case .txt: return "txt"
+        case .epub: return "epub"
+        }
+    }
+
+    /// The title of the entry in the type picker.
+    public var displayName: String {
+        fileExtension.uppercased()
+    }
+
+    /// Maps a file extension to the type — upstream `getTypeName()`.
+    public static func named(_ raw: String) -> ExportType? {
+        switch raw.lowercased() {
+        case "txt": return .txt
+        case "epub": return .epub
+        default: return nil
+        }
+    }
+}
+
+// MARK: - The custom export scope
+
+/// The chapter range of a custom export — upstream
+/// `ExportBookService.CustomExporter.parseScope` and
+/// `utils/verificationField`.
+public enum ExportScope {
+
+    /// The upstream's regular expression: `\d+(-\d+)?(,\d+(-\d+)?)*`.
+    private static let pattern = "\\d+(-\\d+)?(,\\d+(-\\d+)?)*"
+
+    /// Whether the text is a valid scope — upstream `verificationField`.
+    public static func isValid(_ text: String) -> Bool {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return false }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, options: [], range: range) else {
+            return false
+        }
+        return match.range == range
+    }
+
+    /// The chapter indexes of the scope — upstream `parseScope`.
+    ///
+    /// The scope is written in one-based numbers (`1-5,8,10-18`) and the
+    /// result is the zero-based index of the chapters. A range whose left end
+    /// is bigger than its right end is skipped (the upstream logs an error).
+    public static func parse(_ text: String) -> Set<Int> {
+        var result = Set<Int>()
+        for part in text.split(separator: ",") {
+            let piece = part.trimmingCharacters(in: .whitespaces)
+            guard !piece.isEmpty else { continue }
+            let bounds = piece.split(separator: "-", omittingEmptySubsequences: false)
+            if bounds.count != 2 {
+                if let value = Int(piece) { result.insert(value - 1) }
+                continue
+            }
+            guard let left = Int(bounds[0]), let right = Int(bounds[1]) else { continue }
+            if left > right { continue }
+            for index in left...right { result.insert(index - 1) }
+        }
+        return result
+    }
+
+    /// Splits the indexes into groups of `size` chapters — the upstream's
+    /// `chapterList.subList(epubBookIndex * size, min(scope.size, (epubBookIndex + 1) * size))`.
+    public static func split(_ indexes: [Int], size: Int) -> [[Int]] {
+        guard size > 0 else { return [indexes] }
+        var groups: [[Int]] = []
+        var index = 0
+        while index < indexes.count {
+            let end = min(indexes.count, index + size)
+            groups.append(Array(indexes[index..<end]))
+            index = end
+        }
+        return groups
+    }
+}
+
 // MARK: - The character set
 
 /// The character set of a TXT export — upstream `AppConfig.exportCharset`.
@@ -137,6 +227,25 @@ public enum BookExportFileWriter {
         return documents.appendingPathComponent(exportFolderName, isDirectory: true)
     }
 
+    /// The directory the exports are written into — the folder the user
+    /// picked (`CacheActivity.selectExportFolder`, stored under the
+    /// `exportBookPath` key) when it still exists, the default folder
+    /// otherwise.
+    public static func exportDirectory(
+        configuredPath: String?,
+        fileManager: FileManager = .default
+    ) -> URL {
+        guard let configuredPath, !configuredPath.isEmpty else {
+            return exportDirectory(fileManager: fileManager)
+        }
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: configuredPath, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return exportDirectory(fileManager: fileManager)
+        }
+        return URL(fileURLWithPath: configuredPath, isDirectory: true)
+    }
+
     /// Writes the exported file and its sidecar images.
     ///
     /// - Parameters:
@@ -238,6 +347,37 @@ public enum ExportFileName {
             "name": .text(book.name),
             "author": .text(BookExporter.realAuthor(of: book)),
             "epubIndex": .number(Double(epubIndex))
+        ]
+        guard let value = try? engine.evaluate(template, bindings: bindings) else {
+            return fallback
+        }
+        let text = value.textValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return fallback }
+        return text.hasSuffix(".\(suffix)") ? text : text + "." + suffix
+    }
+
+    /// The name of a **split** export file — upstream
+    /// `Book.getExportFileName(suffix, epubIndex, jsStr)`.
+    ///
+    /// The default name of a part is `书名 作者：作者 [1].epub`; the template
+    /// (`AppConfig.episodeExportFileName`) is evaluated with the bindings
+    /// `name`, `author` and `epubIndex`.
+    public static func indexedName(
+        book: Book,
+        suffix: String,
+        index: Int,
+        template: String?,
+        engine: RuleScriptEngine? = nil
+    ) -> String {
+        let fallback = "\(book.name) 作者：\(BookExporter.realAuthor(of: book)) [\(index)].\(suffix)"
+        guard let template, !template.trimmingCharacters(in: .whitespaces).isEmpty else {
+            return fallback
+        }
+        guard let engine else { return fallback }
+        let bindings: [String: RuleValue] = [
+            "name": .text(book.name),
+            "author": .text(BookExporter.realAuthor(of: book)),
+            "epubIndex": .number(Double(index))
         ]
         guard let value = try? engine.evaluate(template, bindings: bindings) else {
             return fallback

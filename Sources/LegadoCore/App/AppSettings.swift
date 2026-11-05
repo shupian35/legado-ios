@@ -947,6 +947,13 @@ public final class AppSettings {
         set { set(newValue, for: .exportType) }
     }
 
+    /// The export format — upstream `AppConfig.exportType` read as the type
+    /// of the upstream's `exportTypes` list.
+    public var exportFormat: ExportType {
+        get { ExportType(rawValue: exportType) ?? .txt }
+        set { exportType = newValue.rawValue }
+    }
+
     /// Whether the replace rules are applied while exporting — upstream
     /// `AppConfig.exportUseReplace`.
     public var exportUseReplace: Bool {
@@ -979,6 +986,20 @@ public final class AppSettings {
     public var exportToWebDav: Bool {
         get { bool(.exportToWebDav, default: false) }
         set { set(newValue, for: .exportToWebDav) }
+    }
+
+    /// Whether the custom chapter export is enabled — upstream
+    /// `AppConfig.enableCustomExport`.
+    public var enableCustomExport: Bool {
+        get { bool(.enableCustomExport, default: false) }
+        set { set(newValue, for: .enableCustomExport) }
+    }
+
+    /// Whether the books are exported in parallel — upstream
+    /// `AppConfig.parallelExportBook`.
+    public var parallelExportBook: Bool {
+        get { bool(.parallelExportBook, default: false) }
+        set { set(newValue, for: .parallelExportBook) }
     }
 
     // MARK: - Backup / sync

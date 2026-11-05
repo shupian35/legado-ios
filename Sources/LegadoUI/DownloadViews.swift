@@ -117,6 +117,25 @@ public struct DownloadManageView: View {
     /// `CacheActivity.alertExportFileName`.
     @State private var isNameTemplatePresented = false
     @State private var nameTemplateDraft = ""
+    /// The dialog that picks the export type — upstream
+    /// `CacheActivity.showExportTypeConfig`.
+    @State private var isTypePresented = false
+    /// The dialog that picks the character set — upstream
+    /// `CacheActivity.showCharsetConfig`.
+    @State private var isCharsetPresented = false
+    @State private var charsetDraft = "UTF-8"
+    /// The folder picker — upstream `CacheActivity.selectExportFolder`.
+    @State private var isSelectingExportFolder = false
+    /// The dialog of the custom chapter export — upstream
+    /// `CacheActivity.configExportSection`.
+    @State private var isCustomExportPresented = false
+    @State private var customScope = ""
+    @State private var customSplitSize = 1
+    /// The book the custom export dialog was opened for.
+    @State private var customExportBook: Book?
+    /// Whether the export of every book runs in parallel — upstream
+    /// `AppConfig.parallelExportBook`.
+    @State private var isExporting = false
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -172,13 +191,15 @@ public struct DownloadManageView: View {
                         Toggle("并行导出书籍", isOn: settingBinding(.parallelExportBook))
                     }
                     Section("导出配置") {
-                        Button(exportType == 0 ? "导出类型：TXT" : "导出类型：EPUB") {
-                            exportType = exportType == 0 ? 1 : 0
-                            model.environment.settings.set(exportType, for: .exportType)
+                        // Upstream `CacheActivity.showExportTypeConfig` — the
+                        // selector with the two export types.
+                        Button("导出类型：\(exportFormat.displayName)") {
+                            isTypePresented = true
                         }
+                        // Upstream `CacheActivity.showCharsetConfig`.
                         Button("导出字符集：\(exportCharset)") {
-                            exportCharset = exportCharset == "UTF-8" ? "GBK" : "UTF-8"
-                            model.environment.settings.set(exportCharset, for: .exportCharset)
+                            charsetDraft = exportCharset
+                            isCharsetPresented = true
                         }
                         // Upstream `CacheActivity.alertExportFileName` — the
                         // file name is a JavaScript template with the
@@ -187,13 +208,10 @@ public struct DownloadManageView: View {
                             nameTemplateDraft = exportNameTemplate
                             isNameTemplatePresented = true
                         }
+                        // Upstream `CacheActivity.menu_export_folder` — the
+                        // folder the exports are written into.
                         Button("导出文件夹：\(exportFolder.isEmpty ? "默认" : exportFolder)") {
-                            exportFolder = exportFolder.isEmpty ? "书籍导出" : ""
-                            try? model.environment.store.putCache(
-                                "exportBookPath",
-                                value: exportFolder,
-                                deadline: 0
-                            )
+                            isSelectingExportFolder = true
                         }
                     }
                     // Upstream `CacheActivity.menu_book_group` — the submenu
@@ -225,6 +243,50 @@ public struct DownloadManageView: View {
         }
         .sheet(isPresented: $isLogPresented) {
             AppLogView()
+        }
+        // Upstream `CacheActivity.showExportTypeConfig` — the selector with
+        // the two export types.
+        .sheet(isPresented: $isTypePresented) {
+            ExportTypeSheet(current: exportFormat) { type in
+                exportType = type.rawValue
+                model.environment.settings.exportFormat = type
+                isTypePresented = false
+            }
+        }
+        // Upstream `CacheActivity.showCharsetConfig` — the character set of
+        // the TXT export.
+        .sheet(isPresented: $isCharsetPresented) {
+            ExportCharsetSheet(current: charsetDraft) { value in
+                exportCharset = value
+                model.environment.settings.exportCharset = value
+                isCharsetPresented = false
+            }
+        }
+        // Upstream `CacheActivity.configExportSection` — the custom export of
+        // a chapter range, split into several EPUB files.
+        .sheet(isPresented: $isCustomExportPresented) {
+            CustomExportSheet(
+                scope: $customScope,
+                splitSize: $customSplitSize,
+                onExportAll: {
+                    isCustomExportPresented = false
+                    if let book = customExportBook { export(book) }
+                },
+                onExportScope: {
+                    isCustomExportPresented = false
+                    if let book = customExportBook { exportScope(book) }
+                }
+            )
+        }
+        // Upstream `CacheActivity.selectExportFolder` — the folder the
+        // exports are written into.
+        .fileImporter(
+            isPresented: $isSelectingExportFolder,
+            allowedContentTypes: [.folder]
+        ) { result in
+            if case let .success(url) = result {
+                selectExportFolder(url)
+            }
         }
         // The exported file is offered to the share sheet — the upstream
         // writes it into the folder the user picked, the port writes it into
@@ -292,6 +354,14 @@ public struct DownloadManageView: View {
     }
 
     private func export(_ book: Book) {
+        // Upstream `CacheActivity.export` — the custom export dialog is only
+        // shown for the EPUB format (`utils.enableCustomExport`).
+        if model.environment.settings.enableCustomExport,
+           exportFormat == .epub {
+            customExportBook = book
+            isCustomExportPresented = true
+            return
+        }
         Task {
             do {
                 let written = try await model.exportBookToFile(
@@ -308,24 +378,103 @@ public struct DownloadManageView: View {
         }
     }
 
+    /// Exports a chapter range of a book as several EPUB files — upstream
+    /// `CacheActivity.configExportSection` → `ExportBookService.CustomExporter`.
+    private func exportScope(_ book: Book) {
+        guard ExportScope.isValid(customScope) else {
+            message = "请输入正确的范围，例如 1-5,8,10-18"
+            return
+        }
+        let scope = ExportScope.parse(customScope)
+        guard !scope.isEmpty else {
+            message = "请输入正确的范围，例如 1-5,8,10-18"
+            return
+        }
+        Task {
+            do {
+                let written = try await model.exportBookParts(
+                    book: book,
+                    options: exportOptions(for: book),
+                    scope: scope,
+                    splitSize: max(1, customSplitSize)
+                )
+                if let first = written.first {
+                    exportedURL = first.url
+                    isSharePresented = true
+                }
+                message = "已导出 \(written.count) 个文件"
+            } catch {
+                message = "导出失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Stores the folder the exports are written into — upstream
+    /// `ACache.get().put(exportBookPathKey, path)`.
+    private func selectExportFolder(_ url: URL) {
+        exportFolder = url.path
+        model.setExportDirectory(url)
+    }
+
     /// Exports every book of the list — upstream `CacheActivity.exportAll`.
+    ///
+    /// The upstream runs the exports in parallel when
+    /// `AppConfig.parallelExportBook` is on (`AppConst.MAX_THREAD` threads).
     private func exportAll() {
         let list = books
+        let parallel = model.environment.settings.parallelExportBook
         Task {
+            isExporting = true
+            defer { isExporting = false }
             var exported = 0
             var failed = 0
             var last: URL?
-            for book in list {
-                do {
-                    let written = try await model.exportBookToFile(
-                        book: book,
-                        format: exportType == 0 ? .txt : .epub,
-                        options: exportOptions(for: book)
-                    )
-                    last = written.url
-                    exported += 1
-                } catch {
-                    failed += 1
+            if parallel {
+                await withTaskGroup(of: URL?.self) { group in
+                    var index = 0
+                    let limit = min(list.count, 9)
+                    while index < list.count {
+                        if index >= limit {
+                            if let url = await group.next() {
+                                last = url
+                                exported += 1
+                            } else {
+                                failed += 1
+                            }
+                        }
+                        let book = list[index]
+                        group.addTask { [weak model] in
+                            guard let model else { return nil }
+                            return try? await model.exportBookToFile(
+                                book: book,
+                                format: exportType == 0 ? .txt : .epub,
+                                options: exportOptions(for: book)
+                            ).url
+                        }
+                        index += 1
+                    }
+                    while let url = await group.next() {
+                        if let url {
+                            last = url
+                            exported += 1
+                        } else {
+                            failed += 1
+                        }
+                    }
+                }
+            } else {
+                for book in list {
+                    do {
+                        let written = try await model.exportBookToFile(
+                            book: book,
+                            format: exportType == 0 ? .txt : .epub,
+                            options: exportOptions(for: book)
+                        )
+                        last = written.url
+                        exported += 1
+                    } catch {
+                        failed += 1
+                    }
                 }
             }
             message = failed == 0
@@ -350,6 +499,11 @@ public struct DownloadManageView: View {
         )
     }
 
+    /// The export format — upstream `AppConfig.exportType`.
+    private var exportFormat: ExportType {
+        ExportType(rawValue: exportType) ?? .txt
+    }
+
     /// A binding for one of the export switches of the upstream — the value
     /// is stored in the preferences.
     private func settingBinding(_ key: SettingsKey) -> Binding<Bool> {
@@ -365,6 +519,127 @@ public struct DownloadManageView: View {
         guard groupId != BookGroup.Id.all else { return "缓存管理" }
         let name = model.groups.first { $0.groupId == groupId }?.groupName ?? ""
         return "筛选 • \(name)"
+    }
+}
+
+/// The export type picker — upstream `CacheActivity.showExportTypeConfig`.
+public struct ExportTypeSheet: View {
+
+    let current: ExportType
+    let onSelect: (ExportType) -> Void
+
+    public init(current: ExportType, onSelect: @escaping (ExportType) -> Void) {
+        self.current = current
+        self.onSelect = onSelect
+    }
+
+    public var body: some View {
+        NavigationStack {
+            List {
+                ForEach(ExportType.allCases) { type in
+                    Button {
+                        onSelect(type)
+                    } label: {
+                        Label(
+                            type.displayName,
+                            systemImage: type == current ? "checkmark" : ""
+                        )
+                    }
+                }
+            }
+            .navigationTitle("导出类型")
+        }
+    }
+}
+
+/// The character set picker — upstream `CacheActivity.showCharsetConfig`.
+///
+/// The upstream offers a free text field; the port lists the character sets
+/// it can encode and still accepts a custom name.
+public struct ExportCharsetSheet: View {
+
+    let current: String
+    let onSelect: (String) -> Void
+
+    @State private var draft: String
+
+    public init(current: String, onSelect: @escaping (String) -> Void) {
+        self.current = current
+        self.onSelect = onSelect
+        _draft = State(initialValue: current)
+    }
+
+    public var body: some View {
+        NavigationStack {
+            List {
+                Section("可选字符集") {
+                    ForEach(ExportCharset.allCases) { charset in
+                        Button {
+                            draft = charset.rawValue
+                        } label: {
+                            Label(
+                                charset.rawValue,
+                                systemImage: charset.rawValue == current ? "checkmark" : ""
+                            )
+                        }
+                    }
+                }
+                Section("自定义") {
+                    TextField("字符集", text: $draft)
+                }
+            }
+            .navigationTitle("导出字符集")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { onSelect(current) }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button("确定") { onSelect(draft.isEmpty ? "UTF-8" : draft) }
+                }
+            }
+        }
+    }
+}
+
+/// The custom export dialog — upstream `CacheActivity.configExportSection`.
+///
+/// The user enters the chapter range (`1-5,8,10-18`) and how many chapters
+/// every exported EPUB file holds; the range is split into that many files.
+public struct CustomExportSheet: View {
+
+    @Binding var scope: String
+    @Binding var splitSize: Int
+    let onExportAll: () -> Void
+    let onExportScope: () -> Void
+
+    public init(
+        scope: Binding<String>,
+        splitSize: Binding<Int>,
+        onExportAll: @escaping () -> Void,
+        onExportScope: @escaping () -> Void
+    ) {
+        _scope = scope
+        _splitSize = splitSize
+        self.onExportAll = onExportAll
+        self.onExportScope = onExportScope
+    }
+
+    public var body: some View {
+        NavigationStack {
+            Form {
+                Section("导出范围") {
+                    TextField("1-5,8,10-18", text: $scope)
+                    Stepper(value: $splitSize, in: 1...100) {
+                        Text("每个文件章节数：\(splitSize)")
+                    }
+                }
+                Section {
+                    Button("导出全部") { onExportAll() }
+                    Button("导出选中章节") { onExportScope() }
+                }
+            }
+            .navigationTitle("自定义导出")
+        }
     }
 }
 

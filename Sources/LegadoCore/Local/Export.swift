@@ -29,17 +29,32 @@ public struct BookExportOptions: Equatable {
     public var exportPictureFile: Bool
     /// Overrides the generated file name.
     public var fileName: String?
+    /// The zero-based indexes of the chapters to export — upstream
+    /// `AppConfig.enableCustomExport` with the chapter scope of the
+    /// `CacheActivity.configExportSection` dialog. `nil` exports every
+    /// chapter.
+    public var chapterIndexes: Set<Int>?
 
     public init(
         includeChapterTitle: Bool = true,
         useReplaceRule: Bool = true,
         exportPictureFile: Bool = false,
-        fileName: String? = nil
+        fileName: String? = nil,
+        chapterIndexes: Set<Int>? = nil
     ) {
         self.includeChapterTitle = includeChapterTitle
         self.useReplaceRule = useReplaceRule
         self.exportPictureFile = exportPictureFile
         self.fileName = fileName
+        self.chapterIndexes = chapterIndexes
+    }
+
+    /// The chapters the options select — the scope filter of the upstream.
+    public func selectChapters(_ chapters: [BookChapter]) -> [BookChapter] {
+        guard let chapterIndexes else { return chapters }
+        return chapters.enumerated().compactMap { index, chapter in
+            chapterIndexes.contains(index) ? chapter : nil
+        }
     }
 }
 
@@ -126,6 +141,7 @@ public enum BookExporter {
         imageProvider: ((String) -> Data?)? = nil,
         content: (BookChapter) async throws -> String?
     ) async throws -> TxtExportResult {
+        let chapters = options.selectChapters(chapters)
         guard !chapters.isEmpty else { throw BookExportError.emptyBook }
         let provider = imageProvider ?? BookExporter.imageProvider
 
@@ -199,6 +215,7 @@ public enum BookExporter {
         coverProvider: ((Book) -> Data?)? = nil,
         content: (BookChapter) async throws -> String?
     ) async throws -> ExportedFile {
+        let chapters = options.selectChapters(chapters)
         guard !chapters.isEmpty else { throw BookExportError.emptyBook }
 
         let images = imageProvider ?? BookExporter.imageProvider
@@ -275,6 +292,62 @@ public enum BookExporter {
             fileName: options.fileName ?? fileName(book: book, suffix: "epub"),
             data: data
         )
+    }
+
+    // MARK: - The split EPUB export
+
+    /// Exports the book as several EPUB files — upstream
+    /// `ExportBookService.CustomExporter.export`.
+    ///
+    /// The chapters selected by `options.chapterIndexes` are split into
+    /// groups of `splitSize` chapters; every group becomes one EPUB file.
+    /// The file name of a part is built from `nameTemplate` with the
+    /// `epubIndex` binding (upstream `Book.getExportFileName(suffix,
+    /// epubIndex, jsStr)`), the default is
+    /// `书名 作者：作者 [1].epub`.
+    public static func exportEpubParts(
+        book: Book,
+        chapters: [BookChapter],
+        titleRules: [ReplaceRule] = [],
+        contentRules: [ReplaceRule] = [],
+        options: BookExportOptions = BookExportOptions(),
+        splitSize: Int = 1,
+        nameTemplate: String? = nil,
+        engine: RuleScriptEngine? = nil,
+        imageProvider: ((String) -> Data?)? = nil,
+        coverProvider: ((Book) -> Data?)? = nil,
+        content: (BookChapter) async throws -> String?
+    ) async throws -> [ExportedFile] {
+        let selected = options.selectChapters(chapters)
+        guard !selected.isEmpty else { throw BookExportError.emptyBook }
+        let groups = ExportScope.split(
+            selected.enumerated().map { $0.offset },
+            size: splitSize
+        )
+        var files: [ExportedFile] = []
+        for (index, group) in groups.enumerated() {
+            var partOptions = options
+            partOptions.chapterIndexes = Set(group)
+            partOptions.fileName = ExportFileName.indexedName(
+                book: book,
+                suffix: "epub",
+                index: index + 1,
+                template: nameTemplate,
+                engine: engine
+            )
+            let file = try await exportEpub(
+                book: book,
+                chapters: selected,
+                titleRules: titleRules,
+                contentRules: contentRules,
+                options: partOptions,
+                imageProvider: imageProvider,
+                coverProvider: coverProvider,
+                content: content
+            )
+            files.append(file)
+        }
+        return files
     }
 
     // MARK: - Helpers

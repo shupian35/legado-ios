@@ -213,7 +213,8 @@ public final class LegadoAppModel: ObservableObject {
     public func exportBookToFile(
         book: Book,
         format: BookExportFormat,
-        options: BookExportOptions = BookExportOptions()
+        options: BookExportOptions = BookExportOptions(),
+        directory: URL? = nil
     ) async throws -> WrittenExport {
         let settings = environment.settings
         let suffix = format == .txt ? "txt" : "epub"
@@ -265,6 +266,7 @@ public final class LegadoAppModel: ObservableObject {
         }
 
         var written: WrittenExport
+        let target = directory ?? exportDirectory()
         switch format {
         case .txt:
             let result = try await BookExporter.exportTxt(
@@ -279,7 +281,7 @@ public final class LegadoAppModel: ObservableObject {
             written = try BookExportFileWriter.write(
                 file: result.file,
                 images: result.images,
-                to: BookExportFileWriter.exportDirectory(),
+                to: target,
                 charset: ExportCharset(rawValue: settings.exportCharset) ?? .utf8
             )
         case .epub:
@@ -295,7 +297,7 @@ public final class LegadoAppModel: ObservableObject {
             )
             written = try BookExportFileWriter.write(
                 file: file,
-                to: BookExportFileWriter.exportDirectory()
+                to: target
             )
         }
 
@@ -305,6 +307,102 @@ public final class LegadoAppModel: ObservableObject {
                 data: try Data(contentsOf: written.url),
                 fileName: written.fileName
             )
+        }
+        return written
+    }
+
+    /// The folder the exports are written into — upstream
+    /// `CacheActivity.selectExportFolder` stores the folder under the
+    /// `exportBookPath` key.
+    public func exportDirectory() -> URL {
+        let path = (try? environment.store.cache(
+            "exportBookPath",
+            now: Int64(Date().timeIntervalSince1970 * 1000)
+        )) ?? ""
+        return BookExportFileWriter.exportDirectory(configuredPath: path)
+    }
+
+    /// Stores the folder the exports are written into — upstream
+    /// `ACache.get().put(exportBookPathKey, path)`.
+    public func setExportDirectory(_ url: URL) {
+        try? environment.store.putCache(
+            "exportBookPath",
+            value: url.path,
+            deadline: 0
+        )
+    }
+
+    /// Exports a book as several EPUB files — upstream
+    /// `ExportBookService.CustomExporter.export`.
+    ///
+    /// The chapters of `scope` are split into groups of `splitSize`
+    /// chapters; every group is written as its own EPUB file.
+    @discardableResult
+    public func exportBookParts(
+        book: Book,
+        options: BookExportOptions = BookExportOptions(),
+        scope: Set<Int>,
+        splitSize: Int = 1,
+        directory: URL? = nil
+    ) async throws -> [WrittenExport] {
+        let settings = environment.settings
+        let chapters = try environment.chapters(of: book)
+        let titleRules = (try? environment.store.replaceRulesForTitle(name: book.name, origin: book.origin)) ?? []
+        let contentRules = (try? environment.store.replaceRulesForContent(name: book.name, origin: book.origin)) ?? []
+        let dependencies = AnalyzeUrlDependencies(
+            httpClient: environment.httpClient,
+            cookieStore: environment.cookieStore,
+            scriptEngine: environment.scriptEngine
+        )
+        let cache = environment.cacheStorage
+        let source = try environment.source(for: book)
+        let content: (BookChapter) async throws -> String? = { chapter in
+            if let cached = cache?.content(book: book, chapter: chapter) {
+                return cached
+            }
+            guard let source else { return nil }
+            return try await WebBook.getContent(
+                bookSource: source,
+                book: book,
+                bookChapter: chapter,
+                dependencies: dependencies
+            )
+        }
+        let imageProvider: (String) -> Data? = { source in
+            guard let cache else { return nil }
+            return cache.image(book: book, src: source)
+        }
+        let coverProvider: (Book) -> Data? = { target in
+            guard let cache else { return nil }
+            return cache.image(book: target, src: target.coverUrl ?? "")
+        }
+
+        var partOptions = options
+        partOptions.chapterIndexes = scope
+        let files = try await BookExporter.exportEpubParts(
+            book: book,
+            chapters: chapters,
+            titleRules: titleRules,
+            contentRules: contentRules,
+            options: partOptions,
+            splitSize: splitSize,
+            nameTemplate: settings.string(.episodeExportFileName),
+            engine: environment.scriptEngine,
+            imageProvider: imageProvider,
+            coverProvider: coverProvider,
+            content: content
+        )
+        let target = directory ?? exportDirectory()
+        var written: [WrittenExport] = []
+        for file in files {
+            let result = try BookExportFileWriter.write(file: file, to: target)
+            if settings.exportToWebDav, let service = webDavService() {
+                try? await service.uploadBook(
+                    data: try Data(contentsOf: result.url),
+                    fileName: result.fileName
+                )
+            }
+            written.append(result)
         }
         return written
     }
