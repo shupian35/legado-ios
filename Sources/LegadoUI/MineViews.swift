@@ -563,6 +563,9 @@ public struct FileManageView: View {
 
     @ObservedObject var model: LegadoAppModel
     @State private var message: String?
+    /// The folder picker of the local books — upstream
+    /// `OtherConfigFragment`'s 书籍存储位置.
+    @State private var isSelectingBookFolder = false
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -583,6 +586,14 @@ public struct FileManageView: View {
                 }
             }
             Section("本地书籍") {
+                // Upstream `AppConfig.defaultBookTreeUri` — the folder the
+                // imported books are copied into.
+                Text("存储位置：\(model.localBookDirectory().path)")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                Button("选择书籍存储位置") {
+                    isSelectingBookFolder = true
+                }
                 ForEach(model.localBooks, id: \.bookUrl) { book in
                     HStack {
                         Text(book.name)
@@ -607,6 +618,15 @@ public struct FileManageView: View {
             }
         }
         .navigationTitle("文件管理")
+        .fileImporter(
+            isPresented: $isSelectingBookFolder,
+            allowedContentTypes: [.folder]
+        ) { result in
+            if case let .success(url) = result {
+                model.setLocalBookDirectory(url)
+                message = "已设置书籍存储位置"
+            }
+        }
         .onAppear {
             model.reloadLocalBooks()
         }

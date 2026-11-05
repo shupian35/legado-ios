@@ -535,13 +535,10 @@ public final class LegadoAppModel: ObservableObject {
                 .appendingPathComponent("book_cache", isDirectory: true)
         try? FileManager.default.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
         let cacheStorage = BookCacheStorage(layout: BookCacheLayout(root: cacheRoot))
-        // The imported local books (upstream `BookHelp.downloadDir` sibling).
-        let booksRoot = FileManager.default
-            .urls(for: .documentDirectory, in: .userDomainMask)
-            .first?
-            .appendingPathComponent("books", isDirectory: true)
-            ?? FileManager.default.temporaryDirectory
-                .appendingPathComponent("books", isDirectory: true)
+        // The imported local books — upstream `AppConfig.defaultBookTreeUri`.
+        // The preference holds the folder the user picked; the port falls
+        // back to the documents directory when it is empty.
+        let booksRoot = LegadoAppModel.booksRoot(for: settings)
         try? FileManager.default.createDirectory(at: booksRoot, withIntermediateDirectories: true)
         // The cookie jar of the app (upstream `CookieStore` keeps the cookies
         // in the shared preferences) and the login service of the sources.
@@ -574,7 +571,9 @@ public final class LegadoAppModel: ObservableObject {
             httpClient: httpClient,
             cookieStore: cookieStore,
             cacheStorage: cacheStorage,
-            loginService: loginService
+            loginService: loginService,
+            // Upstream `LocalBook.getBookFile` — the file of a local book.
+            localFileResolver: { book in localImporter.fileURL(for: book) }
         )
         let model = LegadoAppModel(
             environment: environment,
@@ -742,6 +741,55 @@ public final class LegadoAppModel: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Deletes a book of the shelf — upstream
+    /// `BookInfoViewModel.delBook` / `BookshelfManageViewModel.deleteBook`.
+    ///
+    /// The cache of the book is cleared and, for a local book, its file is
+    /// deleted when `deleteOriginal` is set (upstream
+    /// `LocalBook.deleteBook`).
+    public func deleteBook(_ book: Book, deleteOriginal: Bool = false) {
+        do {
+            try environment.deleteBook(book, deleteOriginal: deleteOriginal)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        reloadBookshelf()
+        reloadLocalBooks()
+    }
+
+    /// The folder the imported books are copied into — upstream
+    /// `AppConfig.defaultBookTreeUri`.
+    public func localBookDirectory() -> URL {
+        LegadoAppModel.booksRoot(for: environment.settings)
+    }
+
+    /// Stores the folder the imported books are copied into — upstream
+    /// `BaseImportBookActivity.localBookTreeSelect`.
+    public func setLocalBookDirectory(_ url: URL) {
+        environment.settings.defaultBookTreeUri = url.path
+        localImporter?.booksDirectory = url
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    }
+
+    /// The books directory of the settings — the folder the user picked, the
+    /// documents directory when the preference is empty.
+    static func booksRoot(for settings: AppSettings) -> URL {
+        let configured = settings.defaultBookTreeUri
+        if !configured.isEmpty {
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: configured, isDirectory: &isDirectory),
+               isDirectory.boolValue {
+                return URL(fileURLWithPath: configured, isDirectory: true)
+            }
+        }
+        return FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)
+            .first?
+            .appendingPathComponent("books", isDirectory: true)
+            ?? FileManager.default.temporaryDirectory
+                .appendingPathComponent("books", isDirectory: true)
     }
 
     /// Imports the books of the WebDAV server — upstream

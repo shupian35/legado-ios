@@ -26,8 +26,9 @@ public final class LocalBookImporter: @unchecked Sendable {
         case archiveEmpty
     }
 
-    /// The directory that holds the imported files.
-    public let booksDirectory: URL
+    /// The directory that holds the imported files — upstream
+    /// `AppConfig.defaultBookTreeUri`.
+    public var booksDirectory: URL
 
     /// The JavaScript rule of the upstream `AppConfig.bookImportFileName` — the
     /// script derives the name and the author of the book from the name of the
@@ -122,8 +123,12 @@ public final class LocalBookImporter: @unchecked Sendable {
     }
 
     /// Deletes a local book and its file.
-    public func removeBook(_ book: Book) throws {
+    ///
+    /// The upstream's `LocalBook.deleteBook` only deletes the file when
+    /// `deleteOriginal` is set (the caller decides).
+    public func removeBook(_ book: Book, deleteOriginal: Bool = true) throws {
         try store.delete(bookUrl: book.bookUrl)
+        guard deleteOriginal else { return }
         if let url = fileURL(for: book) {
             try? fileManager.removeItem(at: url)
         }

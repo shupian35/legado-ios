@@ -44,6 +44,9 @@ public final class AppEnvironment {
     public let loginService: SourceLoginService
     /// The reader background presets (upstream `ReadBookConfig`).
     public let backgroundManager: ReaderBackgroundManager
+    /// The file of a local book — the resolver of the local book importer
+    /// (upstream `LocalBook.getBookFile`).
+    public let localFileResolver: ((Book) -> URL?)?
 
     public init(
         store: LegadoStore,
@@ -55,7 +58,8 @@ public final class AppEnvironment {
         cacheManager: CacheBookManager? = nil,
         cacheStorage: BookCacheStorage? = nil,
         backgroundManager: ReaderBackgroundManager = ReaderBackgroundManager(),
-        loginService: SourceLoginService? = nil
+        loginService: SourceLoginService? = nil,
+        localFileResolver: ((Book) -> URL?)? = nil
     ) {
         self.store = store
         self.settings = settings
@@ -66,6 +70,7 @@ public final class AppEnvironment {
         self.cacheManager = cacheManager
         self.cacheStorage = cacheStorage
         self.backgroundManager = backgroundManager
+        self.localFileResolver = localFileResolver
         self.loginService = loginService
             ?? SourceLoginService(
                 store: store,
@@ -337,10 +342,19 @@ public final class AppEnvironment {
         try store.insert(book)
     }
 
-    /// Removes a book from the shelf and deletes its chapters.
-    public func deleteBook(_ book: Book) throws {
+    /// Removes a book from the shelf and deletes its chapters — upstream
+    /// `BookInfoViewModel.delBook` + `LocalBook.deleteBook`.
+    ///
+    /// The cache of the book is cleared (upstream `BookHelp.clearCache`) and,
+    /// for a local book, its file is deleted when `deleteOriginal` is set.
+    public func deleteBook(_ book: Book, deleteOriginal: Bool = false) throws {
         try store.delete(bookUrl: book.bookUrl)
         try store.deleteChapters(bookUrl: book.bookUrl)
+        cacheStorage?.clearCache(book: book)
+        guard deleteOriginal, book.isLocal else { return }
+        if let url = localFileResolver?(book) {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     /// The chapters of a book.

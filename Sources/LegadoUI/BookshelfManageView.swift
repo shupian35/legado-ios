@@ -409,10 +409,7 @@ public struct BookshelfManageView: View {
     private func deleteSelected() {
         model.environment.localConfig.deleteBookOriginal = deleteOriginal
         for book in selectedBooks {
-            try? model.environment.deleteBook(book)
-            if deleteOriginal, BookType.contains(book.type, BookType.local) {
-                model.environment.cacheStorage?.clearCache(book: book)
-            }
+            model.deleteBook(book, deleteOriginal: deleteOriginal)
         }
         selection.removeAll()
         reload()
@@ -713,7 +710,9 @@ public struct BookInfoMenuView: View {
             }
         }
         .sheet(isPresented: $isSharePresented) {
-            ShareSheet(items: [book.bookUrl])
+            // Upstream `BookInfoActivity.menu_share` — the payload is
+            // `${bookUrl}#$bookJson`.
+            ShareSheet(items: [shareText])
         }
         .sheet(item: $variableKind) { kind in
             NavigationStack {
@@ -769,9 +768,17 @@ public struct BookInfoMenuView: View {
     }
 
     private func delete() {
-        try? model.environment.deleteBook(book)
+        // Upstream `BookInfoViewModel.delBook(deleteOriginal)` — the file of
+        // a local book is only deleted when the user asks for it.
+        model.deleteBook(book, deleteOriginal: model.environment.localConfig.deleteBookOriginal)
         model.reloadBookshelf()
         message = "已删除"
+    }
+
+    /// The text the upstream shares — `${bookUrl}#$bookJson`.
+    private var shareText: String {
+        let json = (try? LegadoBackup.encodeRows([book.row])) ?? "{}"
+        return "\(book.bookUrl)#\(json)"
     }
 }
 

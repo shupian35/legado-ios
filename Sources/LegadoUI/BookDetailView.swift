@@ -42,6 +42,9 @@ public struct BookDetailView: View {
     @State private var isUploadConfirmed = false
     /// Whether the log is shown — upstream `BookInfoActivity.menu_log`.
     @State private var isLogPresented = false
+    /// The confirmation of the deletion — upstream
+    /// `BookInfoActivity.deleteBook` (`LocalConfig.bookInfoDeleteAlert`).
+    @State private var isDeletePresented = false
     /// Whether the book is on the shelf.
     @State private var isOnShelf = false
     /// The groups the book is in.
@@ -196,6 +199,23 @@ public struct BookDetailView: View {
                     Button("日志") {
                         isLogPresented = true
                     }
+                    // Upstream `BookInfoActivity.deleteBook` — the book is
+                    // removed from the shelf; a local book also loses its
+                    // file when the box is ticked.
+                    Button("删除", role: .destructive) {
+                        // The upstream only asks when
+                        // `LocalConfig.bookInfoDeleteAlert` is on.
+                        if model.environment.localConfig.bookInfoDeleteAlert {
+                            isDeletePresented = true
+                        } else {
+                            deleteBook()
+                        }
+                    }
+                    if BookType.contains(current.type, BookType.local) {
+                        // Upstream `BookInfoActivity.deleteBook`'s check box
+                        // (`R.string.delete_book_file`).
+                        Toggle("删除书籍文件", isOn: deleteOriginalBinding)
+                    }
                     // Upstream `BookInfoActivity.menu_share` — the upstream
                     // shares `${bookUrl}#$bookJson`.
                     Button("分享") {
@@ -276,6 +296,17 @@ public struct BookDetailView: View {
         }
         .sheet(isPresented: $isShareQRPresented) {
             ShareSheet(items: shareQRItems)
+        }
+        // Upstream `BookInfoActivity.deleteBook` — the confirmation is shown
+        // when `LocalConfig.bookInfoDeleteAlert` is on.
+        .alert("删除", isPresented: $isDeletePresented) {
+            Button("取消", role: .cancel) { isDeletePresented = false }
+            Button("删除", role: .destructive) {
+                isDeletePresented = false
+                deleteBook()
+            }
+        } message: {
+            Text("确定删除这本书吗？")
         }
         .sheet(isPresented: $isLogPresented) {
             NavigationStack {
@@ -488,6 +519,22 @@ public struct BookDetailView: View {
             return [url]
         }
         return [shareText]
+    }
+
+    /// Whether the file of a local book is deleted with it — upstream
+    /// `LocalConfig.deleteBookOriginal`.
+    private var deleteOriginalBinding: Binding<Bool> {
+        Binding(
+            get: { model.environment.localConfig.deleteBookOriginal },
+            set: { model.environment.localConfig.deleteBookOriginal = $0 }
+        )
+    }
+
+    /// Deletes the book — upstream `BookInfoActivity.deleteBook` +
+    /// `BookInfoViewModel.delBook`.
+    private func deleteBook() {
+        let deleteOriginal = model.environment.localConfig.deleteBookOriginal
+        model.deleteBook(current, deleteOriginal: deleteOriginal)
     }
 
     // MARK: - Actions
