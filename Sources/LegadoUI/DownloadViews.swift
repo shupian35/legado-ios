@@ -143,6 +143,21 @@ public struct DownloadManageView: View {
 
     public var body: some View {
         List {
+            // The generic file downloads — upstream
+            // `app/src/main/java/io/legado/app/service/DownloadService.kt`.
+            // The upstream writes the files into the public Download folder
+            // (which iOS does not offer), so the port lists them here.
+            if !model.downloads.isEmpty {
+                Section("文件下载") {
+                    ForEach(model.downloads) { info in
+                        DownloadFileRow(info: info, model: model)
+                    }
+                    Button("清除已完成") {
+                        model.downloadService?.removeFinished()
+                        model.downloads = model.downloadService?.items ?? []
+                    }
+                }
+            }
             if books.isEmpty {
                 Text("没有书籍")
                     .font(.system(size: 13))
@@ -529,6 +544,60 @@ public struct DownloadManageView: View {
         guard groupId != BookGroup.Id.all else { return "缓存管理" }
         let name = model.groups.first { $0.groupId == groupId }?.groupName ?? ""
         return "筛选 • \(name)"
+    }
+}
+
+/// A row of the file download list — upstream
+/// `app/src/main/java/io/legado/app/service/DownloadService.kt`.
+///
+/// The upstream has no screen for the downloads (the files land in the public
+/// Download folder); the port lists them, so that the user can cancel a
+/// download or send the finished file on.
+public struct DownloadFileRow: View {
+
+    let info: DownloadInfo
+    @ObservedObject var model: LegadoAppModel
+
+    @State private var isSharePresented = false
+
+    public init(info: DownloadInfo, model: LegadoAppModel) {
+        self.info = info
+        self.model = model
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(info.request.fileName)
+                        .font(.system(size: 15))
+                        .lineLimit(1)
+                    Text(info.status.stateText)
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                if info.status.isFinished {
+                    Button("分享") {
+                        isSharePresented = true
+                    }
+                    .font(.system(size: 13))
+                } else {
+                    // The 取消 action of the notification of the download —
+                    // upstream `IntentAction.stop`.
+                    Button("取消") {
+                        model.downloadService?.cancel(id: info.id)
+                    }
+                    .font(.system(size: 13))
+                }
+            }
+            if let progress = info.status.progress {
+                ProgressView(value: progress)
+            }
+        }
+        .sheet(isPresented: $isSharePresented) {
+            ShareSheet(items: [info.destination])
+        }
     }
 }
 

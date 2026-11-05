@@ -27,6 +27,19 @@ open class WKNavigationAction: NSObject {
     open var request: URLRequest { URLRequest(url: URL(string: "about:blank")!) }
 }
 
+/// `WebKit.WKNavigationResponsePolicy`.
+public enum WKNavigationResponsePolicy: Int {
+    case cancel = 0
+    case allow = 1
+}
+
+/// `WebKit.WKNavigationResponse`.
+open class WKNavigationResponse: NSObject {
+    open var response: URLResponse { URLResponse(url: URL(string: "about:blank")!, mimeType: nil, expectedContentLength: 0, textEncodingName: nil) }
+    open var isForMainFrame: Bool { true }
+    open var canShowMIMEType: Bool { true }
+}
+
 /// `WebKit.WKNavigationDelegate`.
 ///
 /// The real protocol declares its methods as `@objc optional` — the stub
@@ -41,6 +54,11 @@ public extension WKNavigationDelegate {
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {}
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
     ) {}
 }
 

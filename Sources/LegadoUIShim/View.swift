@@ -320,6 +320,8 @@ public struct ProgressView: View {
     public init() {}
     public init(_ title: String) {}
     public init<V: BinaryInteger>(value: V?, total: V? = nil) {}
+    /// The floating point overload of the real `SwiftUI.ProgressView`.
+    public init<V: BinaryFloatingPoint>(value: V?, total: V? = nil) {}
     public var body: Never { fatalError("ProgressView has no body") }
 }
 

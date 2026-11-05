@@ -34,12 +34,19 @@ import WebKit
 public struct InAppBrowserView: View {
 
     let url: String
+    /// The model — the browser offers the download of a file to the download
+    /// service of the app (upstream `WebViewActivity`'s download listener).
+    let model: LegadoAppModel?
     @State private var address: String = ""
     @State private var canGoBack = false
     @State private var canGoForward = false
+    /// The file the page offers to download — upstream the snackbar of
+    /// `WebViewActivity`.
+    @State private var pendingDownload: PendingDownload?
 
-    public init(url: String) {
+    public init(url: String, model: LegadoAppModel? = nil) {
         self.url = url
+        self.model = model
         _address = State(initialValue: url)
     }
 
@@ -53,7 +60,12 @@ public struct InAppBrowserView: View {
                 }
             }
             .padding(8)
-            BrowserContent(url: address)
+            BrowserContent(url: address, onDownload: { url, fileName in
+                pendingDownload = PendingDownload(
+                    url: url,
+                    fileName: fileName ?? DownloadRequest.fileName(for: url)
+                )
+            })
             HStack {
                 Button("后退") { }
                     .disabled(!canGoBack)
@@ -65,6 +77,22 @@ public struct InAppBrowserView: View {
             .padding(8)
         }
         .navigationTitle("网页")
+        // Upstream `WebViewActivity`'s download listener — the user is asked
+        // whether the file should be downloaded.
+        .alert("下载文件", isPresented: Binding(
+            get: { pendingDownload != nil },
+            set: { if !$0 { pendingDownload = nil } }
+        )) {
+            Button("下载") {
+                if let pendingDownload {
+                    model?.startDownload(url: pendingDownload.url, fileName: pendingDownload.fileName)
+                }
+                pendingDownload = nil
+            }
+            Button("取消") { pendingDownload = nil }
+        } message: {
+            Text(pendingDownload?.fileName ?? "")
+        }
     }
 
     private func open() {
@@ -76,11 +104,22 @@ public struct InAppBrowserView: View {
     }
 }
 
+/// A file the page offers to download — upstream the download listener of
+/// `WebViewActivity`.
+struct PendingDownload: Identifiable {
+    let id = UUID()
+    let url: String
+    let fileName: String
+}
+
 /// The web view itself — the real `WKWebView` on Apple platforms, a text
 /// placeholder elsewhere (the Linux build only type-checks the code).
 struct BrowserContent: View {
 
     let url: String
+    /// The action of a file the page offers to download — upstream the
+    /// download listener of `WebViewActivity`.
+    var onDownload: ((String, String?) -> Void)?
 
     #if canImport(WebKit)
     @State private var webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
@@ -88,7 +127,7 @@ struct BrowserContent: View {
 
     var body: some View {
         #if canImport(WebKit)
-        WebViewRepresentable(webView: webView, url: url)
+        WebViewRepresentable(webView: webView, url: url, onDownload: onDownload)
             .ignoresSafeArea()
         #else
             VStack {
@@ -128,6 +167,9 @@ struct WebViewRepresentable: UIViewRepresentable {
     var isAllowed: ((String) -> Bool)? = nil
     /// The action of a link that may not be opened in the page.
     var onOpenLink: ((String) -> Void)? = nil
+    /// The action of a file the page offers to download — upstream the
+    /// download listener of `WebViewActivity`.
+    var onDownload: ((String, String?) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(webView: webView) }
 
@@ -142,6 +184,7 @@ struct WebViewRepresentable: UIViewRepresentable {
         coordinator.overrideJs = overrideJs
         coordinator.isAllowed = isAllowed
         coordinator.onOpenLink = onOpenLink
+        coordinator.onDownload = onDownload
         if let html {
             guard coordinator.lastHTML != html else { return }
             coordinator.lastHTML = html
@@ -166,6 +209,7 @@ struct WebViewRepresentable: UIViewRepresentable {
         var overrideJs: String?
         var isAllowed: ((String) -> Bool)?
         var onOpenLink: ((String) -> Void)?
+        var onDownload: ((String, String?) -> Void)?
 
         init(webView: WKWebView) {
             self.webView = webView
@@ -221,6 +265,35 @@ struct WebViewRepresentable: UIViewRepresentable {
                 decisionHandler(.cancel)
                 onOpenLink?(absolute)
             }
+        }
+
+        /// The decision of a response — upstream the download listener of
+        /// `WebViewActivity` (`setDownloadListener`).
+        ///
+        /// A file the web view cannot show (an attachment, an archive, an
+        /// application) is offered to the download service of the app.
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationResponse: WKNavigationResponse,
+            decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+        ) {
+            let response = navigationResponse.response
+            guard let url = response.url, url.scheme?.lowercased() == "http" || url.scheme?.lowercased() == "https" else {
+                decisionHandler(.allow)
+                return
+            }
+            let attachment = (response as? HTTPURLResponse)
+                .map { ($0.value(forHTTPHeaderField: "Content-Disposition") ?? "").lowercased().contains("attachment") }
+                ?? false
+            guard attachment || !navigationResponse.canShowMIMEType else {
+                decisionHandler(.allow)
+                return
+            }
+            decisionHandler(.cancel)
+            let fileName = (response.suggestedFilename?.isEmpty == false
+                ? response.suggestedFilename
+                : DownloadRequest.fileName(for: url.absoluteString))
+            onDownload?(url.absoluteString, fileName)
         }
     }
 }

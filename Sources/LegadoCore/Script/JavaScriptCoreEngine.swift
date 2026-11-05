@@ -93,6 +93,10 @@ import JavaScriptCore
     func md5(_ text: String) -> String
     func urlEncode(_ text: String) -> String
     func urlDecode(_ text: String) -> String
+    // The file downloads — upstream `JsExtensions.downloadFile` and
+    // `JsExtensions.cacheFile`.
+    func downloadFile(_ url: String) -> String
+    func cacheFile(_ url: String, saveTime: Int) -> String
     // The source methods — upstream the source object is the `java` binding.
     func put(_ key: String, value: String) -> String
     func get(_ key: String) -> String
@@ -119,6 +123,9 @@ import JavaScriptCore
     @objc public var url: String = ""
     /// Upstream `java.headerMap`.
     @objc public let headerMap = LegadoHeaderMap()
+    /// The files `java.cacheFile` downloaded — upstream the `CacheManager`
+    /// (the key is the `md5Encode16` of the address).
+    private let fileCache = ScriptFileCache()
 
     public init(environment: ScriptEnvironment) {
         self.environment = environment
@@ -284,6 +291,71 @@ import JavaScriptCore
 
     public func urlDecode(_ text: String) -> String {
         text.removingPercentEncoding ?? text
+    }
+
+    // MARK: - The file downloads
+
+    /// Upstream `JsExtensions.downloadFile(url)`.
+    ///
+    /// The upstream analyses the address with the source (the type of the
+    /// file may be given in the option block of the address), downloads it
+    /// into the cache directory under the name `<md5 of the url>.<type>` and
+    /// returns the path RELATIVE to the cache directory.
+    public func downloadFile(_ url: String) -> String {
+        guard environment.capabilities.contains(.network) else {
+            raise(ScriptEngineError.capabilityDenied("network"))
+        }
+        guard environment.capabilities.contains(.fileWrite) else {
+            raise(ScriptEngineError.capabilityDenied("fileWrite"))
+        }
+        guard let client = environment.network else {
+            raise(ScriptEngineError.notImplemented("java.downloadFile requires a network client"))
+        }
+        guard let files = environment.files else {
+            raise(ScriptEngineError.notImplemented("java.downloadFile requires a file sandbox"))
+        }
+        do {
+            return try fileCache.download(
+                url: url,
+                client: client,
+                files: files,
+                headers: requestHeaders()
+            )
+        } catch {
+            raise(error)
+        }
+    }
+
+    /// Upstream `JsExtensions.cacheFile(urlStr, saveTime)`.
+    ///
+    /// The upstream caches the file under the key `md5Encode16(urlStr)` in the
+    /// `CacheManager` (with a lifetime of `saveTime` seconds) and returns the
+    /// TEXT of the file. The port keeps the downloaded files in the cache
+    /// directory of the app and remembers the paths for the session.
+    public func cacheFile(_ url: String, saveTime: Int) -> String {
+        guard environment.capabilities.contains(.network) else {
+            raise(ScriptEngineError.capabilityDenied("network"))
+        }
+        guard environment.capabilities.contains(.fileWrite) else {
+            raise(ScriptEngineError.capabilityDenied("fileWrite"))
+        }
+        guard let client = environment.network else {
+            raise(ScriptEngineError.notImplemented("java.cacheFile requires a network client"))
+        }
+        guard let files = environment.files else {
+            raise(ScriptEngineError.notImplemented("java.cacheFile requires a file sandbox"))
+        }
+        do {
+            return try fileCache.cacheFile(
+                url: url,
+                saveTime: saveTime,
+                client: client,
+                files: files,
+                headers: requestHeaders()
+            )
+        } catch {
+            raise(error)
+        }
     }
 
     // MARK: - Source methods

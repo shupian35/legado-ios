@@ -55,6 +55,21 @@ public final class HttpScriptClient: ScriptNetworkClient, @unchecked Sendable {
         return try perform(request)
     }
 
+    /// Upstream `java.downloadFile(url)` needs the raw bytes of the response.
+    public func scriptDownload(_ url: String, headers: [String: String]) throws -> Data {
+        let request = HttpRequest(
+            url: url,
+            method: "GET",
+            headers: requestHeaders(url: url, extra: headers)
+        )
+        let response = try blockingSend(request)
+        guard response.isSuccessful else {
+            throw HttpError.status(code: response.code, message: response.message)
+        }
+        if let data = response.data { return data }
+        return Data((response.body ?? "").utf8)
+    }
+
     private func requestHeaders(url: String, extra: [String: String]) -> [String: String] {
         var headers: [String: String] = [:]
         if let cookie = cookieStore?.cookie(url: url), !cookie.isEmpty {
@@ -168,6 +183,15 @@ public final class SandboxFileSandbox: ScriptFileSandbox, @unchecked Sendable {
         let directory = (resolved as NSString).deletingLastPathComponent
         try? fileManager.createDirectory(atPath: directory, withIntermediateDirectories: true)
         try content.write(toFile: resolved, atomically: true, encoding: .utf8)
+    }
+
+    /// Upstream `java.downloadFile(url)` writes the downloaded file into the
+    /// cache directory.
+    public func writeScriptData(_ path: String, data: Data) throws {
+        let resolved = try resolvedPath(path)
+        let directory = (resolved as NSString).deletingLastPathComponent
+        try? fileManager.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        try data.write(to: URL(fileURLWithPath: resolved), options: .atomic)
     }
 
     public func scriptFileExists(_ path: String) -> Bool {

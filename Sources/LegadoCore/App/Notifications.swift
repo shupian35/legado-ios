@@ -244,6 +244,27 @@ public struct NotificationContent: Equatable, Sendable {
             actions: NotificationAction.downloadActions
         )
     }
+
+    /// The notification of a file download — upstream `DownloadService`.
+    ///
+    /// The upstream notification is ongoing, it carries the identifier
+    /// `NotificationId.Download + downloads.size` (⇒ every download has its
+    /// own notification), the title is "<fileName> <状态>" and it carries the
+    /// 取消 action (`IntentAction.stop`).
+    public static func downloadFile(
+        fileName: String,
+        state: String,
+        identifier: Int,
+        progress: Double? = nil
+    ) -> NotificationContent {
+        NotificationContent(
+            channel: .download,
+            identifier: identifier,
+            title: "\(fileName) \(state)",
+            progress: progress,
+            actions: NotificationAction.downloadActions
+        )
+    }
 }
 
 /// The platform independent sink of the notifications.

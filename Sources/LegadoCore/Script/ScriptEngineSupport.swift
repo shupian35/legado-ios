@@ -97,6 +97,8 @@ public protocol ScriptNetworkClient: AnyObject {
     func scriptGet(_ url: String, headers: [String: String]) throws -> String
     /// Performs a POST request and returns the response body.
     func scriptPost(_ url: String, body: String?, headers: [String: String]) throws -> String
+    /// Downloads a file and returns its bytes — upstream `java.downloadFile(url)`.
+    func scriptDownload(_ url: String, headers: [String: String]) throws -> Data
 }
 
 /// The file system the `java` facade uses from inside a rule script.
@@ -116,6 +118,9 @@ public protocol ScriptFileSandbox: AnyObject {
     func resolvedPath(_ path: String) throws -> String
     func readScriptFile(_ path: String) throws -> String
     func writeScriptFile(_ path: String, content: String) throws
+    /// Writes raw bytes into the sandbox — upstream `java.downloadFile(url)`
+    /// writes the downloaded file.
+    func writeScriptData(_ path: String, data: Data) throws
     func scriptFileExists(_ path: String) -> Bool
     func listScriptDirectory(_ path: String) throws -> [String]
     func deleteScriptFile(_ path: String) throws

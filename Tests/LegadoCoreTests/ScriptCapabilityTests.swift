@@ -122,6 +122,7 @@ final class ScriptCapabilityTests: XCTestCase {
 private final class ScriptNetworkStub: ScriptNetworkClient {
     func scriptGet(_ url: String, headers: [String: String]) throws -> String { "ok" }
     func scriptPost(_ url: String, body: String?, headers: [String: String]) throws -> String { "ok" }
+    func scriptDownload(_ url: String, headers: [String: String]) throws -> Data { Data("ok".utf8) }
 }
 
 /// A cookie store for the capability tests.

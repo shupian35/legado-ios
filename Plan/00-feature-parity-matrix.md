@@ -594,6 +594,25 @@ what is still open.
     hosts are base64-encoded, `help/source/SourceHelp.kt:119-129`); the port
     imports every source the user gives it. The list is a content policy
     artefact of the upstream distribution, not a feature.
+34. **The downloaded files land in the documents directory.** Upstream hands
+    the address to the Android `DownloadManager`, which writes it into the
+    public Download folder (`service/DownloadService.kt:107`,
+    `setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, …)`).
+    iOS does not let an app write into a public folder, so the port writes the
+    files into `<documents>/downloads` and lets the user export them with the
+    share sheet (`Core/Net/DownloadService.swift` → `DownloadService`,
+    `LegadoUI/DownloadViews.swift` → the 文件下载 section).
+35. **The download notification has no byte progress.** The upstream's
+    `DownloadManager` streams the file, so the notification shows the
+    percentage; the port downloads with `URLSession.data(for:)` (the same API
+    the HTTP client uses, which works on Linux), so the notification shows the
+    state only (`等待下载 / 下载中 / 下载成功 / 下载出错`).
+36. **The `java.cacheFile` cache lives in the session.** Upstream keeps the
+    files in the persistent `CacheManager` (`help/CacheManager.kt`), the port
+    keeps them in the sandbox directory and remembers the paths for the
+    session (`Core/Script/ScriptFileCache.swift`); the name of the file, the
+    key and the returned text follow the upstream
+    (`help/JsExtensions.kt:278-344`).
 
 ## Known upstream quirks that are reproduced on purpose
 

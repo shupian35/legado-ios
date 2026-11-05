@@ -567,7 +567,8 @@ public final class LegadoAppModel: ObservableObject {
         localImporter: LocalBookImporter? = nil,
         cacheManager: CacheBookManager? = nil,
         verification: SourceVerificationCoordinator? = nil,
-        openURL: OpenURLCoordinator? = nil
+        openURL: OpenURLCoordinator? = nil,
+        downloadService: DownloadService? = nil
     ) {
         self.environment = environment
         self.themeManager = themeManager
@@ -575,10 +576,55 @@ public final class LegadoAppModel: ObservableObject {
         self.cacheManager = cacheManager
         self.verification = verification
         self.openURL = openURL
+        self.downloadService = downloadService
     }
 
     /// The cache queue (upstream `CacheBook`).
     public let cacheManager: CacheBookManager?
+
+    /// The generic file downloader — upstream `service/DownloadService.kt`.
+    ///
+    /// The upstream is an Android service that owns the `DownloadManager`; the
+    /// port is a queue that writes the files into the documents directory of
+    /// the app and posts the notifications of the upstream.
+    public let downloadService: DownloadService?
+
+    /// The downloads of the queue — the list of the download management.
+    @Published public var downloads: [DownloadInfo] = []
+
+    /// Starts a file download — upstream `DownloadService.startDownload`.
+    ///
+    /// The upstream posts a notification that carries the 取消 action; the
+    /// port does the same (the identifier of the notification is
+    /// `NotificationId.Download + n`).
+    ///
+    /// - Returns: the identifier of the download, or `nil` when the address is
+    ///   already in the list (the upstream toast "已在下载列表").
+    @discardableResult
+    public func startDownload(
+        url: String,
+        fileName: String? = nil,
+        headers: [String: String] = [:]
+    ) -> Int? {
+        guard let service = downloadService else { return nil }
+        let request = DownloadRequest(
+            url: url,
+            fileName: fileName ?? DownloadRequest.fileName(for: url),
+            headers: headers
+        )
+        guard let identifier = service.start(request) else {
+            // The upstream toast "已在下载列表".
+            errorMessage = "已在下载列表"
+            return nil
+        }
+        // The 取消 action of the notification of the download stops it
+        // (upstream `DownloadService` + `IntentAction.stop`).
+        let notificationId = NotificationId.download + identifier
+        NotificationService.shared.notificationActionHandlers[notificationId] = { [weak service] _ in
+            service?.cancel(id: identifier)
+        }
+        return identifier
+    }
 
     /// The coordinator of the source verification (upstream
     /// `SourceVerificationHelp`). The rule scripts ask it for the captcha
@@ -728,14 +774,45 @@ public final class LegadoAppModel: ObservableObject {
             storage: cacheStorage,
             notificationSink: NotificationService.shared
         )
+        // The generic file downloader (upstream `service/DownloadService.kt`).
+        // iOS has no public Download folder an app may write to, so the files
+        // are written into the documents directory of the app.
+        let downloadsRoot = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)
+            .first?
+            .appendingPathComponent("downloads", isDirectory: true)
+            ?? FileManager.default.temporaryDirectory
+                .appendingPathComponent("downloads", isDirectory: true)
+        try? FileManager.default.createDirectory(at: downloadsRoot, withIntermediateDirectories: true)
+        let downloadService = DownloadService(
+            downloader: URLSessionFileDownloader(),
+            destinationDirectory: downloadsRoot
+        )
         let model = LegadoAppModel(
             environment: environment,
             themeManager: themeManager,
             localImporter: localImporter,
             cacheManager: cacheManager,
             verification: verification,
-            openURL: openURL
+            openURL: openURL,
+            downloadService: downloadService
         )
+        // Every change of the queue posts the notification of the upstream
+        // (`DownloadService.startDownload` → the notification with the 取消
+        // action) and refreshes the list of the download management.
+        downloadService.setChangeHandler { info in
+            NotificationService.shared.post(
+                .downloadFile(
+                    fileName: info.request.fileName,
+                    state: info.status.stateText,
+                    identifier: NotificationId.download + info.id,
+                    progress: info.status.progress
+                )
+            )
+            DispatchQueue.main.async {
+                model.downloads = downloadService.items
+            }
+        }
         // The 取消 action of the resident download notification stops the
         // offline cache — upstream `CacheBookService` + `IntentAction.stop`.
         NotificationService.shared.notificationActionHandlers[NotificationId.cacheBookService] = { _ in
