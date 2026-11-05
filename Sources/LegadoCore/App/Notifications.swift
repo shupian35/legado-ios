@@ -73,13 +73,15 @@ public struct NotificationAction: Equatable, Sendable {
     }
 
     /// The six actions of the upstream read-aloud transport notification
-    /// (`service/BaseReadAloudService.kt:604-670`).
+    /// (`service/BaseReadAloudService.kt:604-670`) — 暂停/继续, 停止, 下一章
+    /// and 定时 (which adds ten minutes, `IntentAction.addTimer`).
     public static let readAloudActions: [NotificationAction] = [
         NotificationAction(id: "prevChapter", title: "上一章"),
         NotificationAction(id: "prevParagraph", title: "上一段"),
         NotificationAction(id: "toggle", title: "暂停"),
         NotificationAction(id: "nextParagraph", title: "下一段"),
         NotificationAction(id: "nextChapter", title: "下一章"),
+        NotificationAction(id: "addTimer", title: "定时"),
         NotificationAction(id: "stop", title: "停止")
     ]
 
@@ -195,12 +197,18 @@ public struct NotificationContent: Equatable, Sendable {
     }
 
     /// The web service notification (upstream `WebService`).
+    ///
+    /// The upstream notification is ongoing, it carries the fixed identifier
+    /// `NotificationId.WebService` and a 取消 action that stops the service
+    /// (`service/WebService.kt:196-213`).
     public static func webService(address: String, port: Int) -> NotificationContent {
         NotificationContent(
             channel: .web,
+            identifier: NotificationId.webService,
             title: "网页服务已启动",
             body: "\(address):\(port)",
-            userInfo: ["address": address, "port": String(port)]
+            userInfo: ["address": address, "port": String(port)],
+            actions: [NotificationAction(id: "stop", title: "取消", isDestructive: true)]
         )
     }
 

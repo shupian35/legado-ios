@@ -37,7 +37,22 @@ open class AVAudioSession: NSObject {
     open func setCategory(_ category: Category) throws {}
     open func setActive(_ active: Bool) throws {}
     open var isOtherAudioPlaying: Bool { false }
+
+    /// `AVAudioSession.InterruptionType`.
+    public enum InterruptionType: UInt {
+        case began = 1
+        case ended = 0
+    }
+
+    /// The name of the interruption notification of the real API.
+    open class var interruptionNotification: Notification.Name {
+        Notification.Name("AVAudioSessionInterruptionNotification")
+    }
 }
+
+/// The key of the interruption type in the user info of
+/// `AVAudioSession.interruptionNotification`.
+public let AVAudioSessionInterruptionTypeKey = "AVAudioSessionInterruptionTypeKey"
 
 // MARK: - The speech
 

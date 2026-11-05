@@ -203,4 +203,6 @@ open class UNUserNotificationCenter: NSObject {
     open func add(_ request: UNNotificationRequest, withCompletionHandler completionHandler: ((Error?) -> Void)? = nil) {}
     open func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {}
     open func removeAllPendingNotificationRequests() {}
+    open func removeDeliveredNotifications(withIdentifiers identifiers: [String]) {}
+    open func removeAllDeliveredNotifications() {}
 }

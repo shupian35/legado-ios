@@ -282,9 +282,10 @@ public enum DeepLink {
             for rule in rules { try store.insert(rule) }
             return ImportSummary(kind: kind, count: rules.count, name: rules.first?.name)
         case .theme:
-            // The port has no theme entity yet (the reader theme is still
-            // missing), so a theme import is rejected instead of silently
-            // dropped.
+            // The themes live in `themeConfig.json`, not in the database, so a
+            // theme is decoded and confirmed by the caller
+            // (`LegadoUI/DeepLinkHandler.swift` → `pendingTheme`, the upstream
+            // `ImportThemeDialog`); this generic path only knows the store.
             throw DeepLinkError.unsupportedKind(kind)
         }
     }

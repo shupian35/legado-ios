@@ -533,6 +533,43 @@ public final class ReadAloudService: ObservableObject {
     /// `AppLog.put(msg, e, true)`.
     public var onError: ((String) -> Void)?
 
+    /// Whether an interruption (a phone call, Siri) pauses the reading —
+    /// the upstream `pauseReadAloudWhilePhoneCalls`.
+    public var pauseWhilePhoneCalls: Bool = false
+
+    #if canImport(AVFoundation)
+    /// The observer of the audio interruptions — upstream
+    /// `BaseReadAloudService.kt:707-733` registers a phone state listener only
+    /// when `pauseReadAloudWhilePhoneCalls` is on.
+    private var interruptionObserver: NSObjectProtocol?
+
+    /// Starts listening for the interruptions of the audio session.
+    public func observeInterruptions() {
+        guard interruptionObserver == nil else { return }
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self, self.pauseWhilePhoneCalls else { return }
+            let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            guard raw == AVAudioSession.InterruptionType.began.rawValue else { return }
+            // An incoming call or Siri takes the audio — the reading pauses and
+            // the user continues it from the transport notification.
+            if self.state == .playing {
+                self.pause()
+            }
+        }
+    }
+
+    /// Stops listening for the interruptions.
+    public func stopObservingInterruptions() {
+        guard let observer = interruptionObserver else { return }
+        NotificationCenter.default.removeObserver(observer)
+        interruptionObserver = nil
+    }
+    #endif
+
     /// The sink of the transport notification (upstream
     /// `BaseReadAloudService` posts the state with the six media actions).
     public var notificationSink: NotificationPosting?

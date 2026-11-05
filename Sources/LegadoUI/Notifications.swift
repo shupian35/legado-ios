@@ -128,6 +128,13 @@ public final class NotificationService: NSObject, NotificationPosting, UNUserNot
         center.add(request)
     }
 
+    /// Withdraws a posted notification — the upstream services cancel their
+    /// ongoing notification when the work finishes (`notificationManager.cancel`).
+    public func cancel(_ identifier: Int) {
+        center.removeDeliveredNotifications(withIdentifiers: [String(identifier)])
+        center.removePendingNotificationRequests(withIdentifiers: [String(identifier)])
+    }
+
     // MARK: - UNUserNotificationCenterDelegate
 
     /// Shows the notification while the app is in the foreground.
@@ -193,5 +200,7 @@ public final class NotificationService: NotificationPosting, @unchecked Sendable
     public func prepare() async {}
 
     public func post(_ content: NotificationContent) {}
+
+    public func cancel(_ identifier: Int) {}
 }
 #endif

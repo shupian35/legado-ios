@@ -828,6 +828,13 @@ public final class LegadoAppModel: ObservableObject {
         NotificationService.shared.notificationActionHandlers[NotificationId.exportBook] = { [weak model] _ in
             model?.exportTask.cancel()
         }
+        // The 取消 action of the web service notification stops the service —
+        // upstream `WebService` + `IntentAction.stop`.
+        NotificationService.shared.notificationActionHandlers[NotificationId.webService] = { [weak model] _ in
+            DispatchQueue.main.async {
+                model?.setWebServiceEnabled(false)
+            }
+        }
         // The rule scripts park on a background thread; the request has to
         // reach the UI on the main thread.
         verification.onRequest = { request in
@@ -2890,6 +2897,9 @@ public final class LegadoAppModel: ObservableObject {
         webService?.stop()
         webService = nil
         webServiceStatus = nil
+        // The resident notification goes away with the service — the upstream
+        // notification is ongoing and dies with the foreground service.
+        NotificationService.shared.cancel(NotificationId.webService)
     }
 
     /// Starts or stops the service when the preference changes.

@@ -57,6 +57,28 @@ final class NotificationsTests: XCTestCase {
         XCTAssertEqual(content.userInfo["port"], "1122")
     }
 
+    /// The web service notification is a resident one: it has a fixed
+    /// identifier (so it is replaced rather than duplicated) and the 取消
+    /// action that stops the service — upstream `WebService.kt:196-213`.
+    func testTheWebServiceNotificationIsResidentAndCancellable() {
+        let content = NotificationContent.webService(address: "192.168.1.2", port: 1122)
+        XCTAssertEqual(content.identifier, NotificationId.webService)
+        XCTAssertEqual(content.actions.map(\.id), ["stop"])
+        XCTAssertEqual(content.actions.first?.title, "取消")
+    }
+
+    /// The transport notification carries the 定时 action as well — the
+    /// upstream `IntentAction.addTimer` (`BaseReadAloudService.kt:665-669`).
+    func testTheReadAloudNotificationHasTheTimerAction() {
+        XCTAssertTrue(NotificationAction.readAloudActions.contains { $0.id == "addTimer" })
+        let content = NotificationContent.readAloud(bookName: "测试书", chapterTitle: "第一章", isPlaying: true)
+        XCTAssertTrue(content.actions.contains { $0.id == "addTimer" })
+        // The pause button keeps its position and swaps the title.
+        XCTAssertEqual(content.actions.first { $0.id == "toggle" }?.title, "暂停")
+        let paused = NotificationContent.readAloud(bookName: "测试书", chapterTitle: "第一章", isPlaying: false)
+        XCTAssertEqual(paused.actions.first { $0.id == "toggle" }?.title, "继续")
+    }
+
     func testTheRecorderKeepsTheNotifications() {
         let recorder = NotificationRecorder()
         recorder.post(.download(bookName: "a", progress: 0.1))

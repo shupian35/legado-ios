@@ -232,6 +232,17 @@ public final class DeepLinkHandler: ObservableObject {
                     message = "格式不对"
                     return
                 }
+                // A theme document is confirmed before it is added — the
+                // upstream asks `ImportThemeDialog` first, the same dialog the
+                // `legado://import/theme` link opens.
+                if importKind == .theme {
+                    guard let theme = ThemeManager.importJSON(text) else {
+                        message = "主题数据无效"
+                        return
+                    }
+                    pendingTheme = theme
+                    return
+                }
                 let summary = try DeepLink.importJSON(text, kind: importKind, store: model.environment.store)
                 lastKind = summary.kind
                 message = message(for: summary)

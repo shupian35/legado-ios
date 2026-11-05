@@ -276,6 +276,15 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
             self.readAloud.loginHeaderMap = try? environment.loginService.loginHeaderMap(for: ttsProfile.key)
         }
         self.readAloud.ttsSpeechRate = environment.settings.ttsSpeechRate
+        // An incoming call pauses the reading when the preference is on —
+        // upstream `BaseReadAloudService.pauseReadAloudWhilePhoneCalls`.
+        self.readAloud.pauseWhilePhoneCalls = environment.settings.bool(
+            .pauseReadAloudWhilePhoneCalls,
+            default: false
+        )
+        #if canImport(AVFoundation)
+        self.readAloud.observeInterruptions()
+        #endif
         self.readAloud.onError = { message in
             AppLog.shared.put(message)
         }
@@ -1173,7 +1182,7 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
             self?.readAloud.nextParagraph()
         }
         bridge.onTogglePlayPause = { [weak self] in
-            self?.toggleReadAloud()
+            self?.mediaButtonToggleReadAloud()
         }
         bridge.onStop = { [weak self] in
             self?.readAloud.stop()
@@ -1194,6 +1203,10 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
                 self.readAloud.nextParagraph()
             case "nextChapter":
                 Task { await self.readBook.moveToNextChapter() }
+            case "addTimer":
+                // The upstream 定时 action adds ten minutes and wraps at 180
+                // (`BaseReadAloudService.addTimer`).
+                self.readAloud.addTimer()
             case "stop":
                 self.readAloud.stop()
             default:
@@ -1215,6 +1228,23 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
             readAloud.pause()
         } else if readAloud.state == .paused {
             readAloud.resume()
+        }
+    }
+
+    /// A media button was pressed — upstream `MediaButtonReceiver.readAloud`.
+    ///
+    /// A running read aloud always toggles; a STOPPED one is only started when
+    /// the 朗读键 control preference is on — upstream
+    /// `isMediaKey && !AppConfig.readAloudByMediaButton -> break`.
+    public func mediaButtonToggleReadAloud() {
+        switch readAloud.state {
+        case .playing:
+            readAloud.pause()
+        case .paused:
+            readAloud.resume()
+        case .stopped:
+            guard environment.settings.bool(.readAloudByMediaButton, default: false) else { return }
+            Task { await startReadAloud() }
         }
     }
 
