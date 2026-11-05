@@ -240,6 +240,8 @@ public final class SQLiteTableStore: TableStore {
             return (" WHERE \"\(column)\" = ?", [value])
         case .notEquals(let column, let value):
             return (" WHERE (\"\(column)\" IS NULL OR \"\(column)\" <> ?)", [value])
+        case .lessThan(let column, let value):
+            return (" WHERE (\"\(column)\" IS NOT NULL AND \"\(column)\" < ?)", [.integer(value)])
         case .isNull(let column):
             return (" WHERE \"\(column)\" IS NULL", [])
         case .notNull(let column):

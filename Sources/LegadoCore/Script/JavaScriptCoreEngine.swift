@@ -573,7 +573,7 @@ public final class JavaScriptCoreEngine: RuleScriptEngine {
     static func toJS(_ value: RuleValue, in context: JSContext) -> Any {
         switch value {
         case .null:
-            return JSValue(nullInContext: context)
+            return JSValue(nullIn: context)
         case .text(let text):
             return text
         case .number(let number):
@@ -594,7 +594,7 @@ public final class JavaScriptCoreEngine: RuleScriptEngine {
     static func toJS(_ value: JSONValue, in context: JSContext) -> Any {
         switch value {
         case .null:
-            return JSValue(nullInContext: context)
+            return JSValue(nullIn: context)
         case .bool(let flag):
             return flag
         case .number(let number):
@@ -617,13 +617,20 @@ public final class JavaScriptCoreEngine: RuleScriptEngine {
         if value.isNumber { return .number(value.toDouble()) }
         if value.isString { return .text(value.toString() ?? "") }
         if value.isArray {
-            let items = value.toArray()?.map { fromJS($0) } ?? []
+            // `toArray()` hands back `[Any]` on the current overlay, so each
+            // element is cast back to its `JSValue` before the recursion.
+            let items = value.toArray()?.map { fromJS($0 as? JSValue) } ?? []
             return .list(items)
         }
         if value.isObject {
             var members: [String: RuleValue] = [:]
-            for key in value.objectForKeys() ?? [] {
-                members[key] = fromJS(value.objectForKey(key))
+            // `objectForKeys()`/`objectForKey(_:)` were obsoleted from the Swift
+            // overlay; `toDictionary()` is the supported replacement and yields
+            // the same `JSValue` members for a plain JS object.
+            if let members_ = value.toDictionary() as? [String: Any] {
+                for (key, member) in members_ {
+                    members[key] = fromJS(member as? JSValue)
+                }
             }
             // Upstream returns a Rhino `NativeObject` here.
             return .scriptObject(members)

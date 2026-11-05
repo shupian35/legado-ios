@@ -45,9 +45,23 @@ public enum AES {
             }
             words.append(zip(words[i - nk], temp).map { $0 ^ $1 })
         }
-        return stride(from: 0, to: totalWords, by: 4).map { index in
-            words[index] + words[index + 1] + words[index + 2] + words[index + 3]
+        // Assembled explicitly: the one-expression version of this loop made the
+        // release build's type checker time out ("unable to type-check this
+        // expression in reasonable time") once the iOS SDK was used.
+        var roundKeys: [[UInt8]] = []
+        roundKeys.reserveCapacity(rounds + 1)
+        var index = 0
+        while index < totalWords {
+            var key: [UInt8] = []
+            key.reserveCapacity(16)
+            key.append(contentsOf: words[index])
+            key.append(contentsOf: words[index + 1])
+            key.append(contentsOf: words[index + 2])
+            key.append(contentsOf: words[index + 3])
+            roundKeys.append(key)
+            index += 4
         }
+        return roundKeys
     }
 
     // MARK: - Block operations
