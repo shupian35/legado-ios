@@ -35,11 +35,13 @@ public final class MediaCommandBridge {
     /// Stops the read aloud.
     public var onStop: (() -> Void)?
 
-    /// Whether the media buttons skip a paragraph instead of a chapter —
+    /// Whether the media buttons skip a chapter instead of a paragraph —
     /// upstream `mediaButtonPerNext` (`MediaButtonReceiver.kt:51`).
     ///
-    /// When it is off the next / the previous track command jumps a chapter,
-    /// when it is on it skips a paragraph.
+    /// Upstream: when `mediaButtonPerNext` is **off** the previous / the next
+    /// media key moves one paragraph (`ReadAloud.prevParagraph` /
+    /// `nextParagraph`), when it is **on** it moves one chapter
+    /// (`ReadBook.moveToPrevChapter` / `moveToNextChapter`).
     public var perNext: Bool = false
 
     #if canImport(MediaPlayer)
@@ -61,19 +63,21 @@ public final class MediaCommandBridge {
 
         targets.append((center.previousTrackCommand, center.previousTrackCommand.addTarget { [weak self] _ in
             guard let self else { return .success }
+            // Upstream `MediaButtonReceiver.kt:51-63`: the chapter when
+            // `mediaButtonPerNext` is on, else the paragraph.
             if self.perNext {
-                self.onPreviousParagraph?()
-            } else {
                 self.onPreviousChapter?()
+            } else {
+                self.onPreviousParagraph?()
             }
             return .success
         }))
         targets.append((center.nextTrackCommand, center.nextTrackCommand.addTarget { [weak self] _ in
             guard let self else { return .success }
             if self.perNext {
-                self.onNextParagraph?()
-            } else {
                 self.onNextChapter?()
+            } else {
+                self.onNextParagraph?()
             }
             return .success
         }))

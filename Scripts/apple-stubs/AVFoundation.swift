@@ -51,10 +51,13 @@ public enum AVSpeechBoundary: Int {
 /// `AVFoundation.AVSpeechSynthesisVoice`.
 open class AVSpeechSynthesisVoice: NSObject {
     open class func voice(language: String) -> AVSpeechSynthesisVoice? { AVSpeechSynthesisVoice() }
+    /// The installed voices of the real API.
+    open class func speechVoices() -> [AVSpeechSynthesisVoice] { [] }
     /// The failable initializer of the real API.
     public convenience init?(language: String) { self.init() }
     open var language: String { "" }
     open var identifier: String { "" }
+    open var name: String { "" }
 }
 
 /// `AVFoundation.AVSpeechUtterance`.

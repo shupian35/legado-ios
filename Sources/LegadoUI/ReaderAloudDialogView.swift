@@ -34,6 +34,31 @@ public struct ReaderAloudDialogView: View {
 
     @State private var engines: [HttpTTS] = []
     @State private var selectedEngineId: Int64 = 0
+    /// Where the chosen engine is stored — upstream `SpeakEngineDialog`:
+    /// the footer button 书籍 writes the book's engine, the button 全局
+    /// writes the global one and clears the book's.
+    @State private var engineScope: EngineScope = .book
+    /// The system voices — upstream `SpeakEngineDialog` lists the system
+    /// engines (`viewModel.sysEngines`); on iOS they are the
+    /// `AVSpeechSynthesisVoice`s.
+    @State private var voices: [ReadAloudVoice] = []
+    @State private var selectedVoiceId: String = ""
+
+    /// The scope of the chosen engine.
+    public enum EngineScope: String, CaseIterable, Identifiable, Sendable {
+        /// The engine of the book that is open — upstream 书籍.
+        case book
+        /// The global default — upstream 全局.
+        case global
+
+        public var id: String { rawValue }
+        public var displayName: String {
+            switch self {
+            case .book: return "本书"
+            case .global: return "全局"
+            }
+        }
+    }
 
     public init(controller: ReaderController) {
         self.controller = controller
@@ -129,12 +154,35 @@ public struct ReaderAloudDialogView: View {
                     .onChange(of: selectedEngineId) { _, value in
                         selectEngine(id: value)
                     }
+                    // Upstream `SpeakEngineDialog`: the footer decides whether
+                    // the engine belongs to the book or to the whole app.
+                    Picker("作用范围", selection: $engineScope) {
+                        ForEach(EngineScope.allCases) { scope in
+                            Text(scope.displayName).tag(scope)
+                        }
+                    }
+                    .onChange(of: engineScope) { _, _ in
+                        selectEngine(id: selectedEngineId)
+                    }
+                }
+            }
+            if !voices.isEmpty {
+                Section("系统语音") {
+                    Picker("语音", selection: $selectedVoiceId) {
+                        ForEach(voices, id: \.id) { voice in
+                            Text(voice.name).tag(voice.id)
+                        }
+                    }
+                    .onChange(of: selectedVoiceId) { _, value in
+                        controller.readAloud.systemVoiceIdentifier = value
+                    }
                 }
             }
         }
         .navigationTitle("朗读设置")
         .onAppear {
             loadEngines()
+            loadVoices()
         }
     }
 
@@ -181,14 +229,27 @@ public struct ReaderAloudDialogView: View {
 
     /// Switches the engine — upstream `ReadAloud.setTts`.
     ///
-    /// The upstream writes the engine twice: `AppConfig.ttsEngine` is the
-    /// global default and `Book.config.ttsEngine` overrides it for the book
-    /// that is open (`SpeakEngineDialog.kt:143-152`).
+    /// Upstream `SpeakEngineDialog.kt:143-152`: the footer button 书籍 writes
+    /// the engine into the book that is open (`ReadBook.book?.setTtsEngine`),
+    /// the button 全局 writes the global default (`AppConfig.ttsEngine`) and
+    /// clears the book's engine.
     private func selectEngine(id: Int64) {
         let value = id == 0 ? nil : String(id)
-        settings.ttsEngine = value
-        controller.setTtsEngine(value)
+        switch engineScope {
+        case .book:
+            controller.setTtsEngine(value)
+        case .global:
+            settings.ttsEngine = value
+            controller.setTtsEngine(nil)
+        }
         let engine = engines.first(where: { $0.id == id })
         controller.readAloud.useHttpTts(engine)
+    }
+
+    /// Loads the system voices — upstream `viewModel.sysEngines`.
+    private func loadVoices() {
+        voices = ReadAloudVoice.available
+        let current = controller.readAloud.systemVoiceIdentifier
+        selectedVoiceId = voices.contains(where: { $0.id == current }) ? current : ""
     }
 }

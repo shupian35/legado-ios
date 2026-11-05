@@ -20,7 +20,7 @@ import Foundation
 import LegadoCore
 
 /// Drives the reader of one book.
-public final class ReaderController: NSObject, ObservableObject, ReadBookDelegate {
+public final class ReaderController: NSObject, ObservableObject, ReadBookDelegate, ReadAloudChapterNavigating {
 
     /// The book being read.
     @Published public var book: Book
@@ -353,6 +353,9 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
         super.init()
         readBook.delegate = self
         readBook.persister = StoreProgressPersister(store: environment.store)
+        // Upstream `BaseReadAloudService.nextChapter()` / `prevP()` move the
+        // read aloud from one chapter to the next.
+        readAloud.controller.chapterNavigator = self
     }
 
     // MARK: - Actions
@@ -813,18 +816,104 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     /// Starts the read aloud of the current chapter.
     ///
     /// Upstream `ReadAloud.play(pageIndex, startPos)` reads the chapter that
-    /// is on screen; the spoken unit is the paragraph.
+    /// is on screen; the spoken unit is the paragraph — or the page when
+    /// 按页朗读 (`PreferKey.readAloudByPage`) is on.
     public func startReadAloud() async {
         let index = readBook.durChapterIndex
         guard chapters.indices.contains(index) else { return }
         let chapter = chapters[index]
+        let paragraphs = await readAloudUnits(for: chapter, index: index)
+        guard !paragraphs.isEmpty else { return }
+        readAloud.chapterTitle = chapter.title
+        readAloud.play(
+            paragraphs: paragraphs,
+            chapterIndex: index,
+            startIndex: readAloudStartIndex(paragraphs: paragraphs)
+        )
+    }
+
+    /// The spoken units of a chapter.
+    ///
+    /// With 按页朗读 (`PreferKey.readAloudByPage`) the unit is the page — the
+    /// upstream `textChapter.getNeedReadAloud(0, readAloudByPage, 0)` — else it
+    /// is the paragraph.
+    public func readAloudUnits(for chapter: BookChapter, index: Int) async -> [ReadAloudParagraph] {
+        if environment.settings.readAloudByPage {
+            if let laidOut = readBook.curTextChapter, laidOut.chapter.bookUrl == chapter.bookUrl {
+                let pages = ReadAloudSplitter.pageParagraphs(in: laidOut)
+                if !pages.isEmpty { return pages }
+            }
+        }
         guard let content = try? await contentProvider.chapterContent(book: book, chapter: chapter),
               !content.isEmpty else {
-            return
+            return []
         }
-        let paragraphs = ReadAloudSplitter.paragraphs(in: content)
+        return ReadAloudSplitter.paragraphs(in: content)
+    }
+
+    /// The index of the spoken unit the read aloud starts at.
+    ///
+    /// Upstream `BaseReadAloudService.newReadAloud(play, pageIndex, startPos)`
+    /// continues at the position the reader is on; the port starts at the
+    /// paragraph that holds the current reading position.
+    private func readAloudStartIndex(paragraphs: [ReadAloudParagraph]) -> Int {
+        guard !paragraphs.isEmpty else { return 0 }
+        guard let position = currentReadAloudPosition() else { return 0 }
+        let index = paragraphs.firstIndex { $0.start <= position && position < $0.end }
+        return index ?? 0
+    }
+
+    /// The character offset the reader is on — upstream `ReadBook.durChapterPos`.
+    private func currentReadAloudPosition() -> Int? {
+        guard let chapter = readBook.curTextChapter else { return nil }
+        let pageIndex = readBook.pageIndex
+        guard let page = chapter.page(at: pageIndex) else { return nil }
+        return page.chapterPosition
+    }
+
+    // MARK: - The chapter navigation of the read aloud
+
+    /// Moves the read aloud to the next chapter — upstream
+    /// `BaseReadAloudService.nextChapter()`.
+    public func readAloudNextChapter(completion: @escaping (ReadAloudChapter?) -> Void) {
+        Task { [weak self] in
+            guard let self else {
+                completion(nil)
+                return
+            }
+            guard await self.readBook.moveToNextChapter() else {
+                completion(nil)
+                return
+            }
+            completion(await self.readAloudChapterPayload())
+        }
+    }
+
+    /// Moves the read aloud to the previous chapter — upstream
+    /// `BaseReadAloudService.prevP()` (the last paragraph of that chapter).
+    public func readAloudPreviousChapter(completion: @escaping (ReadAloudChapter?) -> Void) {
+        Task { [weak self] in
+            guard let self else {
+                completion(nil)
+                return
+            }
+            guard await self.readBook.moveToPrevChapter() else {
+                completion(nil)
+                return
+            }
+            completion(await self.readAloudChapterPayload())
+        }
+    }
+
+    /// The spoken units of the chapter the reader is on.
+    private func readAloudChapterPayload() async -> ReadAloudChapter? {
+        let index = readBook.durChapterIndex
+        guard chapters.indices.contains(index) else { return nil }
+        let chapter = chapters[index]
+        let units = await readAloudUnits(for: chapter, index: index)
+        guard !units.isEmpty else { return nil }
         readAloud.chapterTitle = chapter.title
-        readAloud.play(paragraphs: paragraphs, chapterIndex: index, startIndex: 0)
+        return ReadAloudChapter(chapterIndex: index, paragraphs: units)
     }
 
     /// Highlights the paragraph that is being read — upstream

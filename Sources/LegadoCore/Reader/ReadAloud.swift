@@ -87,6 +87,86 @@ public enum ReadAloudSplitter {
         _ = offset
         return result
     }
+
+    /// The speakable units of a chapter when the read aloud speaks page by
+    /// page — upstream `textChapter.getNeedReadAloud(0, readAloudByPage = true, 0)`.
+    ///
+    /// With 按页朗读 the whole page is one spoken unit, so the speech follows
+    /// the pages and pauses at the page border.
+    public static func pageParagraphs(in chapter: TextChapter) -> [ReadAloudParagraph] {
+        var result: [ReadAloudParagraph] = []
+        for page in chapter.pages {
+            let text = page.text.trimmingCharacters(in: .newlines)
+            guard !text.isEmpty, !isSkipped(text) else { continue }
+            let start = page.chapterPosition
+            result.append(
+                ReadAloudParagraph(
+                    index: result.count,
+                    text: text,
+                    start: start,
+                    end: start + text.count
+                )
+            )
+        }
+        return result
+    }
+}
+
+// MARK: - The system voices
+
+/// A voice of the system speech engine.
+///
+/// Upstream `SpeakEngineDialog` lists the system engines
+/// (`viewModel.sysEngines`); on iOS they are the `AVSpeechSynthesisVoice`s.
+/// The port keeps the identifier and the name in the Core so that the
+/// selection can be stored and tested on every platform.
+public struct ReadAloudVoice: Equatable, Identifiable, Sendable {
+    /// The identifier of the voice — upstream the name of the engine.
+    public let id: String
+    /// The name that is shown to the user — upstream the label of the engine.
+    public let name: String
+
+    public init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
+}
+
+// MARK: - The chapter navigation
+
+/// A chapter of the read aloud — the spoken units plus the index of the
+/// chapter they belong to.
+public struct ReadAloudChapter: Equatable, Sendable {
+    public let chapterIndex: Int
+    public let paragraphs: [ReadAloudParagraph]
+
+    public init(chapterIndex: Int, paragraphs: [ReadAloudParagraph]) {
+        self.chapterIndex = chapterIndex
+        self.paragraphs = paragraphs
+    }
+}
+
+/// Moves the read aloud from one chapter to the next.
+///
+/// Upstream the read aloud is a service that talks to `ReadBook`:
+/// `BaseReadAloudService.nextChapter()` moves to the next chapter and
+/// `prevP()` moves to the previous one (`toLast = true` ⇒ the last spoken
+/// paragraph of that chapter).
+public protocol ReadAloudChapterNavigating: AnyObject {
+    /// The read aloud reached the end of the chapter.
+    ///
+    /// The implementation moves the reader to the next chapter and returns its
+    /// spoken units; `nil` stops the read aloud (upstream `nextChapter()` →
+    /// `stopSelf()` when there is no next chapter).
+    func readAloudNextChapter(completion: @escaping (ReadAloudChapter?) -> Void)
+
+    /// The read aloud was asked for the previous paragraph but it is the first
+    /// one of the chapter.
+    ///
+    /// The implementation moves the reader to the previous chapter and returns
+    /// its spoken units — the last one is spoken (upstream `prevP()` →
+    /// `toLast = true; moveToPrevChapter(true)`).
+    func readAloudPreviousChapter(completion: @escaping (ReadAloudChapter?) -> Void)
 }
 
 // MARK: - Position mapping
@@ -184,6 +264,21 @@ public final class ReadAloudController {
     private var onStateChange: ((ReadAloudState) -> Void)?
     /// Set while a completion of a cancelled speech is pending.
     private var pendingCompletion: ((Bool) -> Void)?
+    /// The reader that moves the read aloud from one chapter to the next.
+    public weak var chapterNavigator: ReadAloudChapterNavigating?
+    /// The number of the consecutive failures — upstream `playErrorNo`.
+    public private(set) var consecutiveFailures: Int = 0
+    /// Called when a paragraph could not be spoken; the argument is the number
+    /// of the consecutive failures.
+    ///
+    /// Upstream `HttpReadAloudService.onPlayerError` skips to the next
+    /// paragraph and pauses after five consecutive errors.
+    public var onSpeechFailed: ((Int) -> Void)?
+    /// Set while the speech is stopped on purpose — a cancelled speech is not
+    /// a failure.
+    private var isStopping = false
+    /// Set while the read aloud moves to another chapter.
+    private var isNavigating = false
 
     public init(
         synthesizer: SpeechSynthesizing = UnavailableSpeechSynthesizer(),
@@ -230,6 +325,8 @@ public final class ReadAloudController {
         self.paragraphs = paragraphs
         self.chapterIndex = chapterIndex
         self.currentIndex = paragraphs.isEmpty ? 0 : max(0, min(startIndex, paragraphs.count - 1))
+        self.consecutiveFailures = 0
+        self.isNavigating = false
         setState(.playing)
         speakCurrent()
     }
@@ -253,29 +350,76 @@ public final class ReadAloudController {
         stopSpeaking()
         paragraphs = []
         currentIndex = 0
+        consecutiveFailures = 0
+        isNavigating = false
         onProgress?(nil)
         setState(.stopped)
     }
 
     /// Speaks the next paragraph — upstream `ReadAloud.nextParagraph`.
+    ///
+    /// Upstream `BaseReadAloudService.nextP()`: at the end of the chapter the
+    /// read aloud moves to the next chapter and continues there; when there is
+    /// no next chapter the read aloud stops.
     public func nextParagraph() {
         guard !paragraphs.isEmpty else { return }
+        guard !isNavigating else { return }
         let next = currentIndex + 1
-        guard next < paragraphs.count else {
-            // Upstream keeps the last paragraph when there is no next one.
+        if next < paragraphs.count {
+            currentIndex = next
+            speakCurrent()
             return
         }
-        currentIndex = next
-        speakCurrent()
+        guard let navigator = chapterNavigator else {
+            // Without a reader there is no chapter to continue with — upstream
+            // `nextChapter()` → `stopSelf()`.
+            stopSpeaking()
+            setState(.stopped)
+            return
+        }
+        isNavigating = true
+        navigator.readAloudNextChapter { [weak self] chapter in
+            guard let self else { return }
+            self.isNavigating = false
+            guard let chapter, !chapter.paragraphs.isEmpty else {
+                // Upstream `nextChapter()`: there is no next chapter, so the
+                // read aloud stops.
+                self.stopSpeaking()
+                self.setState(.stopped)
+                return
+            }
+            self.paragraphs = chapter.paragraphs
+            self.chapterIndex = chapter.chapterIndex
+            self.currentIndex = 0
+            self.speakCurrent()
+        }
     }
 
     /// Speaks the previous paragraph — upstream `ReadAloud.prevParagraph`.
+    ///
+    /// Upstream `BaseReadAloudService.prevP()`: at the first paragraph of the
+    /// chapter the read aloud moves to the previous chapter and speaks its
+    /// last paragraph.
     public func prevParagraph() {
         guard !paragraphs.isEmpty else { return }
+        guard !isNavigating else { return }
         let previous = currentIndex - 1
-        guard previous >= 0 else { return }
-        currentIndex = previous
-        speakCurrent()
+        if previous >= 0 {
+            currentIndex = previous
+            speakCurrent()
+            return
+        }
+        guard let navigator = chapterNavigator else { return }
+        isNavigating = true
+        navigator.readAloudPreviousChapter { [weak self] chapter in
+            guard let self else { return }
+            self.isNavigating = false
+            guard let chapter, !chapter.paragraphs.isEmpty else { return }
+            self.paragraphs = chapter.paragraphs
+            self.chapterIndex = chapter.chapterIndex
+            self.currentIndex = chapter.paragraphs.count - 1
+            self.speakCurrent()
+        }
     }
 
     private func speakCurrent() {
@@ -285,15 +429,35 @@ public final class ReadAloudController {
         }
         onProgress?(paragraph)
         let rate = configuration.speechRate
+        isStopping = false
         synthesizer.speak(paragraph.text, rate: rate) { [weak self] finished in
             guard let self else { return }
-            guard finished else { return }
             guard self.state == .playing else { return }
+            guard !self.isStopping else { return }
+            if finished {
+                self.consecutiveFailures = 0
+                self.nextParagraph()
+                return
+            }
+            // Upstream `HttpReadAloudService.onPlayerError`: the read aloud
+            // skips to the next paragraph; after five consecutive errors it
+            // pauses.
+            self.consecutiveFailures += 1
+            self.onSpeechFailed?(self.consecutiveFailures)
+            if self.consecutiveFailures >= Self.maximumConsecutiveFailures {
+                self.pause()
+                return
+            }
             self.nextParagraph()
         }
     }
 
+    /// The number of the consecutive failures after which the read aloud
+    /// pauses — upstream `playErrorNo >= 5`.
+    public static let maximumConsecutiveFailures = 5
+
     private func stopSpeaking() {
+        isStopping = true
         pendingCompletion = nil
         synthesizer.stop()
     }

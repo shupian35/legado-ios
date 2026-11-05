@@ -43,6 +43,9 @@ public final class AVSpeechSynthesizerEngine: NSObject, SpeechSynthesizing, AVSp
     private let synthesizer = AVSpeechSynthesizer()
     /// The language of the voice — upstream picks it from the system locale.
     public var language: String = Locale.current.identifier
+    /// Upstream `AppConfig.ignoreAudioFocus` — when it is on the speech mixes
+    /// with the audio of the other apps.
+    public var ignoreAudioFocus: Bool = false
 
     public override init() {
         super.init()
@@ -50,7 +53,7 @@ public final class AVSpeechSynthesizerEngine: NSObject, SpeechSynthesizing, AVSp
     }
 
     public func speak(_ text: String, rate: Float, completion: @escaping (Bool) -> Void) {
-        Self.activateAudioSession()
+        Self.activateAudioSession(ignoreAudioFocus: ignoreAudioFocus)
         _ = synthesizer.stopSpeaking(at: .immediate)
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = AVSpeechSynthesisVoice(language: language)
@@ -72,9 +75,14 @@ public final class AVSpeechSynthesizerEngine: NSObject, SpeechSynthesizing, AVSp
     ///
     /// Without it iOS mutes the speech when the ring switch is silent and
     /// while the device is locked.
-    static func activateAudioSession() {
+    ///
+    /// Upstream `BaseReadAloudService.requestFocus()` returns immediately when
+    /// `AppConfig.ignoreAudioFocus` is on — the speech then mixes with the
+    /// audio of the other apps instead of interrupting it, which is what the
+    /// ambient category does on iOS.
+    static func activateAudioSession(ignoreAudioFocus: Bool = false) {
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback)
+        try? session.setCategory(ignoreAudioFocus ? .ambient : .playback)
         try? session.setActive(true)
     }
 
@@ -171,6 +179,8 @@ public final class HttpTtsSynthesizer: SpeechSynthesizing, @unchecked Sendable {
     public var delivery: HttpTtsDelivery = .download
     /// The upstream `speakSpeed = speechRatePlay + 5`.
     private var speed: Int = 10
+    /// Upstream `AppConfig.ignoreAudioFocus`.
+    public var ignoreAudioFocus: Bool = false
     /// The task of the running download.
     private var task: Task<Void, Never>?
 
@@ -210,7 +220,12 @@ public final class HttpTtsSynthesizer: SpeechSynthesizing, @unchecked Sendable {
                         completion(false)
                         return
                     }
-                    streamer.play(url: url, headers: request.headers, completion: completion)
+                    streamer.play(
+                        url: url,
+                        headers: request.headers,
+                        ignoreAudioFocus: ignoreAudioFocus,
+                        completion: completion
+                    )
                     return
                 }
                 let response = try await client.send(request)
@@ -223,7 +238,7 @@ public final class HttpTtsSynthesizer: SpeechSynthesizing, @unchecked Sendable {
                     completion(false)
                     return
                 }
-                player.play(data: data, completion: completion)
+                player.play(data: data, ignoreAudioFocus: ignoreAudioFocus, completion: completion)
             } catch {
                 completion(false)
             }
@@ -252,9 +267,9 @@ public final class AVAudioTtsPlayer: NSObject, AVAudioPlayerDelegate {
     /// player (`MediaPlayer` uses the content type of the response).
     public var contentType: String?
 
-    public func play(data: Data, completion: @escaping (Bool) -> Void) {
+    public func play(data: Data, ignoreAudioFocus: Bool = false, completion: @escaping (Bool) -> Void) {
         stop()
-        AVSpeechSynthesizerEngine.activateAudioSession()
+        AVSpeechSynthesizerEngine.activateAudioSession(ignoreAudioFocus: ignoreAudioFocus)
         do {
             let player = try AVAudioPlayer(data: data)
             player.delegate = self
@@ -311,9 +326,9 @@ public final class AVStreamingTtsPlayer: NSObject {
     ///   - url: the URL of the audio.
     ///   - headers: the headers of the TTS request — upstream sends them
     ///     with the request as well.
-    public func play(url: URL, headers: [String: String], completion: @escaping (Bool) -> Void) {
+    public func play(url: URL, headers: [String: String], ignoreAudioFocus: Bool = false, completion: @escaping (Bool) -> Void) {
         stop()
-        AVSpeechSynthesizerEngine.activateAudioSession()
+        AVSpeechSynthesizerEngine.activateAudioSession(ignoreAudioFocus: ignoreAudioFocus)
         var options: [String: Any] = [:]
         if !headers.isEmpty {
             options["AVURLAssetHTTPHeaderFieldsKey"] = headers
@@ -564,5 +579,48 @@ public final class ReadAloudService: ObservableObject {
     /// The rate the upstream uses: `(ttsSpeechRate + 5) / 10`.
     public static func speechRate(for setting: Int) -> Float {
         Float(setting + 5) / 10.0
+    }
+
+    /// The identifier of the system voice — upstream the user picks one of the
+    /// system engines (`SpeakEngineDialog` → `viewModel.sysEngines`).
+    public var systemVoiceIdentifier: String {
+        get {
+            #if canImport(AVFoundation)
+            return speechEngine?.language ?? Locale.current.identifier
+            #else
+            return Locale.current.identifier
+            #endif
+        }
+        set {
+            #if canImport(AVFoundation)
+            speechEngine?.language = newValue
+            #endif
+        }
+    }
+
+    /// Upstream `AppConfig.ignoreAudioFocus` — when it is on the speech mixes
+    /// with the audio of the other apps instead of interrupting it.
+    public var ignoreAudioFocus: Bool = false {
+        didSet {
+            #if canImport(AVFoundation)
+            speechEngine?.ignoreAudioFocus = ignoreAudioFocus
+            router?.http?.ignoreAudioFocus = ignoreAudioFocus
+            #endif
+        }
+    }
+}
+
+// MARK: - The system voices
+
+extension ReadAloudVoice {
+    /// The system voices of the platform — upstream `viewModel.sysEngines`.
+    public static var available: [ReadAloudVoice] {
+        #if canImport(AVFoundation)
+        return AVSpeechSynthesisVoice.speechVoices()
+            .map { ReadAloudVoice(id: $0.identifier, name: $0.name) }
+            .sorted { $0.name < $1.name }
+        #else
+        return []
+        #endif
     }
 }
