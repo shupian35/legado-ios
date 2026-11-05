@@ -362,7 +362,7 @@ public struct DownloadManageView: View {
             isCustomExportPresented = true
             return
         }
-        Task {
+        let task = Task {
             do {
                 let written = try await model.exportBookToFile(
                     book: book,
@@ -376,6 +376,9 @@ public struct DownloadManageView: View {
                 message = "导出失败：\(error.localizedDescription)"
             }
         }
+        // The 取消 action of the export notification stops the export —
+        // upstream `ExportBookService.stop`.
+        model.exportTask.task = task
     }
 
     /// Exports a chapter range of a book as several EPUB files — upstream
@@ -390,7 +393,7 @@ public struct DownloadManageView: View {
             message = "请输入正确的范围，例如 1-5,8,10-18"
             return
         }
-        Task {
+        let task = Task {
             do {
                 let written = try await model.exportBookParts(
                     book: book,
@@ -407,6 +410,9 @@ public struct DownloadManageView: View {
                 message = "导出失败：\(error.localizedDescription)"
             }
         }
+        // The 取消 action of the export notification stops the export —
+        // upstream `ExportBookService.stop`.
+        model.exportTask.task = task
     }
 
     /// Stores the folder the exports are written into — upstream
@@ -423,7 +429,7 @@ public struct DownloadManageView: View {
     private func exportAll() {
         let list = books
         let parallel = model.environment.settings.parallelExportBook
-        Task {
+        let task = Task {
             isExporting = true
             defer { isExporting = false }
             var exported = 0
@@ -434,6 +440,7 @@ public struct DownloadManageView: View {
                     var index = 0
                     let limit = min(list.count, 9)
                     while index < list.count {
+                        if Task.isCancelled { break }
                         if index >= limit {
                             if let url = await group.next() {
                                 last = url
@@ -443,8 +450,7 @@ public struct DownloadManageView: View {
                             }
                         }
                         let book = list[index]
-                        group.addTask { [weak model] in
-                            guard let model else { return nil }
+                        group.addTask {
                             return try? await model.exportBookToFile(
                                 book: book,
                                 format: exportType == 0 ? .txt : .epub,
@@ -464,6 +470,7 @@ public struct DownloadManageView: View {
                 }
             } else {
                 for book in list {
+                    if Task.isCancelled { break }
                     do {
                         let written = try await model.exportBookToFile(
                             book: book,
@@ -485,6 +492,9 @@ public struct DownloadManageView: View {
                 isSharePresented = true
             }
         }
+        // The 取消 action of the export notification stops the export —
+        // upstream `ExportBookService.stop`.
+        model.exportTask.task = task
     }
 
     /// The options of the export — upstream `AppConfig.exportUseReplace`,

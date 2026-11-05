@@ -612,23 +612,19 @@ public actor CacheBookManager {
         failureCounts.removeValue(forKey: key)
         failures.removeValue(forKey: key)
         if let book {
-            postProgress(book: book, chapter: chapter)
+            postProgress(book: book)
         }
     }
 
     /// Posts the progress of the download — upstream
-    /// `CacheBookService.sendNotification`.
-    private func postProgress(book: Book, chapter: BookChapter) {
+    /// `CacheBookService.upCacheBookNotification`: a RESIDENT notification with
+    /// the fixed identifier `NotificationId.CacheBookService` (⇒ the platform
+    /// updates it in place instead of stacking one notification per chapter),
+    /// the title 离线缓存 and the summary of ALL the downloads.
+    private func postProgress(book: Book) {
         guard let sink = notificationSink else { return }
-        let total = max(book.totalChapterNum, 1)
-        let done = succeeded.filter { $0.hasPrefix(book.bookUrl) }.count
-        sink.post(
-            NotificationContent.download(
-                bookName: book.name,
-                progress: Double(done) / Double(total),
-                chapterTitle: chapter.title
-            )
-        )
+        let state = progress()
+        sink.post(.downloadSummary(summary: state.summary, bookName: book.name))
     }
 
     private func recordFailure(chapter: BookChapter, error: Error) {

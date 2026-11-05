@@ -31,7 +31,10 @@ public struct SourceLoginView: View {
     @State private var values: [String: String] = [:]
     @State private var message: String?
     @State private var isWorking = false
-    @State private var showsWebLogin = false
+
+    /// Opens the external links — upstream `context.openUrl(rowUi.action)`:
+    /// an absolute URL of a button action is opened in the browser.
+    @Environment(\.openURL) private var openURL
 
     public init(source: LoginCapable, model: LegadoAppModel) {
         self.source = source
@@ -39,45 +42,52 @@ public struct SourceLoginView: View {
     }
 
     public var body: some View {
-        NavigationStack {
-            Form {
-                if let message {
-                    Section {
-                        Text(message)
-                            .font(.system(size: 12))
-                            .foregroundColor(.secondary)
+        Group {
+            // Upstream `SourceLoginActivity.initView` — a source without a
+            // login form is logged in through its web page.
+            if rows.isEmpty {
+                if let url = URL(string: source.loginUrl ?? "") {
+                    WebLoginView(url: url, cookieStore: model.environment.cookieStore)
+                } else {
+                    Text("没有登录地址")
+                }
+            } else {
+                NavigationStack {
+                    Form {
+                        if let message {
+                            Section {
+                                Text(message)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        Section("登录信息") {
+                            ForEach(rows, id: \.name) { row in
+                                loginRow(row)
+                            }
+                        }
+                        Section {
+                            Button("登录") {
+                                Task { await performLogin() }
+                            }
+                            .disabled(isWorking)
+                            Button("清除登录信息") {
+                                Task { await clearLogin() }
+                            }
+                        }
+                    }
+                    .navigationTitle("登录书源")
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("取消") {
+                                model.dismissPresentedSheet()
+                            }
+                        }
+                    }
+                    .onAppear {
+                        loadStoredInfo()
                     }
                 }
-                Section("登录信息") {
-                    ForEach(rows, id: \.name) { row in
-                        loginRow(row)
-                    }
-                }
-                Section {
-                    Button("登录") {
-                        Task { await performLogin() }
-                    }
-                    .disabled(isWorking)
-                    Button("清除登录信息") {
-                        Task { await clearLogin() }
-                    }
-                }
-            }
-            .navigationTitle("登录书源")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") {
-                        model.dismissPresentedSheet()
-                    }
-                }
-            }
-            .onAppear {
-                loadStoredInfo()
-            }
-        }
-        .sheet(isPresented: $showsWebLogin) {
-            if let url = URL(string: source.loginUrl ?? "") {
-                WebLoginView(url: url, cookieStore: model.environment.cookieStore)
             }
         }
     }
@@ -149,7 +159,13 @@ public struct SourceLoginView: View {
         guard let action = SourceLoginService.buttonAction(row) else { return }
         switch action {
         case .openURL(let url):
-            showsWebLogin = true
+            // Upstream `SourceLoginDialog.handleButtonClick` — an absolute URL
+            // is opened in the browser of the system.
+            if let link = URL(string: url) {
+                openURL(link)
+            } else {
+                message = "链接无效"
+            }
         case .script(let script):
             let service = model.environment.loginService
             service.currentKey = source.key

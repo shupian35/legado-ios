@@ -679,7 +679,7 @@ public struct BookDetailView: View {
         try? model.environment.store.update(changed)
         current = changed
         if enabled, let fileURL = model.localImporter?.fileURL(for: current) {
-            try? TocOperations.reparse(
+            _ = try? TocOperations.reparse(
                 book: changed,
                 rule: changed.tocUrl,
                 fileURL: fileURL,

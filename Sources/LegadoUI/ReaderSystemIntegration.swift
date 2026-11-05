@@ -109,7 +109,7 @@ public final class ReaderSystemIntegration: ObservableObject {
             UIScreen.main.brightness = CGFloat(previousBrightness)
             self.previousBrightness = nil
         }
-        if let forcedOrientation {
+        if forcedOrientation != nil {
             UIApplication.shared.requestedOrientation = .unknown
             self.forcedOrientation = nil
         }

@@ -215,6 +215,11 @@ public struct BookshelfView: View {
                     }
                 }
                 .listStyle(PlainListStyle())
+                // The second tap on the bookshelf tab scrolls the list to its
+                // top — upstream `BooksFragment.gotoTop()`.
+                .onChange(of: model.scrollToTopToken) { _ in
+                    scrollToTop(proxy: proxy)
+                }
                 if model.environment.settings.showBookshelfFastScroller {
                     BookshelfFastScroller(count: model.visibleBooks.count) { index in
                         guard index >= 0, index < model.visibleBooks.count else { return }
@@ -228,27 +233,42 @@ public struct BookshelfView: View {
 
     /// The grid style — upstream `GridLayoutManager(context, bookshelfLayout + 2)`.
     private var grid: some View {
-        ScrollView {
-            LazyVGrid(
-                columns: Array(
-                    repeating: GridItem(.flexible(), spacing: 8),
-                    count: max(1, model.environment.settings.bookshelfLayout + 2)
-                ),
-                spacing: 12
-            ) {
-                ForEach(model.visibleBooks, id: \.bookUrl) { book in
-                    NavigationLink {
-                        BookDetailView(model: model, book: book)
-                    } label: {
-                        BookGridCell(book: book)
-                    }
-                    .onLongPressGesture {
-                        selectedBook = book
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVGrid(
+                    columns: Array(
+                        repeating: GridItem(.flexible(), spacing: 8),
+                        count: max(1, model.environment.settings.bookshelfLayout + 2)
+                    ),
+                    spacing: 12
+                ) {
+                    ForEach(model.visibleBooks, id: \.bookUrl) { book in
+                        NavigationLink {
+                            BookDetailView(model: model, book: book)
+                        } label: {
+                            BookGridCell(book: book)
+                        }
+                        .id(book.bookUrl)
+                        .onLongPressGesture {
+                            selectedBook = book
+                        }
                     }
                 }
+                .padding(12)
             }
-            .padding(12)
+            // The second tap on the bookshelf tab scrolls the list to its
+            // top — upstream `BooksFragment.gotoTop()`.
+            .onChange(of: model.scrollToTopToken) { _ in
+                scrollToTop(proxy: proxy)
+            }
         }
+    }
+
+    /// Scrolls the list of the shelf to its first book — upstream
+    /// `BooksFragment.gotoTop()` (`booksFragment.smoothScrollToPosition(0)`).
+    private func scrollToTop(proxy: ScrollViewProxy) {
+        guard let first = model.visibleBooks.first else { return }
+        proxy.scrollTo(first.bookUrl, anchor: .top)
     }
 }
 

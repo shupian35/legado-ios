@@ -27,7 +27,7 @@ import LegadoUIShim
 enum LegadoSmokeTest {
 
     static func run(arguments: [String]) {
-        let verbose = arguments.contains("--verbose") || arguments.contains("-v")
+        _ = arguments.contains("--verbose") || arguments.contains("-v")
         print("Legado iOS port — headless smoke test")
         print("=====================================")
 

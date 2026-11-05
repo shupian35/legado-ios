@@ -386,7 +386,7 @@ public final class AVAudioTtsPlayer: NSObject, AVAudioPlayerDelegate {
             let player = try AVAudioPlayer(data: data)
             player.delegate = self
             _ = player.prepareToPlay()
-            _ = player.play()
+            player.play()
             self.player = player
             pendingCompletion = completion
         } catch {

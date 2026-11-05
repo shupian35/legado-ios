@@ -153,6 +153,10 @@ public struct SourceCheckView: View {
         // persists it with the other options.
         config = SourceCheckConfig(options: options)
         config.save(to: model.environment.settings.settingsStore)
+        let total = targets.count
+        // Upstream `CheckSourceService` — a resident notification with the
+        // progress of the check and a 取消 action.
+        model.postCheckNotification(message: "正在检查书源", finished: 0, total: total)
         checkTask = Task {
             var collected: [SourceCheckResult] = []
             for source in targets {
@@ -162,6 +166,11 @@ public struct SourceCheckView: View {
                 collected.append(result)
                 results = collected
                 try? model.environment.store.insert(result.source)
+                model.postCheckNotification(
+                    message: "正在检查书源",
+                    finished: collected.count,
+                    total: total
+                )
             }
             model.reloadSources()
             isLoading = false
@@ -181,12 +190,16 @@ public struct SourceCheckView: View {
             }
             onFinished?(hasInvalid)
         }
+        // The 取消 action of the check notification stops the check — upstream
+        // `CheckSourceService.stop`.
+        model.sourceCheckTask.task = checkTask
     }
 
     /// Cancels the check — upstream `CheckSource.stop`.
     private func cancel() {
         checkTask?.cancel()
         checkTask = nil
+        model.sourceCheckTask.cancel()
         isLoading = false
         message = "已取消校验"
     }

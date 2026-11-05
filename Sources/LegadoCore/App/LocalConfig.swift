@@ -134,4 +134,43 @@ public final class LocalConfig {
 
     /// The key of the token of the local web service.
     public static let webServiceTokenKey = "webServiceToken"
+
+    // MARK: - The version counters of the default data
+
+    /// Whether the default HTTP TTS engines have to be imported — upstream
+    /// `LocalConfig.needUpHttpTTS` (`!isLastVersion(6, "httpTtsVersion")`).
+    public var needsDefaultHttpTTS: Bool {
+        !isLastVersion(6, forKey: "httpTtsVersion")
+    }
+
+    /// Whether the default TXT table of contents rules have to be imported —
+    /// upstream `LocalConfig.needUpTxtTocRule`
+    /// (`!isLastVersion(3, "txtTocRuleVersion")`).
+    public var needsDefaultTxtTocRules: Bool {
+        !isLastVersion(3, forKey: "txtTocRuleVersion")
+    }
+
+    /// Whether the default RSS sources have to be imported — upstream
+    /// `LocalConfig.needUpRssSources` (`!isLastVersion(6, "rssSourceVersion")`).
+    public var needsDefaultRssSources: Bool {
+        !isLastVersion(6, forKey: "rssSourceVersion")
+    }
+
+    /// Whether the default dictionary rules have to be imported — upstream
+    /// `LocalConfig.needUpDictRule` (`!isLastVersion(2, "needUpDictRule")`).
+    public var needsDefaultDictRules: Bool {
+        !isLastVersion(2, forKey: "needUpDictRule")
+    }
+
+    /// The port of upstream `LocalConfig.isLastVersion` — the stored counter is
+    /// raised to `lastVersion` and the caller is told that the data has to be
+    /// imported again.
+    private func isLastVersion(_ lastVersion: Int, forKey key: String) -> Bool {
+        let version = store.int(forKey: key) ?? 0
+        if version < lastVersion {
+            store.set(lastVersion, forKey: key)
+            return false
+        }
+        return true
+    }
 }

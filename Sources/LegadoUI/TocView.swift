@@ -350,8 +350,8 @@ public struct TocView: View {
         let enabled = !book.readConfigBox.splitLongChapter
         let changed = TocOperations.setSplitLongChapter(enabled, book: book)
         try? model.environment.store.update(changed)
-        if enabled, let fileURL = model.localImporter?.fileURL(for: book) {
-            try? applyRule(book.tocUrl)
+        if enabled, model.localImporter?.fileURL(for: book) != nil {
+            applyRule(book.tocUrl)
         }
         message = enabled ? "已分割长章节" : "已取消分割长章节"
     }

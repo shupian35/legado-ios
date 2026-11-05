@@ -41,6 +41,64 @@ public enum WebServiceError: Error, Equatable, LocalizedError {
     }
 }
 
+/// A holder of a task, so that the cancel action of a notification (upstream
+/// `IntentAction.stop`) can reach the running work.
+public final class TaskHolder: @unchecked Sendable {
+
+    /// The task.
+    public var task: Task<Void, Never>?
+
+    public init() {}
+
+    /// Cancels the task.
+    public func cancel() {
+        task?.cancel()
+        task = nil
+    }
+}
+
+/// The counter of the books that wait for the update of their table of
+/// contents — upstream `MainViewModel.postUpBooksLiveData`.
+///
+/// The counter is changed by the workers of the update, so it is thread safe.
+final class BookUpdateCounter: @unchecked Sendable {
+
+    private let lock = NSLock()
+    private var storage: Int
+
+    init(_ count: Int) {
+        storage = count
+    }
+
+    /// The number of the books that still wait for the update.
+    var remaining: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    /// Counts one updated book — the number of the books that wait decreases.
+    @discardableResult
+    func finishOne() -> Int {
+        lock.lock()
+        storage = max(0, storage - 1)
+        let remaining = storage
+        lock.unlock()
+        return remaining
+    }
+}
+
+/// A weak reference to the app model — the callbacks that run in a worker
+/// thread publish their progress through it.
+final class WeakAppModelBox: @unchecked Sendable {
+
+    weak var model: LegadoAppModel?
+
+    init(_ model: LegadoAppModel) {
+        self.model = model
+    }
+}
+
 /// The state of the application shell.
 public final class LegadoAppModel: ObservableObject {
 
@@ -116,7 +174,13 @@ public final class LegadoAppModel: ObservableObject {
 
     /// The tab of the shell that is shown — upstream `MainActivity.upHomePage()`
     /// and the `defaultHomePage` preference.
-    @Published public var selectedTab: HomePage = .bookshelf
+    @Published public var selectedTab: HomePage = .bookshelf {
+        didSet { visitedTabs.insert(selectedTab) }
+    }
+
+    /// The tabs that were opened — the upstream keeps the fragments of the
+    /// `BottomNavigationView` alive, so the port keeps their views too.
+    @Published public var visitedTabs: Set<HomePage> = [.bookshelf]
 
     /// The cache queue of the books (upstream `CacheBook`).
     @Published public var cacheProgress: [String: CacheBookProgress] = [:]
@@ -247,6 +311,11 @@ public final class LegadoAppModel: ObservableObject {
             options.fileName = fileName
         }
 
+        // Upstream `ExportBookService.upExportNotification` — a resident
+        // notification with the progress of the export.
+        postExportNotification(message: "正在导出 \(book.name)")
+        defer { postExportNotification(message: "导出完成") }
+
         let chapters = try environment.chapters(of: book)
         let titleRules = (try? environment.store.replaceRulesForTitle(name: book.name, origin: book.origin)) ?? []
         let contentRules = (try? environment.store.replaceRulesForContent(name: book.name, origin: book.origin)) ?? []
@@ -328,6 +397,30 @@ public final class LegadoAppModel: ObservableObject {
         return written
     }
 
+    /// Posts the progress of the export — upstream
+    /// `ExportBookService.upExportNotification`.
+    ///
+    /// The notification is resident (it carries the fixed identifier
+    /// `NotificationId.ExportBook`), so it replaces the previous one.
+    public func postExportNotification(message: String, progress: Double? = nil) {
+        NotificationService.shared.post(.exportBook(message: message, progress: progress))
+    }
+
+    /// Posts the progress of the source check — upstream
+    /// `CheckSourceService.upNotification`.
+    public func postCheckNotification(message: String, finished: Int, total: Int) {
+        NotificationService.shared.post(
+            .checkSource(message: message, finished: finished, total: total)
+        )
+    }
+
+    /// The task of the source check — the 取消 action of the check
+    /// notification cancels it (upstream `CheckSourceService.stop`).
+    public let sourceCheckTask = TaskHolder()
+
+    /// The task of the export — the 取消 action of the export notification
+    /// cancels it (upstream `ExportBookService.stop`).
+    public let exportTask = TaskHolder()
     /// The folder the exports are written into — upstream
     /// `CacheActivity.selectExportFolder` stores the folder under the
     /// `exportBookPath` key.
@@ -364,6 +457,9 @@ public final class LegadoAppModel: ObservableObject {
     ) async throws -> [WrittenExport] {
         let settings = environment.settings
         let chapters = try environment.chapters(of: book)
+        // Upstream `ExportBookService.upExportNotification`.
+        postExportNotification(message: "正在导出 \(book.name)")
+        defer { postExportNotification(message: "导出完成") }
         let titleRules = (try? environment.store.replaceRulesForTitle(name: book.name, origin: book.origin)) ?? []
         let contentRules = (try? environment.store.replaceRulesForContent(name: book.name, origin: book.origin)) ?? []
         let dependencies = AnalyzeUrlDependencies(
@@ -626,19 +722,35 @@ public final class LegadoAppModel: ObservableObject {
             // Upstream `LocalBook.getBookFile` — the file of a local book.
             localFileResolver: { book in localImporter.fileURL(for: book) }
         )
+        // The download progress is posted as a notification — upstream
+        // `CacheBookService.sendNotification`.
+        let cacheManager = environment.makeCacheManager(
+            storage: cacheStorage,
+            notificationSink: NotificationService.shared
+        )
         let model = LegadoAppModel(
             environment: environment,
             themeManager: themeManager,
             localImporter: localImporter,
-            // The download progress is posted as a notification — upstream
-            // `CacheBookService.sendNotification`.
-            cacheManager: environment.makeCacheManager(
-                storage: cacheStorage,
-                notificationSink: NotificationService.shared
-            ),
+            cacheManager: cacheManager,
             verification: verification,
             openURL: openURL
         )
+        // The 取消 action of the resident download notification stops the
+        // offline cache — upstream `CacheBookService` + `IntentAction.stop`.
+        NotificationService.shared.notificationActionHandlers[NotificationId.cacheBookService] = { _ in
+            Task { await cacheManager.stopAll() }
+        }
+        // The 取消 action of the check notification stops the check — upstream
+        // `CheckSourceService` + `IntentAction.stop`.
+        NotificationService.shared.notificationActionHandlers[NotificationId.checkSourceService] = { [weak model] _ in
+            model?.sourceCheckTask.cancel()
+        }
+        // The 取消 action of the export notification stops the export — upstream
+        // `ExportBookService` + `IntentAction.stop`.
+        NotificationService.shared.notificationActionHandlers[NotificationId.exportBook] = { [weak model] _ in
+            model?.exportTask.cancel()
+        }
         // The rule scripts park on a background thread; the request has to
         // reach the UI on the main thread.
         verification.onRequest = { request in
@@ -663,12 +775,16 @@ public final class LegadoAppModel: ObservableObject {
     public func updateBook(_ book: Book) async -> BookUpdateResult? {
         isLoading = true
         defer { isLoading = false }
+        // Upstream `MainViewModel.upToc(books)` — the book waits in the queue
+        // of the update, the badge of the bookshelf tab counts it.
+        upBooksCount = 1
         let result = await BookUpdater.update(
             book: book,
             source: nil,
             store: environment.store,
             dependencies: environment.dependencies()
         )
+        upBooksCount = 0
         if !result.isSuccess {
             errorMessage = result.message
         }
@@ -681,12 +797,24 @@ public final class LegadoAppModel: ObservableObject {
     public func updateAllBooks() async -> [BookUpdateResult] {
         isLoading = true
         defer { isLoading = false }
+        // Upstream `MainViewModel.postUpBooksLiveData` — the badge of the
+        // bookshelf tab shows the number of the books that wait for the
+        // update of their table of contents.
+        let candidates = books.filter { !$0.isLocal && $0.canUpdate }
+        let counter = BookUpdateCounter(candidates.count)
+        let box = WeakAppModelBox(self)
+        upBooksCount = candidates.count
         let results = await BookUpdater.updateAll(
             books: books,
             store: environment.store,
             dependencies: environment.dependencies(),
-            threadCount: environment.settings.threadCount
+            threadCount: environment.settings.threadCount,
+            onUpdate: { [box, counter] _ in
+                let remaining = counter.finishOne()
+                box.model?.upBooksCount = remaining
+            }
         )
+        upBooksCount = counter.remaining
         reloadBookshelf()
         return results
     }
@@ -1484,6 +1612,54 @@ public final class LegadoAppModel: ObservableObject {
         }
     }
 
+    /// The cleanup that runs when the app starts — upstream `App.onCreate`
+    /// (the "清除过期数据" block) and `DefaultData.upVersion`.
+    ///
+    /// The upstream runs it in a background thread when the process is
+    /// created; the port runs it when the root view appears.
+    public func runStartupMaintenance() async {
+        // The default data of a new version — upstream `DefaultData.upVersion`.
+        do {
+            let imported = try AppMaintenance.importDefaultsAfterUpgrade(
+                store: environment.store,
+                localConfig: environment.localConfig
+            )
+            if !imported.isEmpty {
+                AppLog.shared.put("导入默认数据：\(imported.joined(separator: ", "))")
+            }
+        } catch {
+            AppLog.shared.put("导入默认数据失败\n\(error.localizedDescription)", error: error)
+        }
+        // The expired data — upstream `App.kt:101-122`.
+        do {
+            let report = try AppMaintenance.cleanUp(
+                store: environment.store,
+                settings: environment.settings,
+                cacheStorage: environment.cacheStorage
+            )
+            if report.clearedBookCaches > 0 {
+                AppLog.shared.put("清理失效缓存：\(report.clearedBookCaches) 个")
+            }
+        } catch {
+            AppLog.shared.put("清理过期数据失败\n\(error.localizedDescription)", error: error)
+        }
+        // The reading progress of the WebDAV server — upstream
+        // `AppWebDav.downloadAllBookProgress()`.
+        if environment.settings.syncBookProgress, let service = webDavService() {
+            do {
+                let updated = try await AppMaintenance.downloadAllBookProgress(
+                    store: environment.store,
+                    service: service
+                )
+                if updated > 0 {
+                    AppLog.shared.put("同步阅读进度：\(updated) 本")
+                }
+            } catch {
+                AppLog.shared.put("同步阅读进度失败\n\(error.localizedDescription)", error: error)
+            }
+        }
+    }
+
     /// The preferences that go into `config.xml` — the flat key/value pairs
     /// of the settings store.
     private func backupPreferences() -> [String: String] {
@@ -1846,7 +2022,7 @@ public final class LegadoAppModel: ObservableObject {
         let all = (try? environment.sources()) ?? []
         for source in all {
             guard source.enabled else { continue }
-            guard let results = try? awaitSearch(source: source, keyword: name) else { continue }
+            let results = awaitSearch(source: source, keyword: name)
             if results.contains(where: { $0.name == name && $0.author == author }) {
                 return source
             }
@@ -2190,6 +2366,47 @@ public final class LegadoAppModel: ObservableObject {
         ) else { return }
         selectedTab = tab
     }
+
+    /// The moment the last tap on a tab happened — upstream `MainActivity`
+    /// remembers it in `bookshelfReselected` / `exploreReselected`.
+    private var lastTabTap: [HomePage: Date] = [:]
+
+    /// Handles a tap on the tab that is already active — upstream
+    /// `MainActivity.onNavigationItemReselected`.
+    ///
+    /// The upstream scrolls the list of the tab to the top when the tab is
+    /// tapped twice within 300 ms: the bookshelf jumps to its first book
+    /// (`BooksFragment.gotoTop`) and the discovery collapses the expanded
+    /// source (`ExploreFragment.compressExplore`).
+    public func tabReselected(_ tab: HomePage) {
+        let now = Date()
+        if let last = lastTabTap[tab], now.timeIntervalSince(last) < 0.3 {
+            lastTabTap[tab] = nil
+            switch tab {
+            case .bookshelf:
+                scrollToTopToken += 1
+            case .explore:
+                collapseExploreToken += 1
+            default:
+                break
+            }
+        } else {
+            lastTabTap[tab] = now
+        }
+    }
+
+    /// The request to scroll the list of the current tab to the top — the
+    /// second tap on the tab (upstream `BooksFragment.gotoTop`).
+    @Published public var scrollToTopToken = 0
+
+    /// The request to collapse the discovery — the second tap on the
+    /// discovery tab (upstream `ExploreFragment.compressExplore`).
+    @Published public var collapseExploreToken = 0
+
+    /// The number of the books that wait for the update of their table of
+    /// contents — the badge of the bookshelf tab (upstream
+    /// `MainViewModel.postUpBooksLiveData`).
+    @Published public var upBooksCount = 0
 
     /// Shows the tab of the `defaultHomePage` preference — upstream
     /// `MainActivity.upHomePage()` (`MainActivity.kt:385-398`).

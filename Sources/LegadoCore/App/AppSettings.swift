@@ -1163,8 +1163,10 @@ public final class AppSettings {
 
     /// Whether the expired cache is cleared automatically — upstream
     /// `PreferKey.autoClearExpired`.
+    ///
+    /// The upstream default is **true** (`getPrefBoolean(PreferKey.autoClearExpired, true)`).
     public var autoClearExpired: Bool {
-        get { bool(.autoClearExpired, default: false) }
+        get { bool(.autoClearExpired, default: true) }
         set { set(newValue, for: .autoClearExpired) }
     }
 

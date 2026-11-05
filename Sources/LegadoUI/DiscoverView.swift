@@ -236,29 +236,41 @@ public struct DiscoverView: View {
         } else if results.isEmpty {
             EmptyState(text: "没有内容")
         } else {
-            List {
-                ForEach(results, id: \.bookUrl) { book in
-                    NavigationLink {
-                        // Upstream `ExploreShowActivity` opens the detail page of
-                        // the book.
-                        BookDetailView(model: model, book: book.toBook())
-                    } label: {
-                        resultRow(book)
+            ScrollViewReader { proxy in
+                List {
+                    ForEach(results, id: \.bookUrl) { book in
+                        NavigationLink {
+                            // Upstream `ExploreShowActivity` opens the detail page of
+                            // the book.
+                            BookDetailView(model: model, book: book.toBook())
+                        } label: {
+                            resultRow(book)
+                        }
+                        .id(book.bookUrl)
+                    }
+                    if hasMore {
+                        HStack {
+                            Spacer(minLength: 0)
+                            Button("加载更多") {
+                                loadMore()
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.vertical, 8)
                     }
                 }
-                if hasMore {
-                    HStack {
-                        Spacer(minLength: 0)
-                        Button("加载更多") {
-                            loadMore()
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.vertical, 8)
+                .listStyle(PlainListStyle())
+                // The second tap on the discovery tab collapses the expanded
+                // source of upstream `ExploreFragment.compressExplore()`; the
+                // port has no expanded source, so the list of the results is
+                // scrolled to its top (the upstream does the same when no
+                // source is expanded).
+                .onChange(of: model.collapseExploreToken) { _ in
+                    guard let first = results.first else { return }
+                    proxy.scrollTo(first.bookUrl, anchor: .top)
                 }
             }
-            .listStyle(PlainListStyle())
         }
     }
 

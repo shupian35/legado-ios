@@ -39,6 +39,24 @@ public enum NotificationChannel: String, CaseIterable, Sendable {
     public var identifier: String { rawValue }
 }
 
+/// The identifiers of the resident notifications — upstream
+/// `constant/NotificationId.kt`.
+///
+/// A notification with an identifier is UPDATED IN PLACE by the platform
+/// (the upstream `notificationManager.notify(NotificationId.CacheBookService, …)`),
+/// so the download progress does not pile up in the notification centre.
+public enum NotificationId {
+    public static let readAloudService = 101
+    public static let audioPlayService = 102
+    public static let cacheBookService = 103
+    public static let exportBookService = 104
+    public static let webService = 105
+    public static let downloadService = 106
+    public static let checkSourceService = 107
+    public static let download = 10000
+    public static let exportBook = 201
+}
+
 /// A button of a notification (the upstream `Notification.Action`).
 public struct NotificationAction: Equatable, Sendable {
     /// The identifier of the action.
@@ -64,12 +82,22 @@ public struct NotificationAction: Equatable, Sendable {
         NotificationAction(id: "nextChapter", title: "下一章"),
         NotificationAction(id: "stop", title: "停止")
     ]
+
+    /// The 取消 action of the download notification — upstream
+    /// `CacheBookService` adds `IntentAction.stop` to it.
+    public static let downloadActions: [NotificationAction] = [
+        NotificationAction(id: "cancel", title: "取消", isDestructive: true)
+    ]
 }
 
 /// The content of a notification.
 public struct NotificationContent: Equatable, Sendable {
     /// The channel the notification belongs to.
     public var channel: NotificationChannel
+    /// The identifier of the notification — a notification with an identifier
+    /// replaces the previous one with the same identifier (the upstream
+    /// resident notifications of the services).
+    public var identifier: Int?
     /// The title of the notification.
     public var title: String
     /// The subtitle (the upstream `setSubText`).
@@ -85,6 +113,7 @@ public struct NotificationContent: Equatable, Sendable {
 
     public init(
         channel: NotificationChannel,
+        identifier: Int? = nil,
         title: String,
         subtitle: String? = nil,
         body: String? = nil,
@@ -93,6 +122,7 @@ public struct NotificationContent: Equatable, Sendable {
         actions: [NotificationAction] = []
     ) {
         self.channel = channel
+        self.identifier = identifier
         self.title = title
         self.subtitle = subtitle
         self.body = body
@@ -105,12 +135,36 @@ public struct NotificationContent: Equatable, Sendable {
     public static func download(bookName: String, progress: Double, chapterTitle: String? = nil) -> NotificationContent {
         var content = NotificationContent(
             channel: .download,
+            identifier: NotificationId.cacheBookService,
             title: chapterTitle ?? bookName,
             subtitle: bookName,
             progress: min(max(progress, 0), 1)
         )
         content.userInfo["bookName"] = bookName
         if let chapterTitle { content.userInfo["chapterTitle"] = chapterTitle }
+        return content
+    }
+
+    /// The resident download notification — upstream `CacheBookService`.
+    ///
+    /// The upstream notification is ongoing, it carries the fixed identifier
+    /// `NotificationId.CacheBookService` (⇒ it is updated in place instead of
+    /// piling up), its title is 离线缓存, its body is the summary of ALL the
+    /// downloads and it carries the 取消 action.
+    public static func downloadSummary(
+        summary: String,
+        progress: Double? = nil,
+        bookName: String? = nil
+    ) -> NotificationContent {
+        var content = NotificationContent(
+            channel: .download,
+            identifier: NotificationId.cacheBookService,
+            title: "离线缓存",
+            body: summary,
+            progress: progress,
+            actions: NotificationAction.downloadActions
+        )
+        if let bookName { content.userInfo["bookName"] = bookName }
         return content
     }
 
@@ -147,6 +201,47 @@ public struct NotificationContent: Equatable, Sendable {
             title: "网页服务已启动",
             body: "\(address):\(port)",
             userInfo: ["address": address, "port": String(port)]
+        )
+    }
+
+    /// The resident notification of the source check — upstream
+    /// `CheckSourceService.upNotification`.
+    ///
+    /// The upstream notification is ongoing, it carries the fixed identifier
+    /// `NotificationId.CheckSourceService`, the title 检查书源, the progress
+    /// (the finished sources / the total) and a 取消 action.
+    public static func checkSource(
+        message: String,
+        finished: Int,
+        total: Int
+    ) -> NotificationContent {
+        var content = NotificationContent(
+            channel: .readAloud,
+            identifier: NotificationId.checkSourceService,
+            title: "检查书源",
+            body: message,
+            progress: total > 0 ? Double(finished) / Double(total) : nil,
+            actions: NotificationAction.downloadActions
+        )
+        content.userInfo["finished"] = String(finished)
+        content.userInfo["total"] = String(total)
+        return content
+    }
+
+    /// The resident notification of the export — upstream
+    /// `ExportBookService.upExportNotification`.
+    ///
+    /// The upstream notification is ongoing while it runs, it carries the
+    /// fixed identifier `NotificationId.ExportBook`, the subtitle 导出书 and a
+    /// 取消 action.
+    public static func exportBook(message: String, progress: Double? = nil) -> NotificationContent {
+        NotificationContent(
+            channel: .download,
+            identifier: NotificationId.exportBook,
+            title: "导出书",
+            body: message,
+            progress: progress,
+            actions: NotificationAction.downloadActions
         )
     }
 }

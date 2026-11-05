@@ -306,7 +306,7 @@ public struct CacheManageView: View {
     private func clear(_ row: CacheRow) {
         guard let storage = model.environment.cacheStorage,
               let book = model.books.first(where: { $0.bookUrl == row.bookUrl }) else { return }
-        try? storage.clearCache(book: book)
+        storage.clearCache(book: book)
         reload()
         message = "已清除 \(row.name)"
     }
@@ -315,7 +315,7 @@ public struct CacheManageView: View {
         for row in rows {
             guard let storage = model.environment.cacheStorage,
                   let book = model.books.first(where: { $0.bookUrl == row.bookUrl }) else { continue }
-            try? storage.clearCache(book: book)
+            storage.clearCache(book: book)
         }
         reload()
         message = "已清除全部缓存"

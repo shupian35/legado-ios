@@ -117,7 +117,7 @@ public enum WebSocket {
     }
 
     /// Opcodes used by the API.
-    public enum Opcode: UInt8 {
+    public enum Opcode: UInt8, Sendable {
         case continuation = 0x0
         case text = 0x1
         case binary = 0x2

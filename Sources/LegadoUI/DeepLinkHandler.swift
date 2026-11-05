@@ -73,7 +73,7 @@ public final class DeepLinkHandler: ObservableObject {
             let request = try DeepLink.parse(url)
             let action = DeepLinkService.action(forPath: request.path, host: request.host)
             switch action {
-            case .importJSON(let kind):
+            case .importJSON:
                 let summary = try await DeepLink.importData(
                     from: request,
                     httpClient: model.environment.httpClient,
@@ -237,7 +237,7 @@ public final class DeepLinkHandler: ObservableObject {
                 message = message(for: summary)
                 model.reloadAll()
             case .book:
-                try model.importLocalBook(from: url)
+                model.importLocalBook(from: url)
                 message = "已导入本地书"
                 model.reloadAll()
             case .archive:
@@ -327,7 +327,7 @@ public struct LegadoRootScene: View {
                     Text("检测到阅读发生了崩溃，是否打开崩溃日志以便报告问题？")
                 }
             if isWelcomePresented {
-                WelcomeView(settings: model.environment.settings) {
+                WelcomeView(onFinish: {
                     isWelcomePresented = false
                     // The upstream opens the last-read book directly after the
                     // splash when the preference `defaultToRead` is on.
@@ -335,7 +335,7 @@ public struct LegadoRootScene: View {
                     // … and asks for the local password when the user has
                     // never set one (`MainActivity.setLocalPassword`).
                     model.presentLocalPasswordIfNeeded()
-                }
+                }, settings: model.environment.settings)
             }
             // The local password — the key of the encrypted backup entries.
             if model.isLocalPasswordPresented {

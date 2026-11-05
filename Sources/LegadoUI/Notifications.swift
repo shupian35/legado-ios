@@ -25,6 +25,9 @@ public final class NotificationService: NSObject, NotificationPosting, UNUserNot
     /// The shared service.
     public static let shared = NotificationService()
 
+    /// The key of the channel inside the user info of a notification.
+    public static let channelKey = "legado.channel"
+
     private let center: UNUserNotificationCenter
 
     /// The handler of the action buttons of the notifications — upstream
@@ -33,6 +36,16 @@ public final class NotificationService: NSObject, NotificationPosting, UNUserNot
     ///
     /// The identifier is the one of `NotificationAction.readAloudActions`.
     public var actionHandler: (@Sendable (String) -> Void)?
+
+    /// The handlers of the action buttons, per channel — the download
+    /// channel's 取消 action stops the offline cache (upstream
+    /// `CacheBookService` + `IntentAction.stop`).
+    public var channelActionHandlers: [NotificationChannel: (@Sendable (String) -> Void)] = [:]
+
+    /// The handlers of the action buttons, keyed by the identifier of the
+    /// notification they belong to — the upstream distinguishes its services
+    /// by their notification ids (`constant/NotificationId.kt`).
+    public var notificationActionHandlers: [Int: (@Sendable (String) -> Void)] = [:]
 
     private override init() {
         center = UNUserNotificationCenter.current()
@@ -46,7 +59,7 @@ public final class NotificationService: NSObject, NotificationPosting, UNUserNot
     /// Asks for the permission and registers the channels.
     public func prepare() async {
         do {
-            try await center.requestAuthorization(options: [.alert, .sound, .badge])
+            _ = try await center.requestAuthorization(options: [.alert, .sound, .badge])
         } catch {
             // The user declined (or the system refused): the app keeps working
             // without notifications.
@@ -59,6 +72,16 @@ public final class NotificationService: NSObject, NotificationPosting, UNUserNot
                 // The upstream transport notification carries the six media
                 // actions (`service/BaseReadAloudService.kt:604-670`).
                 actions = NotificationAction.readAloudActions.map { action in
+                    UNNotificationAction(
+                        identifier: action.id,
+                        title: action.title,
+                        options: action.isDestructive ? [.destructive] : []
+                    )
+                }
+            case .download:
+                // Upstream `CacheBookService` adds a 取消 action to the
+                // resident download notification.
+                actions = NotificationAction.downloadActions.map { action in
                     UNNotificationAction(
                         identifier: action.id,
                         title: action.title,
@@ -86,11 +109,19 @@ public final class NotificationService: NSObject, NotificationPosting, UNUserNot
         if let subtitle = content.subtitle { settings.subtitle = subtitle }
         if let body = content.body { settings.body = body }
         settings.sound = nil
-        settings.userInfo = content.userInfo
+        // The channel travels with the notification, so the action buttons are
+        // routed to the handler of their channel.
+        var userInfo = content.userInfo
+        userInfo[NotificationService.channelKey] = content.channel.identifier
+        settings.userInfo = userInfo
         // The category carries the actions of the notification.
         settings.categoryIdentifier = content.channel.identifier
+        // A notification with an identifier replaces the previous one with the
+        // same identifier — the resident notifications of the services (the
+        // upstream `notificationManager.notify(NotificationId.CacheBookService, …)`).
+        let identifier = content.identifier.map { String($0) } ?? UUID().uuidString
         let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
+            identifier: identifier,
             content: settings,
             trigger: nil
         )
@@ -120,7 +151,19 @@ public final class NotificationService: NSObject, NotificationPosting, UNUserNot
         let identifier = response.actionIdentifier
         if identifier != UNNotificationDefaultActionIdentifier,
            identifier != UNNotificationDismissActionIdentifier {
-            actionHandler?(identifier)
+            let request = response.notification.request
+            // The handler of the notification's own identifier — the upstream
+            // services are told apart by their notification ids.
+            if let numeric = Int(request.identifier),
+               let handler = notificationActionHandlers[numeric] {
+                handler(identifier)
+            } else if let channel = (request.content.userInfo[NotificationService.channelKey] as? String)
+                .flatMap({ NotificationChannel(rawValue: $0) }),
+                      let handler = channelActionHandlers[channel] {
+                handler(identifier)
+            } else {
+                actionHandler?(identifier)
+            }
         }
         completionHandler()
     }
@@ -132,8 +175,18 @@ public final class NotificationService: NotificationPosting, @unchecked Sendable
 
     public static let shared = NotificationService()
 
+    /// The key of the channel inside the user info of a notification.
+    public static let channelKey = "legado.channel"
+
     /// The handler of the action buttons of the notifications.
     public var actionHandler: (@Sendable (String) -> Void)?
+
+    /// The handlers of the action buttons, per channel.
+    public var channelActionHandlers: [NotificationChannel: (@Sendable (String) -> Void)] = [:]
+
+    /// The handlers of the action buttons, keyed by the identifier of the
+    /// notification they belong to.
+    public var notificationActionHandlers: [Int: (@Sendable (String) -> Void)] = [:]
 
     public init() {}
 
