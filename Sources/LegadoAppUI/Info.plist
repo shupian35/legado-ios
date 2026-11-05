@@ -25,6 +25,8 @@
 				<string>com.amazon.azw3</string>
 				<string>com.amazon.azw</string>
 				<string>public.zip-archive</string>
+				<string>io.legado.ios.rar-archive</string>
+				<string>io.legado.ios.7z-archive</string>
 			</array>
 		</dict>
 		<dict>
@@ -38,6 +40,46 @@
 			<array>
 				<string>public.json</string>
 			</array>
+		</dict>
+	</array>
+	<!-- The upstream manifest also accepts `.rar` and `.7z` archives
+	     (`AndroidManifest.xml:441-450`). iOS has no built-in type for them, so
+	     the app declares them and owns the extensions. -->
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>io.legado.ios.rar-archive</string>
+			<key>UTTypeDescription</key>
+			<string>RAR 压缩包</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.archive</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>rar</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>io.legado.ios.7z-archive</string>
+			<key>UTTypeDescription</key>
+			<string>7-Zip 压缩包</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.archive</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>7z</string>
+				</array>
+			</dict>
 		</dict>
 	</array>
 	<key>CFBundleExecutable</key>
