@@ -587,7 +587,7 @@ public final class JavaScriptCoreEngine: RuleScriptEngine {
         case .json(let json):
             return toJS(json, in: context)
         case .node:
-            return JSValue(undefinedInContext: context)
+            return JSValue(undefinedIn: context)
         }
     }
 
