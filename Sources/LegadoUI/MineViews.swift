@@ -166,6 +166,14 @@ struct TxtTocRuleEditor: View {
 // MARK: - The dictionary rules
 
 /// The dictionary rules — upstream `DictRuleActivity`.
+///
+/// The upstream screen (`ui/dict/rule/DictRuleActivity.kt`) has:
+/// * the menu `dict_rule` — `menu_add`, `menu_import_local` (a `txt` or a
+///   `json` file), `menu_import_onLine`, `menu_import_qr`, `menu_import_default`
+///   and `menu_help` (the `dictRuleHelp` document),
+/// * the selection bar (`dict_rule_sel`) — 启用所选 / 禁用所选 / 导出所选 and
+///   the main action 删除,
+/// * the drag that reorders the rules (the `sortNumber`).
 public struct DictRuleView: View {
 
     @ObservedObject var model: LegadoAppModel
@@ -176,6 +184,18 @@ public struct DictRuleView: View {
     /// The import of a document — upstream `DictRuleActivity.menu_import_onLine`.
     @State private var isImportPresented = false
     @State private var importText: String = ""
+    /// The import of a local file — upstream `menu_import_local`.
+    @State private var isFileImporterPresented = false
+    /// The import of a QR code — upstream `menu_import_qr`.
+    @State private var isQRScannerPresented = false
+    @State private var qrResult: String?
+    /// The help — upstream `menu_help` (the `dictRuleHelp` document).
+    @State private var isHelpPresented = false
+    /// The selection mode — upstream the `SelectActionBar`.
+    @State private var isSelecting = false
+    @State private var selection: Set<String> = []
+    /// The rule that is about to be deleted — upstream the confirmation alert.
+    @State private var pendingDelete: DictRule?
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -183,24 +203,64 @@ public struct DictRuleView: View {
 
     public var body: some View {
         List {
-            ForEach(rules, id: \.name) { rule in
+            ForEach(rules) { rule in
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(rule.name)
+                    HStack {
+                        if isSelecting {
+                            Text(selection.contains(rule.name) ? "☑" : "☐")
+                                .font(.system(size: 16))
+                        }
+                        Text(rule.name)
+                        Spacer()
+                        if !rule.enabled {
+                            Text("已禁用")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                    }
                     Text(rule.urlRule)
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                 }
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    editing = rule
+                    if isSelecting {
+                        toggleSelection(rule)
+                    } else {
+                        editing = rule
+                    }
                 }
+                .swipeActions {
+                    // Upstream `DictRuleActivity.delete` — the confirmation.
+                    Button(role: .destructive) {
+                        pendingDelete = rule
+                    } label: {
+                        Text("删除")
+                    }
+                }
+            }
+            .onMove { source, destination in
+                move(from: source, to: destination)
             }
         }
         .navigationTitle("字典规则")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
+                Button(isSelecting ? "取消" : "选择") {
+                    isSelecting.toggle()
+                    if !isSelecting { selection.removeAll() }
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
                 Button("添加") {
                     editing = DictRule(name: "", urlRule: "", showRule: "")
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                // Upstream `DictRuleActivity.menu_import_local` — a `txt` or
+                // a `json` file.
+                Button("导入本地") {
+                    isFileImporterPresented = true
                 }
             }
             ToolbarItem(placement: .primaryAction) {
@@ -212,7 +272,13 @@ public struct DictRuleView: View {
                 }
             }
             ToolbarItem(placement: .primaryAction) {
-                // Upstream `DictRuleViewModel.restoreDefault`.
+                // Upstream `DictRuleActivity.menu_import_qr`.
+                Button("二维码") {
+                    isQRScannerPresented = true
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                // Upstream `DictRuleViewModel.importDefault`.
                 Button("恢复默认") {
                     try? DefaultData.importDefaultDictRules(store: model.environment.store)
                     reload()
@@ -222,7 +288,40 @@ public struct DictRuleView: View {
                 // Upstream `DictRuleActivity.menu_export_selection` — the file
                 // "exportDictRule.json".
                 Button("导出") {
-                    export(rules: rules, fileName: "exportDictRule.json")
+                    export(rules: isSelecting ? selectedRules : rules, fileName: DictRuleManager.exportFileName)
+                }
+            }
+            ToolbarItem(placement: .secondaryAction) {
+                // Upstream `DictRuleActivity.menu_help` — the `dictRuleHelp`
+                // document.
+                Button("帮助") {
+                    isHelpPresented = true
+                }
+            }
+            if isSelecting {
+                ToolbarItem(placement: .secondaryAction) {
+                    // Upstream `dict_rule_sel.menu_enable_selection`.
+                    Button("启用所选") {
+                        model.setDictRulesEnabled(selectedRules, enabled: true)
+                        selection.removeAll()
+                        reload()
+                    }
+                }
+                ToolbarItem(placement: .secondaryAction) {
+                    // Upstream `dict_rule_sel.menu_disable_selection`.
+                    Button("禁用所选") {
+                        model.setDictRulesEnabled(selectedRules, enabled: false)
+                        selection.removeAll()
+                        reload()
+                    }
+                }
+                ToolbarItem(placement: .secondaryAction) {
+                    // Upstream `DictRuleActivity.onClickSelectBarMainAction`.
+                    Button("删除所选") {
+                        model.deleteDictRules(selectedRules)
+                        selection.removeAll()
+                        reload()
+                    }
                 }
             }
         }
@@ -240,19 +339,93 @@ public struct DictRuleView: View {
                 ShareSheet(items: [exportedFileURL])
             }
         }
+        .sheet(isPresented: $isQRScannerPresented) {
+            NavigationStack {
+                QRScannerView(result: $qrResult)
+            }
+        }
+        .sheet(isPresented: $isHelpPresented) {
+            NavigationStack {
+                DictRuleHelpView()
+            }
+        }
+        .fileImporter(
+            isPresented: $isFileImporterPresented,
+            allowedContentTypes: DictRuleView.contentTypes,
+            onCompletion: { result in
+                importFile(result)
+            }
+        )
+        .confirmationDialog(
+            "确定删除",
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            presenting: pendingDelete
+        ) { rule in
+            Button("删除", role: .destructive) {
+                model.deleteDictRules([rule])
+                reload()
+            }
+            Button("取消", role: .cancel) {}
+        } message: { rule in
+            Text(rule.name)
+        }
+        .onChange(of: qrResult) { _, value in
+            guard let value, !value.isEmpty else { return }
+            qrResult = nil
+            model.importDictRules(value)
+            reload()
+        }
         .onAppear {
             reload()
         }
     }
 
+    /// The accepted file types — upstream `menu_import_local` accepts a
+    /// `txt` and a `json` file.
+    public static var contentTypes: [UTType] {
+        var types: [UTType] = [.data]
+        for ext in ["txt", "json"] {
+            if let type = UTType(filenameExtension: ext) {
+                types.append(type)
+            }
+        }
+        return types
+    }
+
     private func reload() {
-        rules = (try? model.environment.store.allDictRules()) ?? []
+        let all = (try? model.environment.store.allDictRules()) ?? []
+        rules = DictRuleManager.sorted(all)
+    }
+
+    /// The selected rules — upstream `adapter.selection`.
+    private var selectedRules: [DictRule] {
+        rules.filter { selection.contains($0.name) }
+    }
+
+    private func toggleSelection(_ rule: DictRule) {
+        if selection.contains(rule.name) {
+            selection.remove(rule.name)
+        } else {
+            selection.insert(rule.name)
+        }
+    }
+
+    /// The reorder — upstream the drag of `DictRuleActivity` that ends in
+    /// `DictRuleViewModel.upSortNumber`.
+    private func move(from source: IndexSet, to destination: Int) {
+        var moved = rules
+        moved.move(fromOffsets: source, toOffset: destination)
+        rules = moved
+        model.saveDictRuleOrder(moved)
     }
 
     /// Writes the rules into a file — upstream
     /// `DictRuleActivity.menu_export_selection`.
     private func export(rules: [DictRule], fileName: String) {
-        let json = DocumentExport.json(rules, row: { $0.row })
+        let json = DictRuleManager.exportJSON(rules)
         guard let data = json.data(using: .utf8) else { return }
         do {
             exportedFileURL = try DocumentExporter.write(data, fileName: fileName)
@@ -260,6 +433,38 @@ public struct DictRuleView: View {
         } catch {
             AppLog.shared.put("导出失败：\(error.localizedDescription)", error: error)
         }
+    }
+
+    /// The import of a local file — upstream `menu_import_local`.
+    private func importFile(_ result: Result<URL, Error>) {
+        switch result {
+        case .success(let url):
+            let text = withSecurityScope(url) { () -> String? in
+                guard let data = try? Data(contentsOf: url) else { return nil }
+                return String(data: data, encoding: .utf8)
+            }
+            guard let text else { return }
+            model.importDictRules(text)
+            reload()
+        case .failure(let error):
+            AppLog.shared.put("导入失败：\(error.localizedDescription)", error: error)
+        }
+    }
+}
+
+/// The help of the dictionary rules — upstream
+/// `DictRuleActivity.menu_help` (the `dictRuleHelp` document).
+public struct DictRuleHelpView: View {
+    public init() {}
+
+    public var body: some View {
+        ScrollView {
+            Text(AppHelpDocuments.dictRuleHelp)
+                .font(.system(size: 14))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+        }
+        .navigationTitle("字典规则帮助")
     }
 }
 

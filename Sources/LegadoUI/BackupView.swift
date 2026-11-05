@@ -513,15 +513,3 @@ public struct BackupView: View {
         }
     }
 }
-
-/// Runs the body with the security scope of a URL the user picked.
-///
-/// The API only exists on the Apple platforms — on Linux the body runs
-/// directly.
-private func withSecurityScope<T>(_ url: URL, _ body: () throws -> T) rethrows -> T {
-    #if os(iOS) || os(macOS)
-    let scoped = url.startAccessingSecurityScopedResource()
-    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-    #endif
-    return try body()
-}

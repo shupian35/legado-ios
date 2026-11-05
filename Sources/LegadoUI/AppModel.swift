@@ -1498,6 +1498,52 @@ public final class LegadoAppModel: ObservableObject {
         }
     }
 
+    /// Deletes the dictionary rules — upstream `DictRuleViewModel.delete`.
+    public func deleteDictRules(_ rules: [DictRule]) {
+        do {
+            try environment.store.deleteDictRules(rules)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Enables or disables the dictionary rules — upstream
+    /// `DictRuleViewModel.enableSelection` / `disableSelection`.
+    public func setDictRulesEnabled(_ rules: [DictRule], enabled: Bool) {
+        do {
+            try environment.store.updateDictRules(
+                DictRuleManager.settingEnabled(rules, enabled)
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Writes the order of the dictionary rules — upstream
+    /// `DictRuleViewModel.upSortNumber`.
+    public func saveDictRuleOrder(_ rules: [DictRule]) {
+        do {
+            try environment.store.updateDictRules(DictRuleManager.renumbered(rules))
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Imports the dictionary rules of a document — upstream
+    /// `DictRuleActivity.menu_import_local` / `menu_import_onLine` /
+    /// `menu_import_qr`.
+    @discardableResult
+    public func importDictRules(_ text: String) -> Int {
+        do {
+            let rules = try DictRuleManager.parse(text)
+            try environment.store.updateDictRules(rules)
+            return rules.count
+        } catch {
+            errorMessage = error.localizedDescription
+            return 0
+        }
+    }
+
     /// Saves a HTTP TTS engine — upstream `HttpTTSDao.insert`.
     public func saveHttpTTS(_ engine: HttpTTS) {
         do {

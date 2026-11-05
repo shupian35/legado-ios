@@ -232,6 +232,14 @@ extension Edge.Set: ExpressibleByArrayLiteral {
     }
 }
 
+/// `SwiftUI.HorizontalEdge` — the edge of a `swipeActions`.
+public struct HorizontalEdge: RawRepresentable, Hashable, Sendable {
+    public let rawValue: Int
+    public init(rawValue: Int) { self.rawValue = rawValue }
+    public static let leading = HorizontalEdge(rawValue: 0)
+    public static let trailing = HorizontalEdge(rawValue: 1)
+}
+
 /// `SwiftUI.HorizontalAlignment`.
 public struct HorizontalAlignment: Hashable, Sendable {
     public static let leading = HorizontalAlignment()

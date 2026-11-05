@@ -480,10 +480,13 @@ public enum DictRuleJSONBridge {
     public static func decode(_ value: JSONValue) -> DictRule? {
         guard case .object(let fields) = value,
               let name = fields["name"]?.textValue,
-              let urlRule = fields["urlRule"]?.textValue,
-              let showRule = fields["showRule"]?.textValue else {
+              !name.isEmpty else {
             return nil
         }
+        // The upstream `DictRule` has the defaults "" for the url rule and
+        // the show rule, so a document without them is still a rule.
+        let urlRule = fields["urlRule"]?.textValue ?? ""
+        let showRule = fields["showRule"]?.textValue ?? ""
         var rule = DictRule(name: name, urlRule: urlRule, showRule: showRule)
         rule.enabled = fields["enabled"]?.boolValue ?? true
         rule.sortNumber = fields["sortNumber"]?.intValue ?? 0

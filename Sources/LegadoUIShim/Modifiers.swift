@@ -92,6 +92,13 @@ extension View {
     /// the way the real `SwiftUI` reports it (`(IndexSet, Int) -> Void`).
     public func onMove(perform action: @escaping (IndexSet, Int) -> Void) -> some View { ModifiedView(self) }
     public func onInsert(perform action: @escaping (IndexSet) -> Void) -> some View { ModifiedView(self) }
+    /// `swipeActions(edge:allowsFullSwipe:content:)` — the swipe actions of
+    /// a row of a list (iOS 15).
+    public func swipeActions<Content: View>(
+        edge: HorizontalEdge = .trailing,
+        allowsFullSwipe: Bool = true,
+        @ViewBuilder content: () -> Content
+    ) -> some View { ModifiedView(self) }
 
     // MARK: - Interaction
 
@@ -328,10 +335,23 @@ public struct InlinePickerStyle: PickerStyle { public init() {} }
 
 /// The static members of the picker styles — the real SwiftUI offers them
 /// since iOS 14 (`.pickerStyle(.segmented)`).
-public extension PickerStyle {
+///
+/// The real SwiftUI declares them with the `where Self == …` constraint, so
+/// the contextual member reference `.segmented` resolves; the shim must use
+/// the same form or the Linux build rejects the code that compiles on Apple.
+public extension PickerStyle where Self == SegmentedPickerStyle {
     static var segmented: SegmentedPickerStyle { SegmentedPickerStyle() }
+}
+
+public extension PickerStyle where Self == MenuPickerStyle {
     static var menu: MenuPickerStyle { MenuPickerStyle() }
+}
+
+public extension PickerStyle where Self == WheelPickerStyle {
     static var wheel: WheelPickerStyle { WheelPickerStyle() }
+}
+
+public extension PickerStyle where Self == InlinePickerStyle {
     static var inline: InlinePickerStyle { InlinePickerStyle() }
 }
 
@@ -404,6 +424,26 @@ public enum ToolbarContentBuilder {
     public static func buildBlock<C0: ToolbarContent, C1: ToolbarContent, C2: ToolbarContent, C3: ToolbarContent, C4: ToolbarContent, C5: ToolbarContent, C6: ToolbarContent, C7: ToolbarContent>(_ c0: C0, _ c1: C1, _ c2: C2, _ c3: C3, _ c4: C4, _ c5: C5, _ c6: C6, _ c7: C7) -> TupleToolbarContent<(C0, C1, C2, C3, C4, C5, C6, C7)> { TupleToolbarContent((c0, c1, c2, c3, c4, c5, c6, c7)) }
     public static func buildBlock<C0: ToolbarContent, C1: ToolbarContent, C2: ToolbarContent, C3: ToolbarContent, C4: ToolbarContent, C5: ToolbarContent, C6: ToolbarContent, C7: ToolbarContent, C8: ToolbarContent>(_ c0: C0, _ c1: C1, _ c2: C2, _ c3: C3, _ c4: C4, _ c5: C5, _ c6: C6, _ c7: C7, _ c8: C8) -> TupleToolbarContent<(C0, C1, C2, C3, C4, C5, C6, C7, C8)> { TupleToolbarContent((c0, c1, c2, c3, c4, c5, c6, c7, c8)) }
     public static func buildBlock<C0: ToolbarContent, C1: ToolbarContent, C2: ToolbarContent, C3: ToolbarContent, C4: ToolbarContent, C5: ToolbarContent, C6: ToolbarContent, C7: ToolbarContent, C8: ToolbarContent, C9: ToolbarContent>(_ c0: C0, _ c1: C1, _ c2: C2, _ c3: C3, _ c4: C4, _ c5: C5, _ c6: C6, _ c7: C7, _ c8: C8, _ c9: C9) -> TupleToolbarContent<(C0, C1, C2, C3, C4, C5, C6, C7, C8, C9)> { TupleToolbarContent((c0, c1, c2, c3, c4, c5, c6, c7, c8, c9)) }
+    /// The conditional content — the real SwiftUI's `buildOptional` and
+    /// `buildEither`; the shim needs them so that an `if` inside a toolbar
+    /// compiles on Linux the way it does on Apple.
+    ///
+    /// The parameters are `Any` on purpose: a generic parameter would make
+    /// the compiler unable to infer it from the conditional's body (the
+    /// result builder passes the body as a concrete type).
+    public static func buildOptional(_ content: Any?) -> AnyToolbarContent {
+        if let content { return AnyToolbarContent(content) }
+        return AnyToolbarContent(EmptyToolbarContent())
+    }
+    public static func buildEither(first: Any) -> AnyToolbarContent { AnyToolbarContent(first) }
+    public static func buildEither(second: Any) -> AnyToolbarContent { AnyToolbarContent(second) }
+}
+
+/// A type erased toolbar content — the shim's stand-in for the real
+/// `_ConditionalContent`.
+public struct AnyToolbarContent: ToolbarContent {
+    private let content: Any
+    public init(_ content: Any) { self.content = content }
 }
 
 /// The empty toolbar content of the shim.

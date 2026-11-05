@@ -168,6 +168,13 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     /// The result of the dictionary lookup — upstream `DictDialog`.
     @Published public var dictResult: DictLookupResult?
 
+    /// The word of the dictionary lookup — upstream `DictDialog` (the
+    /// argument of the dialog).
+    @Published public var dictWord: String?
+
+    /// The rules of the dictionary lookup — one tab per rule.
+    @Published public var dictRules: [DictRule] = []
+
     /// Whether the dictionary dialog is shown.
     @Published public var isDictPresented = false
 
@@ -1494,6 +1501,10 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     }
 
     /// Looks a word up in the dictionary rules — upstream `DictDialog`.
+    ///
+    /// The upstream shows a tab per enabled rule; the dialog performs the
+    /// lookup itself, so the controller only hands over the word and the
+    /// rules.
     public func lookupDictionary(_ word: String) {
         Task {
             let rules = (try? environment.store.allDictRules()) ?? []
@@ -1501,25 +1512,14 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
                 errorMessage = "没有配置词典规则"
                 return
             }
-            do {
-                let result = try await DictSearcher.search(
-                    word: word,
-                    rules: rules,
-                    dependencies: environment.dependencies()
-                )
-                guard !result.text.isEmpty else {
-                    errorMessage = "没有查到结果"
-                    return
-                }
-                dictResult = DictLookupResult(
-                    word: word,
-                    result: result.text,
-                    ruleName: result.ruleName
-                )
-                isDictPresented = true
-            } catch {
-                errorMessage = error.localizedDescription
+            let enabled = DictRuleManager.enabled(rules)
+            guard !enabled.isEmpty else {
+                errorMessage = "没有启用词典规则"
+                return
             }
+            dictWord = word
+            dictRules = enabled
+            isDictPresented = true
         }
     }
 
@@ -2143,6 +2143,12 @@ public struct ReaderView: View {
                         word: result.word,
                         result: result.result,
                         ruleName: result.ruleName
+                    )
+                } else {
+                    DictDialogView(
+                        word: controller.dictWord ?? "",
+                        rules: controller.dictRules,
+                        dependencies: controller.environment.dependencies()
                     )
                 }
             }

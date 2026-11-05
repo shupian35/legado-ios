@@ -876,6 +876,28 @@ public final class LegadoStore {
         try tables.insert(rule.row, into: "dictRules")
     }
 
+    /// Deletes a dictionary rule — upstream `DictRuleDao.delete`.
+    @discardableResult
+    public func deleteDictRule(_ rule: DictRule) throws -> Int {
+        try tables.delete(from: "dictRules", where: .equals(column: "name", value: .text(rule.name)))
+    }
+
+    /// Deletes several dictionary rules — upstream
+    /// `DictRuleViewModel.delete(vararg dictRule)`.
+    @discardableResult
+    public func deleteDictRules(_ rules: [DictRule]) throws -> Int {
+        var count = 0
+        for rule in rules { count += try deleteDictRule(rule) }
+        return count
+    }
+
+    /// Writes several dictionary rules — upstream
+    /// `DictRuleDao.insert(*array)` (used by the enable / disable selection
+    /// and by the renumbering).
+    public func updateDictRules(_ rules: [DictRule]) throws {
+        for rule in rules { try insert(rule) }
+    }
+
     /// Every keyboard assist.
     public func allKeyboardAssists() throws -> [KeyboardAssist] {
         try tables.allRows(in: "keyboardAssists").map { KeyboardAssist(row: $0) }
