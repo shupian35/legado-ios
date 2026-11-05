@@ -6,6 +6,16 @@ import Glibc
 import Darwin
 #endif
 
+/// `SOCK_STREAM` is a plain `Int32` constant on Darwin but a `__socket_type`
+/// enum on Glibc, so the raw value has to be taken on one platform only.
+private let legadoStreamSocketType: Int32 = {
+    #if canImport(Darwin)
+    return SOCK_STREAM
+    #else
+    return Int32(SOCK_STREAM.rawValue)
+    #endif
+}()
+
 /// The local web service — the port of `web/HttpServer.kt` (NanoHTTPD) and
 /// `service/WebService.kt` (the Android foreground service that hosts it).
 ///
@@ -88,7 +98,7 @@ public final class LegadoServer: @unchecked Sendable {
         guard !isRunning else { return configuration.port }
         let port = LegadoServer.normalizedPort(configuration.port)
 
-        let socketFD = socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
+        let socketFD = socket(AF_INET, legadoStreamSocketType, 0)
         guard socketFD >= 0 else { throw ServerError.socket(String(cString: strerror(errno))) }
         var reuse: Int32 = 1
         setsockopt(socketFD, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
@@ -128,7 +138,7 @@ public final class LegadoServer: @unchecked Sendable {
     /// upgrade, so the API keeps working when the port is taken.
     private func startWebSocketListener(port: Int) {
         guard webSocketHandler != nil else { return }
-        let socketFD = socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
+        let socketFD = socket(AF_INET, legadoStreamSocketType, 0)
         guard socketFD >= 0 else { return }
         var reuse: Int32 = 1
         setsockopt(socketFD, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
@@ -499,16 +509,18 @@ public final class LegadoServer: @unchecked Sendable {
     func localAddresses(port: Int) -> [String] {
         guard bindAddress != "127.0.0.1" else { return ["http://127.0.0.1:\(port)"] }
         var addresses: [String] = []
-        var hints = addrinfo(
-            ai_flags: AI_PASSIVE,
-            ai_family: AF_INET,
-            ai_socktype: Int32(SOCK_STREAM.rawValue),
-            ai_protocol: 0,
-            ai_addrlen: 0,
-            ai_addr: nil,
-            ai_canonname: nil,
-            ai_next: nil
-        )
+        // Field by field: the member ORDER of `addrinfo` differs between
+        // Darwin (`ai_canonname` before `ai_addr`) and Glibc (after it), so the
+        // positional initializer only compiles on one of them.
+        var hints = addrinfo()
+        hints.ai_flags = AI_PASSIVE
+        hints.ai_family = AF_INET
+        hints.ai_socktype = legadoStreamSocketType
+        hints.ai_protocol = 0
+        hints.ai_addrlen = 0
+        hints.ai_addr = nil
+        hints.ai_canonname = nil
+        hints.ai_next = nil
         var result: UnsafeMutablePointer<addrinfo>?
         if getaddrinfo(nil, "0", &hints, &result) == 0, let first = result {
             defer { freeaddrinfo(result) }
