@@ -125,9 +125,9 @@ extension View {
     public func onLongPress(minimumDuration: Double = 0.5, perform action: @escaping () -> Void) -> some View { ModifiedView(self) }
     public func onLongPressGesture(minimumDuration: Double = 0.5, perform action: @escaping () -> Void) -> some View { ModifiedView(self) }
     public func onLongPressGesture(minimumDuration: Double = 0.5, maximumDistance: Double = 10, pressing: ((Bool) -> Void)? = nil, perform action: @escaping () -> Void) -> some View { ModifiedView(self) }
-    public func simultaneousGesture<T: View>(_ gesture: T) -> some View { ModifiedView(self) }
-    public func gesture<T>(_ gesture: T) -> some View { ModifiedView(self) }
-    public func highPriorityGesture<T: View>(_ gesture: T) -> some View { ModifiedView(self) }
+    public func simultaneousGesture<G: Gesture>(_ gesture: G) -> some View { ModifiedView(self) }
+    public func gesture<G: Gesture>(_ gesture: G) -> some View { ModifiedView(self) }
+    public func highPriorityGesture<G: Gesture>(_ gesture: G) -> some View { ModifiedView(self) }
     public func disabled(_ disabled: Bool) -> some View { ModifiedView(self) }
     public func help(_ text: String) -> some View { ModifiedView(self) }
     public func accessibilityLabel(_ label: String) -> some View { ModifiedView(self) }

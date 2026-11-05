@@ -88,7 +88,7 @@ public struct BookshelfConfigView: View {
             }
         }
         .navigationTitle("书架布局")
-        .navigationBarTitleDisplayMode(.inline)
+        .legadoInlineNavigationTitle()
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("取消") {

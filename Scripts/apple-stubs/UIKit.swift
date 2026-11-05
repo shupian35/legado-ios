@@ -222,6 +222,25 @@ public enum UIDeviceBatteryState: Int {
     case full = 3
 }
 
+/// `UIKit.UIInterfaceOrientation` — the concrete orientation of a window
+/// (`UIWindowScene.requestedOrientation`), as opposed to the mask.
+public enum UIInterfaceOrientation: Int {
+    case unknown = 0
+    case portrait = 1
+    case portraitUpsideDown = 2
+    case landscapeLeft = 3
+    case landscapeRight = 4
+}
+
+/// `UIKit.UIScene`.
+open class UIScene: NSObject {}
+
+/// `UIKit.UIWindowScene` — since iOS 16 the orientation is requested on the
+/// window scene, not on the application.
+open class UIWindowScene: UIScene {
+    open var requestedOrientation: UIInterfaceOrientation = .unknown
+}
+
 /// `UIKit.UIInterfaceOrientationMask`.
 public struct UIInterfaceOrientationMask: OptionSet {
     public let rawValue: UInt
@@ -245,7 +264,7 @@ open class UIApplication: NSObject {
     open class var shared: UIApplication { UIApplication() }
 
     open var isIdleTimerDisabled: Bool = false
-    open var requestedOrientation: UIInterfaceOrientationMask = .portrait
+    open var connectedScenes: Set<UIScene> = []
     open var supportedInterfaceOrientations: UIInterfaceOrientationMask = .all
     open var alternateIconName: String?
 

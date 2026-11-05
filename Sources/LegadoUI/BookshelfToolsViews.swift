@@ -58,7 +58,7 @@ public struct GroupManageView: View {
             }
         }
         .navigationTitle("分组管理")
-        .navigationBarTitleDisplayMode(.inline)
+        .legadoInlineNavigationTitle()
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("添加") {
@@ -201,7 +201,7 @@ public struct AddBookByUrlView: View {
                 TextField("书籍地址，一行一个", text: $urls, axis: .vertical)
                     .lineLimit(4)
                     .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
+                    .legadoNoAutocapitalization()
             }
             if let message {
                 Section {
@@ -212,7 +212,7 @@ public struct AddBookByUrlView: View {
             }
         }
         .navigationTitle("添加网址")
-        .navigationBarTitleDisplayMode(.inline)
+        .legadoInlineNavigationTitle()
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("添加") {
@@ -286,7 +286,7 @@ public struct ExportBookshelfView: View {
             }
         }
         .navigationTitle("导出书架")
-        .navigationBarTitleDisplayMode(.inline)
+        .legadoInlineNavigationTitle()
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("关闭") { dismiss() }
@@ -324,7 +324,7 @@ public struct ImportBookshelfView: View {
                 TextField("书架地址或 JSON", text: $text, axis: .vertical)
                     .lineLimit(6)
                     .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
+                    .legadoNoAutocapitalization()
             }
             if let message {
                 Section {
@@ -335,7 +335,7 @@ public struct ImportBookshelfView: View {
             }
         }
         .navigationTitle("导入书架")
-        .navigationBarTitleDisplayMode(.inline)
+        .legadoInlineNavigationTitle()
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("导入") {

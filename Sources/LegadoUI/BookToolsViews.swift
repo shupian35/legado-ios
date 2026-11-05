@@ -446,7 +446,7 @@ public struct ChangeChapterSourceView: View {
         }
         .padding(16)
         .navigationTitle(chapterTitle)
-        .navigationBarTitleDisplayMode(.inline)
+        .legadoInlineNavigationTitle()
         .onAppear {
             if group.isEmpty {
                 group = model.environment.settings.searchGroup

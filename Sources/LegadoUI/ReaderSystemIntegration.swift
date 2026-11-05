@@ -61,7 +61,7 @@ public final class ReaderSystemIntegration: ObservableObject {
 
     #if canImport(UIKit)
     /// The orientation the reader forces (`nil` = the system decides).
-    private var forcedOrientation: UIInterfaceOrientationMask?
+    private var forcedOrientation: UIInterfaceOrientation?
     #endif
 
     public init(settings: AppSettings) {
@@ -112,10 +112,22 @@ public final class ReaderSystemIntegration: ObservableObject {
         default: forcedOrientation = nil
         }
         if let forcedOrientation {
-            UIApplication.shared.requestedOrientation = forcedOrientation
+            applyOrientation(forcedOrientation)
         }
         #endif
     }
+
+    #if canImport(UIKit)
+    /// Rotates the active window — `UIApplication.requestedOrientation` does
+    /// not exist; since iOS 16 the orientation is requested on the window
+    /// scene.
+    @MainActor
+    private func applyOrientation(_ orientation: UIInterfaceOrientation) {
+        for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+            scene.requestedOrientation = orientation
+        }
+    }
+    #endif
 
     /// Restores the system settings when the reader closes.
     @MainActor
@@ -127,7 +139,7 @@ public final class ReaderSystemIntegration: ObservableObject {
             self.previousBrightness = nil
         }
         if forcedOrientation != nil {
-            UIApplication.shared.requestedOrientation = .unknown
+            applyOrientation(.unknown)
             self.forcedOrientation = nil
         }
         #endif

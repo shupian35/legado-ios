@@ -50,10 +50,15 @@ public struct DragGesture: Equatable {
     }
 }
 
+/// `SwiftUI.Gesture` — the shim only needs the marker so the shared code can
+/// spell `some Gesture` (the real `DragGesture().onChanged { }` is a
+/// `Gesture`, the shim's `DragGestureModifier` is a `View`).
+public protocol Gesture {}
+
 /// The result of `onChanged`/`onEnded` — in SwiftUI the returned value can be
 /// chained (`DragGesture().onChanged { }.onEnded { }`), so the shim offers
 /// both methods again.
-public struct DragGestureModifier: View {
+public struct DragGestureModifier: View, Gesture {
     public init() {}
     public var body: Never { fatalError("LegadoUIShim never renders") }
     public func onChanged(_ action: @escaping (DragGesture.Value) -> Void) -> DragGestureModifier { self }
@@ -73,25 +78,9 @@ public struct MagnificationGesture: Equatable {
         self.minimumScaleDelta = minimumScaleDelta
     }
 
-    /// The state of the gesture.
-    public struct Value: Equatable {
-        public var time: TimeInterval
-        public var magnification: Double
-        public var startAnchor: CGPoint
-        public var velocity: Double
-
-        public init(
-            time: TimeInterval = 0,
-            magnification: Double = 1,
-            startAnchor: CGPoint = .zero,
-            velocity: Double = 0
-        ) {
-            self.time = time
-            self.magnification = magnification
-            self.startAnchor = startAnchor
-            self.velocity = velocity
-        }
-    }
+    /// The state of the gesture. The real SwiftUI spells it as `CGFloat`
+    /// (the scale factor), so one code path works on both platforms.
+    public typealias Value = Double
 
     /// The action run while the gesture changes.
     public func onChanged(_ action: @escaping (Value) -> Void) -> MagnificationGestureModifier {
@@ -106,7 +95,7 @@ public struct MagnificationGesture: Equatable {
 
 /// The result of `onChanged`/`onEnded` — in SwiftUI the returned value can be
 /// chained, so the shim offers both methods again.
-public struct MagnificationGestureModifier: View {
+public struct MagnificationGestureModifier: View, Gesture {
     public init() {}
     public var body: Never { fatalError("LegadoUIShim never renders") }
     public func onChanged(_ action: @escaping (MagnificationGesture.Value) -> Void) -> MagnificationGestureModifier { self }

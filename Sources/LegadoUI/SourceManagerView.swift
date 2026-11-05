@@ -280,11 +280,14 @@ public struct SourceManagerView: View {
                         if !isManaging { selection.removeAll() }
                     }
                 }
+                #if os(iOS)
                 ToolbarItem(placement: .secondaryAction) {
                     // Upstream `BookSourceActivity` — the sources are dragged
-                    // to reorder them (`ItemTouchHelper`).
+                    // to reorder them (`ItemTouchHelper`). `EditButton` is
+                    // iOS-only; macOS has no such control.
                     EditButton()
                 }
+                #endif
             }
             .sheet(isPresented: $isDebugPresented) {
                 SourceDebugView(model: model)

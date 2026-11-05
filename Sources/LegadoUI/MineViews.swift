@@ -20,6 +20,12 @@ import SwiftUI
 import LegadoUIShim
 #endif
 
+#if canImport(UniformTypeIdentifiers)
+import UniformTypeIdentifiers
+#else
+import LegadoUIShim
+#endif
+
 import Foundation
 import LegadoCore
 

@@ -430,7 +430,7 @@ public struct MangaReaderView: View {
                                     if pinchBase == nil {
                                         pinchBase = controller.zoom
                                     }
-                                    controller.setZoom((pinchBase ?? controller.zoom) * Double(value.magnification))
+                                    controller.setZoom((pinchBase ?? controller.zoom) * Double(value))
                                 }
                                 .onEnded { _ in
                                     pinchBase = nil

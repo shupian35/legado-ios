@@ -2449,7 +2449,7 @@ public struct ReaderView: View {
 
     /// The vertical drag of the continuous-scroll mode — upstream
     /// `ScrollPageDelegate.onScroll`.
-    private var scrollDrag: DragGestureModifier {
+    private var scrollDrag: some Gesture {
         DragGesture(minimumDistance: 8)
             .onChanged { value in
                 controller.scrollDragChanged(translation: Double(value.translation.height))

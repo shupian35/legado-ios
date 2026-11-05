@@ -169,7 +169,7 @@ public struct PageTurnContainer<Content: View>: View {
             .gesture(drag)
     }
 
-    private var drag: DragGestureModifier {
+    private var drag: some Gesture {
         DragGesture(minimumDistance: 8)
             .onChanged { value in
                 session.style = style

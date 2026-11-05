@@ -64,7 +64,7 @@ public enum QRCodeGenerator {
         #else
         // `NSImage(cgImage:size:)` takes the size in points — a zero size
         // would encode an empty bitmap.
-        return NSBitmapImageRep(cgImage: cgImage)?.representation(using: .png, properties: [:])
+        return NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:])
         #endif
         #else
         return nil

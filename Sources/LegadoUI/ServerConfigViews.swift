@@ -168,10 +168,10 @@ public struct ServerEditorView: View {
                 Section {
                     TextField("名称", text: $name)
                     TextField("url", text: $url)
-                        .textInputAutocapitalization(.never)
+                        .legadoNoAutocapitalization()
                         .autocorrectionDisabled()
                     TextField("username", text: $username)
-                        .textInputAutocapitalization(.never)
+                        .legadoNoAutocapitalization()
                         .autocorrectionDisabled()
                     SecureField("password", text: $password)
                 }

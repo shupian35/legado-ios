@@ -81,9 +81,13 @@ public final class AVSpeechSynthesizerEngine: NSObject, SpeechSynthesizing, AVSp
     /// audio of the other apps instead of interrupting it, which is what the
     /// ambient category does on iOS.
     static func activateAudioSession(ignoreAudioFocus: Bool = false) {
+        // `AVAudioSession` is an iOS concept: macOS plays the speech through
+        // the default output device without a session.
+        #if canImport(UIKit)
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(ignoreAudioFocus ? .ambient : .playback)
         try? session.setActive(true)
+        #endif
     }
 
     /// Maps the upstream rate (1.0 = the default) onto the AVSpeech range.
@@ -538,6 +542,7 @@ public final class ReadAloudService: ObservableObject {
     public var pauseWhilePhoneCalls: Bool = false
 
     #if canImport(AVFoundation)
+    #if canImport(UIKit)
     /// The observer of the audio interruptions — upstream
     /// `BaseReadAloudService.kt:707-733` registers a phone state listener only
     /// when `pauseReadAloudWhilePhoneCalls` is on.
@@ -568,6 +573,13 @@ public final class ReadAloudService: ObservableObject {
         NotificationCenter.default.removeObserver(observer)
         interruptionObserver = nil
     }
+    #else
+    /// The audio interruptions are an `AVAudioSession` concept: macOS has no
+    /// session to observe, so the calls are no-ops.
+    public func observeInterruptions() {}
+
+    public func stopObservingInterruptions() {}
+    #endif
     #endif
 
     /// The sink of the transport notification (upstream

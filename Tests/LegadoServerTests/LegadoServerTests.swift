@@ -163,7 +163,9 @@ final class WebSocketTests: XCTestCase {
     }
 
     func testFrameTooLargeThrows() {
-        var huge = Data([0x81, 0x80 | 127])
+        // `0x80 | 127` is inferred as `Int` on Linux, where `Data` has no
+        // `[UInt8]` overload to drive the literal; spell the byte directly.
+        var huge = Data([0x81, 0xFF])
         withUnsafeBytes(of: UInt64.max.bigEndian) { huge.append(contentsOf: $0) }
         XCTAssertThrowsError(try WebSocket.decode(huge)) { error in
             XCTAssertEqual(error as? WebSocketError, .frameTooLarge)

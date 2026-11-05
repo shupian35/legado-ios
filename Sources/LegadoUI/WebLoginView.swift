@@ -79,7 +79,12 @@ public struct WebLoginView: View {
                     if let item = HTTPCookie(properties: properties) { items.append(item) }
                 }
             }
-            webView.configuration.websiteDataStore.httpCookieStore.setCookies(items, completionHandler: nil)
+            // `setCookies(_:completionHandler:)` needs iOS 26 / macOS 26;
+            // `setCookie(_:)` is available on every supported version.
+            let store = webView.configuration.websiteDataStore.httpCookieStore
+            for item in items {
+                store.setCookie(item)
+            }
         }
 
         /// Copies the cookies of the web view into the app.
@@ -102,7 +107,7 @@ public struct WebLoginView: View {
 }
 
 /// The WKWebView wrapper.
-struct WebKitView: UIViewRepresentable {
+struct WebKitView {
 
     let url: URL
     let coordinator: WebLoginView.LoginCoordinator
@@ -110,7 +115,9 @@ struct WebKitView: UIViewRepresentable {
 
     func makeCoordinator() -> WebLoginView.LoginCoordinator { coordinator }
 
-    func makeUIView(context: Context) -> WKWebView {
+    /// The shared setup — the `UIView` and the `NSView` wrapper only differ in
+    /// the name of the platform view.
+    func makeWebView() -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
         let webView = WKWebView(frame: .zero, configuration: configuration)
@@ -120,9 +127,19 @@ struct WebKitView: UIViewRepresentable {
         webView.load(URLRequest(url: url))
         return webView
     }
+}
 
+#if canImport(UIKit)
+extension WebKitView: UIViewRepresentable {
+    func makeUIView(context: Context) -> WKWebView { makeWebView() }
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 }
+#elseif canImport(AppKit)
+extension WebKitView: NSViewRepresentable {
+    func makeNSView(context: Context) -> WKWebView { makeWebView() }
+    func updateNSView(_ nsView: WKWebView, context: Context) {}
+}
+#endif
 
 #else
 

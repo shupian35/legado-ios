@@ -607,6 +607,11 @@ public struct BookSource: Equatable {
     }
 }
 
+extension BookSource: Identifiable {
+    /// The identity of a source — its address.
+    public var id: String { bookSourceUrl }
+}
+
 /// The variables a source has written — upstream `BaseSource.putVariable/getVariable`
 /// stores them in the cache manager under `v_<key>_<name>`.
 public enum BookSourceVariables {

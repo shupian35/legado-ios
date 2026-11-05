@@ -180,7 +180,7 @@ public struct ImageMenuView: View {
                 }
             }
             .navigationTitle("图片")
-            .navigationBarTitleDisplayMode(.inline)
+            .legadoInlineNavigationTitle()
             .fileImporter(
                 isPresented: $isSelectingFolder,
                 allowedContentTypes: [.folder]

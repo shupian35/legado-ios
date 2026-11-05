@@ -651,6 +651,11 @@ public struct RssSource: Equatable {
     }
 }
 
+extension RssSource: Identifiable {
+    /// The identity of an RSS source — its address.
+    public var id: String { sourceUrl }
+}
+
 /// An RSS article — upstream `data/entities/RssArticle.kt`.
 public struct RssArticle: Equatable {
     public var origin: String

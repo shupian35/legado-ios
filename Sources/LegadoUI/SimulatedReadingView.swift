@@ -50,11 +50,11 @@ public struct SimulatedReadingView: View {
             }
             Section("开始章节") {
                 TextField("开始章节", text: $startChapter)
-                    .keyboardType(.numberPad)
+                    .legadoNumberPadKeyboard()
             }
             Section("每日解锁章节数") {
                 TextField("每日解锁章节数", text: $dailyChapters)
-                    .keyboardType(.numberPad)
+                    .legadoNumberPadKeyboard()
             }
             Section("开始日期") {
                 TextField("yyyy-MM-dd", text: $startDate)

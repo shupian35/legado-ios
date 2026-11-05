@@ -60,7 +60,7 @@ public struct OpenUrlConfirmView: View {
             }
             .padding()
             .navigationTitle("跳转确认")
-            .navigationBarTitleDisplayMode(.inline)
+            .legadoInlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Menu("更多") {

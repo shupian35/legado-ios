@@ -322,7 +322,7 @@ public struct SourceCheckConfigView: View {
             Form {
                 Section("超时") {
                     TextField("秒", text: $timeoutText)
-                        .keyboardType(.numberPad)
+                        .legadoNumberPadKeyboard()
                 }
                 Section("校验内容") {
                     Toggle("搜索", isOn: $config.options.checkSearch)

@@ -94,7 +94,7 @@ public struct ReaderMenuView: View {
                 brightnessSection
             }
             .navigationTitle(controller.book.name)
-            .navigationBarTitleDisplayMode(.inline)
+            .legadoInlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("关闭") {

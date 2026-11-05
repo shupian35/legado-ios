@@ -147,7 +147,7 @@ struct BrowserContent: View {
 /// The wrapper loads an url or an HTML document. The HTML is used by the
 /// reader of the RSS articles — upstream `ReadRssActivity` loads the
 /// article with `loadDataWithBaseURL`.
-struct WebViewRepresentable: UIViewRepresentable {
+struct WebViewRepresentable {
 
     let webView: WKWebView
     let url: String
@@ -173,13 +173,9 @@ struct WebViewRepresentable: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(webView: webView) }
 
-    func makeUIView(context: Context) -> WKWebView {
-        webView.navigationDelegate = context.coordinator
-        return webView
-    }
-
-    func updateUIView(_ uiView: WKWebView, context: Context) {
-        let coordinator = context.coordinator
+    /// The shared update logic — the `UIView` and the `NSView` wrapper only
+    /// differ in the name of the platform view.
+    func update(_ uiView: WKWebView, coordinator: Coordinator) {
         coordinator.injectJs = injectJs
         coordinator.overrideJs = overrideJs
         coordinator.isAllowed = isAllowed
@@ -297,6 +293,31 @@ struct WebViewRepresentable: UIViewRepresentable {
         }
     }
 }
+
+#if canImport(UIKit)
+extension WebViewRepresentable: UIViewRepresentable {
+    func makeUIView(context: Context) -> WKWebView {
+        webView.navigationDelegate = context.coordinator
+        return webView
+    }
+
+    func updateUIView(_ uiView: WKWebView, context: Context) {
+        update(uiView, coordinator: context.coordinator)
+    }
+}
+#elseif canImport(AppKit)
+extension WebViewRepresentable: NSViewRepresentable {
+    func makeNSView(context: Context) -> WKWebView {
+        webView.navigationDelegate = context.coordinator
+        return webView
+    }
+
+    func updateNSView(_ nsView: WKWebView, context: Context) {
+        update(nsView, coordinator: context.coordinator)
+    }
+}
+#endif
+
 #endif
 
 // MARK: - The cache management
