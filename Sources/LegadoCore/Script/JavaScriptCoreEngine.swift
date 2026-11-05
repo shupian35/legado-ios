@@ -461,9 +461,15 @@ import JavaScriptCore
         }
     }
 
-    private func raise(_ error: Error) {
+    /// Throws an Objective-C exception, which JavaScriptCore turns into a JS
+    /// exception the rule script can catch. Declared `-> Never` because the
+    /// ObjC exception unwinds: without it the compiler cannot tell that the
+    /// `guard` bodies and `catch` blocks below never fall through (the
+    /// callers are `String`/`Bool` returning methods).
+    private func raise(_ error: Error) -> Never {
         let reason = (error as? ScriptEngineError).map { String(describing: $0) } ?? error.localizedDescription
         NSException(name: NSExceptionName("LegadoScriptError"), reason: reason, userInfo: nil).raise()
+        fatalError("NSException.raise() returned for: \(reason)")
     }
 
     // MARK: - The external links
