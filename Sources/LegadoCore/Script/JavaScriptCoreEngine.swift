@@ -364,42 +364,42 @@ import JavaScriptCore
         guard environment.capabilities.contains(.sourceData) else {
             raise(ScriptEngineError.capabilityDenied("sourceData"))
         }
-        environment.source?.put(key, value: value) ?? value
+        return environment.source?.put(key, value: value) ?? value
     }
 
     public func get(_ key: String) -> String {
         guard environment.capabilities.contains(.sourceData) else {
             raise(ScriptEngineError.capabilityDenied("sourceData"))
         }
-        environment.source?.get(key) ?? ""
+        return environment.source?.get(key) ?? ""
     }
 
     public func putLoginHeader(_ header: String) -> String {
         guard environment.capabilities.contains(.sourceData) else {
             raise(ScriptEngineError.capabilityDenied("sourceData"))
         }
-        environment.source?.putLoginHeader(header) ?? ""
+        return environment.source?.putLoginHeader(header) ?? ""
     }
 
     public func getLoginHeader() -> String {
         guard environment.capabilities.contains(.sourceData) else {
             raise(ScriptEngineError.capabilityDenied("sourceData"))
         }
-        environment.source?.getLoginHeader() ?? ""
+        return environment.source?.getLoginHeader() ?? ""
     }
 
     public func removeLoginHeader() -> String {
         guard environment.capabilities.contains(.sourceData) else {
             raise(ScriptEngineError.capabilityDenied("sourceData"))
         }
-        environment.source?.removeLoginHeader() ?? ""
+        return environment.source?.removeLoginHeader() ?? ""
     }
 
     public func putLoginInfo(_ info: String) -> Bool {
         guard environment.capabilities.contains(.sourceData) else {
             raise(ScriptEngineError.capabilityDenied("sourceData"))
         }
-        environment.source?.putLoginInfo(info) ?? false
+        return environment.source?.putLoginInfo(info) ?? false
     }
 
     public func getLoginInfo() -> String {
