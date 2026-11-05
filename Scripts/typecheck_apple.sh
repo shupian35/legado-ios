@@ -20,7 +20,11 @@
 #
 set -uo pipefail
 
-REPO="${SWIFT_REPO:-/mnt/d/code/vscode/legado-ios}"
+# The repository is resolved from the script location: in a GitHub Actions
+# container job `${{ github.workspace }}` interpolates to the host path, while
+# the checkout actually lives at `/__w/<repo>/<repo>`.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="${SWIFT_REPO:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 STUBS="$REPO/Scripts/apple-stubs"
 SCRATCH="${SWIFT_SCRATCH:-/home/shupian/.cache/legado-swift-build}"
 OUT="$SCRATCH/apple-typecheck"
@@ -68,8 +72,11 @@ PRODUCTS=""
 for candidate in \
     "$SCRATCH/out/Products/Debug-linux-x86_64" \
     "$SCRATCH/debug" \
+    "$SCRATCH/debug/Modules" \
     "$REPO/.build/debug" \
-    "$REPO/.build/x86_64-unknown-linux-gnu/debug" ; do
+    "$REPO/.build/debug/Modules" \
+    "$REPO/.build/x86_64-unknown-linux-gnu/debug" \
+    "$REPO/.build/x86_64-unknown-linux-gnu/debug/Modules" ; do
     if [ -d "$candidate/LegadoUIShim.swiftmodule" ]; then
         PRODUCTS="$candidate"
         break

@@ -7,6 +7,14 @@ import Glibc
 import Darwin
 #endif
 
+/// `SOCK_STREAM` is a plain `Int32` on Darwin and a `__socket_type` enum on
+/// Glibc, so the raw value only exists on one of them.
+#if canImport(Darwin)
+private let testStreamSocketType: Int32 = SOCK_STREAM
+#else
+private let testStreamSocketType: Int32 = Int32(SOCK_STREAM.rawValue)
+#endif
+
 final class HTTPParserTests: XCTestCase {
 
     func testParsesSimpleGet() throws {
@@ -421,7 +429,7 @@ final class LegadoServerSocketTests: XCTestCase {
             defer { semaphore.signal() }
             var hints = addrinfo()
             hints.ai_family = AF_INET
-            hints.ai_socktype = Int32(SOCK_STREAM.rawValue)
+            hints.ai_socktype = testStreamSocketType
             var info: UnsafeMutablePointer<addrinfo>?
             guard getaddrinfo("127.0.0.1", "\(port)", &hints, &info) == 0, let target = info else { return }
             defer { freeaddrinfo(info) }
