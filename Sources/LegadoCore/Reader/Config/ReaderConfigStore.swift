@@ -130,37 +130,50 @@ public final class ReaderConfigStore {
     /// default `true`, and `pref_config_read.xml` declares the same), so the
     /// store does the same.
     public func load() -> ReaderConfig {
+        load(prefix: "")
+    }
+
+    /// Loads the shared layout — upstream `ReadBookConfig.shareConfig`
+    /// (the `shareReadConfig.json` file).
+    ///
+    /// The shared layout holds the same values as the current one; the port
+    /// stores them under the same keys with a `share` prefix.
+    public func loadShare() -> ReaderConfig {
+        load(prefix: "share_")
+    }
+
+    private func load(prefix: String) -> ReaderConfig {
         var config = ReaderConfig()
-        config.textFullJustify = boolean(.textFullJustify, default: true)
-        config.textBottomJustify = boolean(.textBottomJustify, default: true)
-        config.useZhLayout = boolean(.useZhLayout, default: config.useZhLayout)
-        config.doublePage = boolean(.doubleHorizontalPage, default: config.doublePage)
-        config.underline = boolean(.underline, default: config.underline)
-        config.textBold = integer(.textBold, default: config.textBold)
-        config.pageAnim = integer(.pageAnim, default: config.pageAnim)
-        config.titleMode = integer(.titleMode, default: config.titleMode)
-        config.styleIndex = integer(.readStyleSelect, default: config.styleIndex)
-        config.textSize = number(.textSize, default: config.textSize)
-        config.titleSize = number(.titleSize, default: config.titleSize)
-        config.letterSpacing = number(.letterSpacing, default: config.letterSpacing)
-        config.lineSpacingExtra = number(.lineSpacingExtra, default: config.lineSpacingExtra)
-        config.paragraphSpacing = number(.paragraphSpacing, default: config.paragraphSpacing)
-        config.titleTopSpacing = number(.titleTopSpacing, default: config.titleTopSpacing)
-        config.titleBottomSpacing = number(.titleBottomSpacing, default: config.titleBottomSpacing)
-        config.paddingTop = number(.paddingTop, default: config.paddingTop)
-        config.paddingBottom = number(.paddingBottom, default: config.paddingBottom)
-        config.paddingLeft = number(.paddingLeft, default: config.paddingLeft)
-        config.paddingRight = number(.paddingRight, default: config.paddingRight)
-        config.backgroundAlpha = integer(.bgAlpha, default: config.backgroundAlpha)
-        config.backgroundColor = text(.bgStr, default: config.backgroundColor)
-        config.backgroundColorNight = text(.bgStrNight, default: config.backgroundColorNight)
-        config.backgroundColorEInk = text(.bgStrEInk, default: config.backgroundColorEInk)
-        config.textColor = text(.textColor, default: config.textColor)
-        config.textColorNight = text(.textColorNight, default: config.textColorNight)
-        config.textColorEInk = text(.textColorEInk, default: config.textColorEInk)
-        config.paragraphIndent = text(.paragraphIndent, default: config.paragraphIndent)
-        config.showHeader = headerShown(.headerMode, default: config.showHeader)
-        config.showFooter = footerShown(.footerMode, default: config.showFooter)
+        config.textFullJustify = boolean(.textFullJustify, default: true, prefix: prefix)
+        config.textBottomJustify = boolean(.textBottomJustify, default: true, prefix: prefix)
+        config.useZhLayout = boolean(.useZhLayout, default: config.useZhLayout, prefix: prefix)
+        config.doublePage = boolean(.doubleHorizontalPage, default: config.doublePage, prefix: prefix)
+        config.underline = boolean(.underline, default: config.underline, prefix: prefix)
+        config.textBold = integer(.textBold, default: config.textBold, prefix: prefix)
+        config.pageAnim = integer(.pageAnim, default: config.pageAnim, prefix: prefix)
+        config.titleMode = integer(.titleMode, default: config.titleMode, prefix: prefix)
+        config.styleIndex = integer(.readStyleSelect, default: config.styleIndex, prefix: prefix)
+        config.textSize = number(.textSize, default: config.textSize, prefix: prefix)
+        config.titleSize = number(.titleSize, default: config.titleSize, prefix: prefix)
+        config.letterSpacing = number(.letterSpacing, default: config.letterSpacing, prefix: prefix)
+        config.lineSpacingExtra = number(.lineSpacingExtra, default: config.lineSpacingExtra, prefix: prefix)
+        config.paragraphSpacing = number(.paragraphSpacing, default: config.paragraphSpacing, prefix: prefix)
+        config.titleTopSpacing = number(.titleTopSpacing, default: config.titleTopSpacing, prefix: prefix)
+        config.titleBottomSpacing = number(.titleBottomSpacing, default: config.titleBottomSpacing, prefix: prefix)
+        config.paddingTop = number(.paddingTop, default: config.paddingTop, prefix: prefix)
+        config.paddingBottom = number(.paddingBottom, default: config.paddingBottom, prefix: prefix)
+        config.paddingLeft = number(.paddingLeft, default: config.paddingLeft, prefix: prefix)
+        config.paddingRight = number(.paddingRight, default: config.paddingRight, prefix: prefix)
+        config.backgroundAlpha = integer(.bgAlpha, default: config.backgroundAlpha, prefix: prefix)
+        config.backgroundColor = text(.bgStr, default: config.backgroundColor, prefix: prefix)
+        config.backgroundColorNight = text(.bgStrNight, default: config.backgroundColorNight, prefix: prefix)
+        config.backgroundColorEInk = text(.bgStrEInk, default: config.backgroundColorEInk, prefix: prefix)
+        config.textColor = text(.textColor, default: config.textColor, prefix: prefix)
+        config.textColorNight = text(.textColorNight, default: config.textColorNight, prefix: prefix)
+        config.textColorEInk = text(.textColorEInk, default: config.textColorEInk, prefix: prefix)
+        config.paragraphIndent = text(.paragraphIndent, default: config.paragraphIndent, prefix: prefix)
+        config.showHeader = headerShown(.headerMode, default: config.showHeader, prefix: prefix)
+        config.showFooter = footerShown(.footerMode, default: config.showFooter, prefix: prefix)
         // The upstream derives the centred title from the title mode
         // (`ReadBookConfig.kt:310`: `val isMiddleTitle get() = titleMode == 1`).
         config.isMiddleTitle = config.titleMode == 1
@@ -171,36 +184,50 @@ public final class ReaderConfigStore {
 
     /// Saves the reader configuration.
     public func save(_ config: ReaderConfig) {
-        store.set(config.textFullJustify, forKey: ReaderPreferenceKey.textFullJustify.rawValue)
-        store.set(config.textBottomJustify, forKey: ReaderPreferenceKey.textBottomJustify.rawValue)
-        store.set(config.useZhLayout, forKey: ReaderPreferenceKey.useZhLayout.rawValue)
-        store.set(config.doublePage, forKey: ReaderPreferenceKey.doubleHorizontalPage.rawValue)
-        store.set(config.underline, forKey: ReaderPreferenceKey.underline.rawValue)
-        store.set(config.textBold, forKey: ReaderPreferenceKey.textBold.rawValue)
-        store.set(config.pageAnim, forKey: ReaderPreferenceKey.pageAnim.rawValue)
-        store.set(config.titleMode, forKey: ReaderPreferenceKey.titleMode.rawValue)
-        store.set(config.styleIndex, forKey: ReaderPreferenceKey.readStyleSelect.rawValue)
-        store.set(config.backgroundAlpha, forKey: ReaderPreferenceKey.bgAlpha.rawValue)
-        store.set(text(config.textSize), forKey: ReaderPreferenceKey.textSize.rawValue)
-        store.set(text(config.titleSize), forKey: ReaderPreferenceKey.titleSize.rawValue)
-        store.set(text(config.letterSpacing), forKey: ReaderPreferenceKey.letterSpacing.rawValue)
-        store.set(text(config.lineSpacingExtra), forKey: ReaderPreferenceKey.lineSpacingExtra.rawValue)
-        store.set(text(config.paragraphSpacing), forKey: ReaderPreferenceKey.paragraphSpacing.rawValue)
-        store.set(text(config.titleTopSpacing), forKey: ReaderPreferenceKey.titleTopSpacing.rawValue)
-        store.set(text(config.titleBottomSpacing), forKey: ReaderPreferenceKey.titleBottomSpacing.rawValue)
-        store.set(text(config.paddingTop), forKey: ReaderPreferenceKey.paddingTop.rawValue)
-        store.set(text(config.paddingBottom), forKey: ReaderPreferenceKey.paddingBottom.rawValue)
-        store.set(text(config.paddingLeft), forKey: ReaderPreferenceKey.paddingLeft.rawValue)
-        store.set(text(config.paddingRight), forKey: ReaderPreferenceKey.paddingRight.rawValue)
-        store.set(config.backgroundColor, forKey: ReaderPreferenceKey.bgStr.rawValue)
-        store.set(config.backgroundColorNight, forKey: ReaderPreferenceKey.bgStrNight.rawValue)
-        store.set(config.backgroundColorEInk, forKey: ReaderPreferenceKey.bgStrEInk.rawValue)
-        store.set(config.textColor, forKey: ReaderPreferenceKey.textColor.rawValue)
-        store.set(config.textColorNight, forKey: ReaderPreferenceKey.textColorNight.rawValue)
-        store.set(config.textColorEInk, forKey: ReaderPreferenceKey.textColorEInk.rawValue)
-        store.set(config.paragraphIndent, forKey: ReaderPreferenceKey.paragraphIndent.rawValue)
-        store.set(config.showHeader ? 1 : 2, forKey: ReaderPreferenceKey.headerMode.rawValue)
-        store.set(config.showFooter ? 0 : 1, forKey: ReaderPreferenceKey.footerMode.rawValue)
+        save(config, prefix: "")
+    }
+
+    /// Saves the shared layout — upstream `ReadBookConfig.shareConfig`.
+    public func saveShare(_ config: ReaderConfig) {
+        save(config, prefix: "share_")
+    }
+
+    private func save(_ config: ReaderConfig, prefix: String) {
+        store.set(config.textFullJustify, forKey: prefixed(.textFullJustify, prefix: prefix))
+        store.set(config.textBottomJustify, forKey: prefixed(.textBottomJustify, prefix: prefix))
+        store.set(config.useZhLayout, forKey: prefixed(.useZhLayout, prefix: prefix))
+        store.set(config.doublePage, forKey: prefixed(.doubleHorizontalPage, prefix: prefix))
+        store.set(config.underline, forKey: prefixed(.underline, prefix: prefix))
+        store.set(config.textBold, forKey: prefixed(.textBold, prefix: prefix))
+        store.set(config.pageAnim, forKey: prefixed(.pageAnim, prefix: prefix))
+        store.set(config.titleMode, forKey: prefixed(.titleMode, prefix: prefix))
+        store.set(config.styleIndex, forKey: prefixed(.readStyleSelect, prefix: prefix))
+        store.set(config.backgroundAlpha, forKey: prefixed(.bgAlpha, prefix: prefix))
+        store.set(text(config.textSize), forKey: prefixed(.textSize, prefix: prefix))
+        store.set(text(config.titleSize), forKey: prefixed(.titleSize, prefix: prefix))
+        store.set(text(config.letterSpacing), forKey: prefixed(.letterSpacing, prefix: prefix))
+        store.set(text(config.lineSpacingExtra), forKey: prefixed(.lineSpacingExtra, prefix: prefix))
+        store.set(text(config.paragraphSpacing), forKey: prefixed(.paragraphSpacing, prefix: prefix))
+        store.set(text(config.titleTopSpacing), forKey: prefixed(.titleTopSpacing, prefix: prefix))
+        store.set(text(config.titleBottomSpacing), forKey: prefixed(.titleBottomSpacing, prefix: prefix))
+        store.set(text(config.paddingTop), forKey: prefixed(.paddingTop, prefix: prefix))
+        store.set(text(config.paddingBottom), forKey: prefixed(.paddingBottom, prefix: prefix))
+        store.set(text(config.paddingLeft), forKey: prefixed(.paddingLeft, prefix: prefix))
+        store.set(text(config.paddingRight), forKey: prefixed(.paddingRight, prefix: prefix))
+        store.set(config.backgroundColor, forKey: prefixed(.bgStr, prefix: prefix))
+        store.set(config.backgroundColorNight, forKey: prefixed(.bgStrNight, prefix: prefix))
+        store.set(config.backgroundColorEInk, forKey: prefixed(.bgStrEInk, prefix: prefix))
+        store.set(config.textColor, forKey: prefixed(.textColor, prefix: prefix))
+        store.set(config.textColorNight, forKey: prefixed(.textColorNight, prefix: prefix))
+        store.set(config.textColorEInk, forKey: prefixed(.textColorEInk, prefix: prefix))
+        store.set(config.paragraphIndent, forKey: prefixed(.paragraphIndent, prefix: prefix))
+        store.set(config.showHeader ? 1 : 2, forKey: prefixed(.headerMode, prefix: prefix))
+        store.set(config.showFooter ? 0 : 1, forKey: prefixed(.footerMode, prefix: prefix))
+    }
+
+    /// The key of a preference with the prefix of the shared layout.
+    private func prefixed(_ key: ReaderPreferenceKey, prefix: String) -> String {
+        prefix + key.rawValue
     }
 
     /// Removes every reader preference — the reader falls back to the
@@ -230,16 +257,16 @@ public final class ReaderConfigStore {
         set { store.set(newValue, forKey: ReaderPreferenceKey.chineseConverterType.rawValue) }
     }
 
-    private func boolean(_ key: ReaderPreferenceKey, default fallback: Bool) -> Bool {
-        store.bool(forKey: key.rawValue) ?? fallback
+    private func boolean(_ key: ReaderPreferenceKey, default fallback: Bool, prefix: String = "") -> Bool {
+        store.bool(forKey: prefixed(key, prefix: prefix)) ?? fallback
     }
 
-    private func integer(_ key: ReaderPreferenceKey, default fallback: Int) -> Int {
-        store.int(forKey: key.rawValue) ?? fallback
+    private func integer(_ key: ReaderPreferenceKey, default fallback: Int, prefix: String = "") -> Int {
+        store.int(forKey: prefixed(key, prefix: prefix)) ?? fallback
     }
 
-    private func text(_ key: ReaderPreferenceKey, default fallback: String) -> String {
-        store.string(forKey: key.rawValue) ?? fallback
+    private func text(_ key: ReaderPreferenceKey, default fallback: String, prefix: String = "") -> String {
+        store.string(forKey: prefixed(key, prefix: prefix)) ?? fallback
     }
 
     /// The textual form of a floating point preference.
@@ -259,12 +286,12 @@ public final class ReaderConfigStore {
     /// The settings store has no floating point accessor, so the value is
     /// stored as its textual form — the way the advanced settings screen
     /// writes a preference.
-    private func number(_ key: ReaderPreferenceKey, default fallback: Double) -> Double {
-        if let raw = store.string(forKey: key.rawValue) {
+    private func number(_ key: ReaderPreferenceKey, default fallback: Double, prefix: String = "") -> Double {
+        if let raw = store.string(forKey: prefixed(key, prefix: prefix)) {
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             if let value = Double(trimmed) { return value }
         }
-        if let value = store.int(forKey: key.rawValue) { return Double(value) }
+        if let value = store.int(forKey: prefixed(key, prefix: prefix)) { return Double(value) }
         return fallback
     }
 
@@ -272,16 +299,16 @@ public final class ReaderConfigStore {
     ///
     /// The upstream shows the header with the mode 1 and hides it with the
     /// mode 2 (`PageView.kt:164`).
-    private func headerShown(_ key: ReaderPreferenceKey, default fallback: Bool) -> Bool {
-        guard let mode = store.int(forKey: key.rawValue) else { return fallback }
+    private func headerShown(_ key: ReaderPreferenceKey, default fallback: Bool, prefix: String = "") -> Bool {
+        guard let mode = store.int(forKey: prefixed(key, prefix: prefix)) else { return fallback }
         return mode != 2
     }
 
     /// The footer of the reader — upstream `Config.footerMode`.
     ///
     /// The upstream hides the footer with the mode 1 (`PageView.kt:169`).
-    private func footerShown(_ key: ReaderPreferenceKey, default fallback: Bool) -> Bool {
-        guard let mode = store.int(forKey: key.rawValue) else { return fallback }
+    private func footerShown(_ key: ReaderPreferenceKey, default fallback: Bool, prefix: String = "") -> Bool {
+        guard let mode = store.int(forKey: prefixed(key, prefix: prefix)) else { return fallback }
         return mode != 1
     }
 }

@@ -211,6 +211,13 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     /// The reader configuration (upstream `ReadBookConfig`).
     @Published public var config: ReaderConfig
 
+    /// The shared layout — upstream `ReadBookConfig.shareConfig`.
+    ///
+    /// The upstream keeps a second layout next to the current one and uses it
+    /// for every background when the "共用布局" switch is on
+    /// (`ReadBookConfig.kt:243`).
+    @Published public var shareConfig: ReaderConfig
+
     /// The store of the reader configuration — upstream `ReadBookConfig`
     /// (the preferences of the app).
     ///
@@ -311,6 +318,8 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
         }
         self.config = config
         configBox.config = config
+        // The shared layout — upstream `ReadBookConfig.shareConfig`.
+        self.shareConfig = store.loadShare()
         // The selected style of the reader — upstream
         // `ReadBookConfig.styleSelect` (`PreferKey.readStyleSelect`).
         if environment.backgroundManager.presets.indices.contains(config.styleIndex) {
@@ -545,6 +554,17 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     /// The configuration is saved — the upstream saves the style when the
     /// dialog is closed (`ReadStyleDialog.kt:66`: `ReadBookConfig.save()`).
     public func updateReaderStyle(_ mutate: (inout ReaderConfig) -> Void) async {
+        // Upstream `ReadBookConfig.config get() = if (shareLayout) shareConfig
+        // else durConfig` — the change is written into the layout that is in
+        // use.
+        if shareLayoutEnabled {
+            var shared = shareConfig
+            mutate(&shared)
+            shareConfig = shared
+            configStore.saveShare(shared)
+            await applyEffectiveLayout()
+            return
+        }
         var updated = config
         mutate(&updated)
         config = updated
@@ -559,6 +579,64 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
     /// again.
     public func applyReaderSettings(_ mutate: (inout ReaderConfig) -> Void) async {
         await updateReaderStyle(mutate)
+    }
+
+    // MARK: - The shared layout
+
+    /// Whether the shared layout is used — upstream
+    /// `ReadBookConfig.shareLayout` (the "共用布局" switch of the style
+    /// dialog).
+    public var shareLayoutEnabled: Bool {
+        environment.settings.shareLayout
+    }
+
+    /// The layout that the reader uses — upstream
+    /// `ReadBookConfig.config get() = if (shareLayout) shareConfig else durConfig`.
+    public var effectiveConfig: ReaderConfig {
+        ShareLayout.effective(
+            current: config,
+            share: shareConfig,
+            enabled: shareLayoutEnabled
+        )
+    }
+
+    /// The layout that is used for a share — upstream
+    /// `ReadBookConfig.getExportConfig()`.
+    public var exportConfig: ReaderConfig {
+        ShareLayout.exportConfig(
+            current: config,
+            share: shareConfig,
+            enabled: shareLayoutEnabled
+        )
+    }
+
+    /// Turns the shared layout on or off — upstream `ReadBookConfig.shareLayout`.
+    ///
+    /// The upstream reads the switch while the style dialog is open
+    /// (`ReadStyleDialog.kt`); the port writes the preference and lays the
+    /// chapter out again.
+    public func setShareLayout(_ enabled: Bool) async {
+        environment.settings.shareLayout = enabled
+        await applyEffectiveLayout()
+    }
+
+    /// Applies the layout that is in use — upstream
+    /// `ReadBookConfig.config`.
+    private func applyEffectiveLayout() async {
+        let effective = effectiveConfig
+        configBox.config = effective
+        await readBook.openChapter(index: readBook.durChapterIndex)
+        refreshPage()
+    }
+
+    /// Saves the shared layout — upstream `ReadBookConfig.save()` writes the
+    /// share configuration next to the current one.
+    public func saveShareLayout(_ layout: ReaderConfig) async {
+        shareConfig = layout
+        configStore.saveShare(layout)
+        if shareLayoutEnabled {
+            await applyEffectiveLayout()
+        }
     }
 
     /// Selects a background preset — upstream

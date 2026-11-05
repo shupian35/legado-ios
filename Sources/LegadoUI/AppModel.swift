@@ -2127,6 +2127,39 @@ public final class LegadoAppModel: ObservableObject {
         return base.appendingPathComponent("font", isDirectory: true)
     }
 
+    // MARK: - The shared layout
+
+    /// The shared layout — upstream `ReadBookConfig.shareConfig`.
+    public func shareReaderConfig() -> ReaderConfig {
+        ReaderConfigStore(settings: environment.settings).loadShare()
+    }
+
+    /// Saves the shared layout — upstream `ReadBookConfig.save()` writes the
+    /// share configuration next to the current one.
+    public func saveShareReaderConfig(_ config: ReaderConfig) {
+        ReaderConfigStore(settings: environment.settings).saveShare(config)
+    }
+
+    /// Whether the shared layout is used — upstream `ReadBookConfig.shareLayout`.
+    public var shareLayoutEnabled: Bool {
+        environment.settings.shareLayout
+    }
+
+    /// Turns the shared layout on or off — upstream `ReadBookConfig.shareLayout`.
+    public func setShareLayout(_ enabled: Bool) {
+        environment.settings.shareLayout = enabled
+    }
+
+    /// The layout that the reader uses — upstream
+    /// `ReadBookConfig.config get() = if (shareLayout) shareConfig else durConfig`.
+    public func effectiveReaderConfig() -> ReaderConfig {
+        ShareLayout.effective(
+            current: ReaderConfigStore(settings: environment.settings).load(),
+            share: shareReaderConfig(),
+            enabled: shareLayoutEnabled
+        )
+    }
+
     // MARK: - The startup sequence
 
     /// The phase of the startup sequence — upstream

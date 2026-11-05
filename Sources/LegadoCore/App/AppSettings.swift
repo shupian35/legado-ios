@@ -1207,6 +1207,14 @@ public final class AppSettings {
         set { set(newValue, for: .defaultToRead) }
     }
 
+    /// Whether the shared layout is used — upstream
+    /// `ReadBookConfig.shareLayout` (the "共用布局" checkbox of the reader's
+    /// style dialog).
+    public var shareLayout: Bool {
+        get { bool(.shareLayout, default: false) }
+        set { set(newValue, for: .shareLayout) }
+    }
+
     /// Whether the images are anti-aliased — upstream `AppConfig.useAntiAlias`.
     public var useAntiAlias: Bool {
         get { bool(.antiAlias, default: false) }

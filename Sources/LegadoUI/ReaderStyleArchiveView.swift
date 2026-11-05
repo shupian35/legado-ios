@@ -92,8 +92,12 @@ public struct ReaderStyleArchiveView: View {
     // MARK: - The actions
 
     /// Exports the style — upstream `BgTextConfigDialog.exportConfig`.
+    ///
+    /// The upstream writes the layout of the share into the archive when the
+    /// shared layout is on (`BgTextConfigDialog.kt:278`:
+    /// `ReadBookConfig.getExportConfig()`).
     private func exportArchive() {
-        let config = controller.config
+        let config = controller.exportConfig
         var font: ReaderConfigArchive.File?
         if let path = controller.environment.settings.string(.fontFolder),
            let data = FileManager.default.contents(atPath: path) {

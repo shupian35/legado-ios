@@ -703,7 +703,7 @@ public struct BookInfoMenuView: View {
         .navigationTitle("书籍信息")
         .sheet(isPresented: $isEditing) {
             NavigationStack {
-                BookMetadataEditor(book: book) { updated in
+                BookMetadataEditor(model: model, book: book) { updated in
                     try? model.environment.store.update(updated)
                     model.reloadBookshelf()
                 }
@@ -782,24 +782,38 @@ public struct BookInfoMenuView: View {
     }
 }
 
-/// The editor of the book metadata — upstream `BookEditDialog`.
+/// The editor of the book metadata — upstream `BookEditDialog` and
+/// `ui/book/info/edit/BookInfoEditActivity`.
+///
+/// The upstream edits the name, the author, the book type, the cover and the
+/// introduction, and it offers 选择本地图片 / 换封面 / 刷新封面 for the cover.
 struct BookMetadataEditor: View {
 
+    /// The model — needed by the cover picker.
+    @ObservedObject var model: LegadoAppModel
     @State var book: Book
     /// The optional fields are edited as plain strings.
     @State var intro: String = ""
     @State var coverUrl: String = ""
     @State var kind: String = ""
+    /// The kind of the book — upstream `spType`.
+    @State var bookKind: BookKind = .text
+    /// The local cover picker — upstream `tvSelectCover`.
+    @State var isSelectingCover = false
+    /// The cover source picker — upstream `tvChangeCover`.
+    @State var isChangingCover = false
     let onSave: (Book) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
-    init(book: Book, onSave: @escaping (Book) -> Void) {
+    init(model: LegadoAppModel, book: Book, onSave: @escaping (Book) -> Void) {
+        self.model = model
         self.book = book
         self.onSave = onSave
         _intro = State(initialValue: book.displayIntro ?? "")
-        _coverUrl = State(initialValue: book.displayCoverUrl ?? "")
+        _coverUrl = State(initialValue: BookMetadataEdit.displayCover(book))
         _kind = State(initialValue: book.kind ?? "")
+        _bookKind = State(initialValue: BookMetadataEdit.kind(of: book))
     }
 
     var body: some View {
@@ -809,7 +823,30 @@ struct BookMetadataEditor: View {
                     TextField("书名", text: $book.name)
                     TextField("作者", text: $book.author)
                     TextField("分类", text: $kind)
-                    TextField("封面", text: $coverUrl)
+                    // Upstream `spType` — the book type.
+                    Picker("书籍类型", selection: $bookKind) {
+                        ForEach(BookKind.allCases) { item in
+                            Text(item.displayName).tag(item)
+                        }
+                    }
+                }
+                Section("封面") {
+                    TextField("封面地址", text: $coverUrl)
+                    HStack {
+                        // Upstream `tvSelectCover`.
+                        Button("选择本地图片") {
+                            isSelectingCover = true
+                        }
+                        // Upstream `tvChangeCover`.
+                        Button("换封面") {
+                            isChangingCover = true
+                        }
+                        // Upstream `tvRefreshCover`.
+                        Button("刷新封面") {
+                            coverUrl = BookMetadataEdit.displayCover(book)
+                        }
+                    }
+                    .font(.system(size: 13))
                 }
                 Section("简介") {
                     TextEditor(text: $intro)
@@ -821,12 +858,34 @@ struct BookMetadataEditor: View {
                 ToolbarItem(placement: .primaryAction) {
                     Button("保存") {
                         var updated = book
-                        updated.customIntro = intro.isEmpty ? nil : intro
-                        updated.customCoverUrl = coverUrl.isEmpty ? nil : coverUrl
+                        updated.name = book.name
+                        updated.author = book.author
+                        updated.customIntro = BookMetadataEdit.customIntro(intro, book: book)
+                        updated.customCoverUrl = BookMetadataEdit.customCoverUrl(coverUrl, book: book)
                         updated.kind = kind.isEmpty ? nil : kind
+                        // Upstream `BookInfoEditActivity.saveData` — the four
+                        // content bits are replaced, the local bit is kept.
+                        updated.type = BookMetadataEdit.type(bookKind, book: book)
                         onSave(updated)
                         dismiss()
                     }
+                }
+            }
+            .fileImporter(
+                isPresented: $isSelectingCover,
+                allowedContentTypes: [.image]
+            ) { result in
+                if case let .success(url) = result {
+                    // Upstream `coverChangeTo(uri)` — the image is copied into
+                    // the app's own covers folder.
+                    if let path = try? LocalFileStore.importFile(from: url, into: "covers") {
+                        coverUrl = path
+                    }
+                }
+            }
+            .sheet(isPresented: $isChangingCover) {
+                ChangeCoverView(model: model, book: book) { url in
+                    coverUrl = url == legadoDefaultCoverMarker ? "" : url
                 }
             }
         }

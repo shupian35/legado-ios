@@ -292,6 +292,11 @@ public struct Book: Equatable, Hashable {
         BookType.contains(type, BookType.image)
     }
 
+    /// Whether the book is an audio book — upstream `BookExtensions.isAudio`.
+    public var isAudio: Bool {
+        BookType.contains(type, BookType.audio)
+    }
+
     /// Whether the book is a local book — upstream `BookExtensions.isLocal`.
     public var isLocal: Bool {
         if type == 0 {

@@ -629,6 +629,18 @@ public struct ReaderSettingsView: View {
             Section("排版") {
                 ReaderStyleRows(config: configBinding)
             }
+            // Upstream `dialog_read_book_style.xml` — the check box
+            // `cb_share_layout` ("共用布局"): when it is on, every background
+            // uses the same layout.
+            Section("共用布局") {
+                Toggle("共用布局", isOn: Binding(
+                    get: { controller.shareLayoutEnabled },
+                    set: { value in Task { await controller.setShareLayout(value) } }
+                ))
+                Text("启用共用布局时所有背景使用同一布局，关闭共用布局则每个背景单独布局")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
             Section("页面") {
                 ReaderPageRows(config: configBinding)
             }
@@ -671,9 +683,12 @@ public struct ReaderSettingsView: View {
 
     /// The configuration of the running reader — every change is saved
     /// (`ReadStyleDialog.kt:66`: `ReadBookConfig.save()`).
+    ///
+    /// The upstream edits the layout that is in use — the shared one when the
+    /// "共用布局" switch is on (`ReadBookConfig.kt:243`).
     private var configBinding: Binding<ReaderConfig> {
         Binding(
-            get: { controller.config },
+            get: { controller.effectiveConfig },
             set: { updated in
                 Task { await controller.applyReaderSettings { $0 = updated } }
             }
