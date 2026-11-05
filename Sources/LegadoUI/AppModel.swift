@@ -985,6 +985,18 @@ public final class LegadoAppModel: ObservableObject {
             )
             let destination = localImporter.booksDirectory.appendingPathComponent(name)
             try data.write(to: destination)
+            // An archive is unpacked again — upstream `downloadRemoteBook`
+            // replaces the book with the book of the archive.
+            if localImporter.isArchive(destination),
+               let imported = try localImporter.importArchive(from: destination).first {
+                var unpacked = imported
+                unpacked.origin = book.origin
+                unpacked.originName = book.originName.isEmpty ? name : book.originName
+                try? environment.store.update(unpacked)
+                reloadLocalBooks()
+                reloadBookshelf()
+                return unpacked
+            }
             var updated = book
             updated.bookUrl = destination.absoluteString
             if updated.originName.isEmpty {
