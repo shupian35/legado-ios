@@ -62,7 +62,13 @@ final class SharedDataTests: XCTestCase {
     func testTheAppGroupIdentifierIsStable() {
         XCTAssertEqual(AppGroup.identifier, "group.io.legado.ios.Legado")
         XCTAssertEqual(AppGroup.databaseFileName, "legado.sqlite")
+        #if canImport(Darwin)
+        // macOS hands back the group container path even for a test binary
+        // without the App Group entitlement, so only the identifier is
+        // asserted here.
+        #else
         // On Linux (no App Groups) the container is not available.
         XCTAssertNil(AppGroup.containerURL())
+        #endif
     }
 }

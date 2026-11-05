@@ -38,6 +38,9 @@ export PATH="/home/shupian/swift/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbi
 export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
 
+echo "the repository: $REPO"
+echo "the build directory: $SCRATCH"
+
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
@@ -76,17 +79,28 @@ for candidate in \
     "$SCRATCH/out/Products/Debug-linux-x86_64" \
     "$SCRATCH/debug" \
     "$SCRATCH/debug/Modules" \
-    "$REPO/.build/debug" \
-    "$REPO/.build/debug/Modules" \
-    "$REPO/.build/x86_64-unknown-linux-gnu/debug" \
-    "$REPO/.build/x86_64-unknown-linux-gnu/debug/Modules" ; do
-    if [ -d "$candidate/LegadoUIShim.swiftmodule" ]; then
+    "$SCRATCH/x86_64-unknown-linux-gnu/debug" \
+    "$SCRATCH/x86_64-unknown-linux-gnu/debug/Modules" ; do
+    if [ -e "$candidate/LegadoUIShim.swiftmodule" ]; then
         PRODUCTS="$candidate"
         break
     fi
 done
+# The layout of the SwiftPM build directory differs between the toolchains
+# (the classic `<triple>/debug` directory and the newer `out/Products` one),
+# so fall back to searching the whole build directory when the guesses miss.
+if [ -z "$PRODUCTS" ] && [ -d "$SCRATCH" ]; then
+    MODULE_PATH="$(find "$SCRATCH" -name 'LegadoUIShim.swiftmodule' -print -quit 2>/dev/null)"
+    if [ -n "$MODULE_PATH" ]; then
+        PRODUCTS="$(dirname "$MODULE_PATH")"
+    fi
+fi
 if [ -z "$PRODUCTS" ]; then
     echo "!! the built modules are missing — run 'sw.sh build' first"
+    echo "   repository: $REPO"
+    echo "   scratch: $SCRATCH"
+    ls -la "$SCRATCH" 2>/dev/null | head -20
+    find "$SCRATCH" -maxdepth 4 -name '*.swiftmodule' 2>/dev/null | head -20
     exit 1
 fi
 echo "the built modules: $PRODUCTS"
