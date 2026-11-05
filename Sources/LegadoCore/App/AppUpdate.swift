@@ -41,6 +41,27 @@ public enum AppUpdateError: Error, Equatable {
     case alreadyLatest
 }
 
+/// The variant of the release the update check looks for.
+///
+/// Upstream `AppUpdateGitHub.checkVariant` (`AppUpdateGitHub.kt:19-25`) reads
+/// the preference `updateToVariant`; the beta variants look at the release
+/// "beta" instead of the latest one.
+public enum AppVariant: String, Equatable, CaseIterable, Sendable {
+    /// The official release — upstream `AppVariant.OFFICIAL`.
+    case official = "official_version"
+    /// The beta release — upstream `AppVariant.BETA_RELEASE`.
+    case betaRelease = "beta_release_version"
+    /// The beta release A — upstream `AppVariant.BETA_RELEASEA`.
+    case betaReleaseA = "beta_releaseA_version"
+    /// The variant of the running app — upstream `AppConst.appInfo.appVariant`.
+    case defaultVersion = "default_version"
+
+    /// Whether the variant is a beta one.
+    public var isBeta: Bool {
+        self == .betaRelease || self == .betaReleaseA
+    }
+}
+
 /// The application update check.
 public enum AppUpdateChecker {
 
@@ -48,17 +69,28 @@ public enum AppUpdateChecker {
     /// `AppUpdateGitHub.getLatestRelease`.
     public static let releaseURL = "https://api.github.com/repos/gedoor/legado/releases/latest"
 
+    /// The GitHub API endpoint of the beta release — upstream
+    /// `AppUpdateGitHub.getLatestRelease` (`releases/tags/beta`).
+    public static let betaReleaseURL = "https://api.github.com/repos/gedoor/legado/releases/tags/beta"
+
     /// The timeout of the upstream check (10 s).
     public static let timeout: TimeInterval = 10
+
+    /// The endpoint of the variant — upstream `AppUpdateGitHub.getLatestRelease`
+    /// asks the "beta" tag for a beta variant.
+    public static func releaseURL(variant: AppVariant) -> String {
+        variant.isBeta ? betaReleaseURL : releaseURL
+    }
 
     /// Asks GitHub for the latest release.
     public static func check(
         currentVersion: String,
+        variant: AppVariant = .defaultVersion,
         httpClient: HttpClient,
         userAgent: String = AppSettings.defaultUserAgent
     ) async throws -> AppUpdateInfo {
         let response = try await httpClient.send(
-            HttpRequest(url: releaseURL, headers: ["User-Agent": userAgent])
+            HttpRequest(url: releaseURL(variant: variant), headers: ["User-Agent": userAgent])
         )
         guard response.isSuccessful else {
             throw AppUpdateError.requestFailed(response.code)

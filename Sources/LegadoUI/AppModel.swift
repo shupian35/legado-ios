@@ -97,6 +97,10 @@ public final class LegadoAppModel: ObservableObject {
     /// Whether the login dialog is presented.
     @Published public var isLoginPresented = false
 
+    /// The tab of the shell that is shown — upstream `MainActivity.upHomePage()`
+    /// and the `defaultHomePage` preference.
+    @Published public var selectedTab: HomePage = .bookshelf
+
     /// The cache queue of the books (upstream `CacheBook`).
     @Published public var cacheProgress: [String: CacheBookProgress] = [:]
 
@@ -1452,6 +1456,54 @@ public final class LegadoAppModel: ObservableObject {
         await openReader(for: book)
     }
 
+    // MARK: - The tabs of the shell
+
+    /// Shows a tab of the shell.
+    ///
+    /// Upstream the bottom navigation of `MainActivity` only shows the
+    /// explore and the RSS tab when their preference is on
+    /// (`MainActivity.upHomePage()`).
+    public func selectTab(_ tab: HomePage) {
+        guard tab.isVisible(
+            showDiscovery: environment.settings.showDiscovery,
+            showRSS: environment.settings.showRSS
+        ) else { return }
+        selectedTab = tab
+    }
+
+    /// Shows the tab of the `defaultHomePage` preference — upstream
+    /// `MainActivity.upHomePage()` (`MainActivity.kt:385-398`).
+    public func applyDefaultHomePage() {
+        selectTab(environment.settings.homePage)
+    }
+
+    // MARK: - The shortcuts of the home screen
+
+    /// Opens the book that was read last.
+    ///
+    /// Upstream the shortcut `buildReadBookShortCutInfo` of `api/ShortCuts.kt`
+    /// opens the `ReadBookActivity` of the last book.
+    public func openLastRead() async {
+        guard let book = try? environment.bookshelf().lastReadBook() else {
+            errorMessage = "没有最近阅读的书籍"
+            return
+        }
+        await openReader(for: book)
+    }
+
+    /// Reads the book that was read last aloud.
+    ///
+    /// Upstream the shortcut `buildReadAloudShortCutInfo` of
+    /// `api/ShortCuts.kt` starts the read aloud service of the last book.
+    public func startLastReadAloud() async {
+        guard let book = try? environment.bookshelf().lastReadBook() else {
+            errorMessage = "没有最近阅读的书籍"
+            return
+        }
+        await openReader(for: book)
+        await reader?.startReadAloud()
+    }
+
     // MARK: - The shelf question of the reader
 
     /// Asks whether the book that was read should be put on the shelf.
@@ -1648,8 +1700,10 @@ public final class LegadoAppModel: ObservableObject {
     }
 
     /// The last steps of the startup sequence — the automatic update of the
-    /// books (upstream `viewModel.upAllBookToc()`).
+    /// books (upstream `viewModel.upAllBookToc()`) and the start page
+    /// (upstream `MainActivity.upHomePage()`).
     private func finishStartup() {
+        applyDefaultHomePage()
         guard environment.settings.autoRefreshBook else { return }
         Task { await updateAllBooks() }
     }

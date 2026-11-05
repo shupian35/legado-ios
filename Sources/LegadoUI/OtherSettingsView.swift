@@ -89,12 +89,16 @@ public struct OtherSettingsView: View {
                 set: { settings.showRSS = $0 }
             ))
             Picker("默认首页", selection: Binding(
-                get: { settings.defaultHomePage },
-                set: { settings.defaultHomePage = $0 }
+                get: { settings.homePage },
+                set: { settings.homePage = $0 }
             )) {
-                Text("书架").tag("bookshelf")
-                Text("发现").tag("discovery")
-                Text("订阅").tag("rss")
+                // Upstream `MainActivity.upHomePage()` knows the four values
+                // "bookshelf", "explore", "rss" and "my".
+                ForEach(HomePage.allCases.filter {
+                    $0.isVisible(showDiscovery: settings.showDiscovery, showRSS: settings.showRSS)
+                }) { page in
+                    Text(page.displayName).tag(page)
+                }
             }
         }
     }

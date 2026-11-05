@@ -19,8 +19,8 @@ its state (`[x]` done, `[~]` partial, `[ ]` not started), followed by the
 deliberate deviations. The plain-language summary — **what is done and what is
 not** — is [`Plan/01-feature-status.md`](Plan/01-feature-status.md).
 
-The port is ~71,940 lines of Swift in 265 files, with ~15,666 lines of tests
-(1,261 unit tests: 1,181 in `LegadoCoreTests`, 80 in `LegadoServerTests`) next to them.
+The port is ~73,890 lines of Swift in 271 files, with ~16,205 lines of tests
+(1,312 unit tests: 1,232 in `LegadoCoreTests`, 80 in `LegadoServerTests`) next to them.
 
 ## What is in here
 
@@ -35,7 +35,7 @@ Sources/
   LegadoServer/        the local HTTP + WebSocket server (the upstream web API)
   LegadoApp/           a command-line shell with a headless smoke test
   LegadoAppUI/         the iOS entry point (`@main`) + the Info.plist
-Tests/                 1,261 unit tests
+Tests/                 1,312 unit tests
 project.yml            the XcodeGen spec of the iOS application target
 Scripts/
   sw.sh                the build/test/run helper (WSL, a clean PATH, a scratch dir)
@@ -191,6 +191,25 @@ labels, the tip colour pickers, … They are listed in **§8.7** of the matrix.
 **That wave is closed now (2026-11-05)**: every row names the file that
 closes it, and the only thing left is the adult-domain list that the upstream
 refuses to import (a deliberate deviation).
+
+A **third wave** of three audits (2026-11-05, `Plan/audits/2026-11-05-*.md`)
+covered the areas the earlier waves never walked — the app shell and the
+platform integrations, the data surfaces (the backups, the exports, the
+WebDAV, the local books) and the reading extras (the read-aloud, the
+dictionary, the rule managers). They found **80** items; **§8.8** of the
+matrix lists them. Most are closed now: the local web service starts with
+the preference and shows its address, the notifications are authorized and
+registered in the iOS target, the startup sequence runs the privacy gate →
+the first-run help → the crash prompt, the deep links import the themes, the
+reader styles and the shelf books, the `yuedu://` alias scheme and the home
+screen shortcuts work, the start page of the preference is applied, the update
+check follows the beta channel and **the book export writes a real file**.
+**≈26 items are still open** — the export folder / type / charset pickers,
+the parallel export, the local-book rename / share / keep-the-file, the
+WebDAV server management, the remote-book screen, the real file manager, the
+read-aloud chapter jumps and the per-book TTS engine, the HTTP-TTS
+management, the dictionary rule management, the book metadata's type
+selector, … — and they are listed in **§3** of the status document.
 
 [`Plan/01-feature-status.md`](Plan/01-feature-status.md) turns all of that
 into a plain list: **what works today**, **what works but differs from the

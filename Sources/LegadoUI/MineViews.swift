@@ -634,6 +634,7 @@ public struct AboutView: View {
     @State private var updateMessage: String?
     @State private var updateInfo: AppUpdateInfo?
     @State private var logMessage: String?
+    @State private var contactMessage: String?
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -654,6 +655,20 @@ public struct AboutView: View {
                 // Upstream `AboutFragment.onPreferenceTreeClick` — the
                 // contributors page.
                 Link("贡献者", destination: URL(string: "https://github.com/gedoor/legado/graphs/contributors")!)
+            }
+            Section("联系") {
+                // Upstream `AboutFragment.onPreferenceTreeClick` — the mail
+                // address (`R.string.email`) and the public account
+                // (`R.string.legado_gzh`, which is copied to the clipboard).
+                Link("邮箱", destination: URL(string: "mailto:gekunfei@live.com")!)
+                Button("公众号") {
+                    copyPublicAccount()
+                }
+                if let contactMessage {
+                    Text(contactMessage)
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
             }
             Section("文档") {
                 NavigationLink(AboutDocument.updateLog.title) {
@@ -746,12 +761,20 @@ public struct AboutView: View {
         return base.appendingPathComponent("backup", isDirectory: true)
     }
 
+    /// Copies the name of the public account — upstream `gzGzh` calls
+    /// `sendToClip(getString(R.string.legado_gzh))`.
+    private func copyPublicAccount() {
+        UIPasteboardShim.copy("开源阅读")
+        contactMessage = "已复制公众号名称：开源阅读"
+    }
+
     private func checkUpdate() {
         updateMessage = "正在检查…"
         Task {
             do {
                 let info = try await AppUpdateChecker.check(
                     currentVersion: LegadoAppInfo.version,
+                    variant: model.environment.settings.updateVariant,
                     httpClient: model.environment.httpClient
                 )
                 updateInfo = info

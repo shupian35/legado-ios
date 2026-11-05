@@ -482,9 +482,11 @@ public struct NavigationSplitView<Sidebar: View, Detail: View>: View {
 }
 
 /// `SwiftUI.TabView`.
-public struct TabView<Content: View>: View {
-    public init(@ViewBuilder content: () -> Content) {}
-    public init(selection: Binding<Int>, @ViewBuilder content: () -> Content) {}
+///
+/// The port always selects a tab with a tag, so the shim only knows the
+/// selection based initialiser.
+public struct TabView<Selection: Hashable, Content: View>: View {
+    public init(selection: Binding<Selection>, @ViewBuilder content: () -> Content) {}
     public var body: Never { fatalError("TabView has no body") }
 }
 

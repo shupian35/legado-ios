@@ -34,11 +34,12 @@ public struct RootView: View {
             // Upstream `BaseActivity.upBackgroundImage` — the background
             // image of the day or the night theme behind the whole window.
             ShellBackgroundView(model: model)
-            TabView {
+            TabView(selection: $model.selectedTab) {
                 BookshelfView(model: model)
                     .tabItem {
                         Label("书架", systemImage: "books.vertical")
                     }
+                    .tag(HomePage.bookshelf)
                 // The upstream hides the discovery and the RSS tabs with the
                 // `showDiscovery` / `showRSS` preferences (`AppConfig.kt`).
                 if model.environment.settings.showDiscovery {
@@ -46,17 +47,20 @@ public struct RootView: View {
                         .tabItem {
                             Label("发现", systemImage: "safari")
                         }
+                        .tag(HomePage.explore)
                 }
                 if model.environment.settings.showRSS {
                     RSSView(model: model)
                         .tabItem {
                             Label("订阅", systemImage: "newspaper")
                         }
+                        .tag(HomePage.rss)
                 }
                 SettingsView(model: model)
                     .tabItem {
                         Label("我的", systemImage: "gearshape")
                     }
+                    .tag(HomePage.my)
             }
         }
         .background(model.currentTheme.background)

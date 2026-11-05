@@ -21,6 +21,10 @@
 				<string>public.json</string>
 				<string>org.idpf.epub-container</string>
 				<string>com.adobe.pdf</string>
+				<string>com.amazon.mobi</string>
+				<string>com.amazon.azw3</string>
+				<string>com.amazon.azw</string>
+				<string>public.zip-archive</string>
 			</array>
 		</dict>
 		<dict>
@@ -114,6 +118,9 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>legado</string>
+				<!-- Upstream `AndroidManifest.xml:337-352` registers the alias
+				     scheme `yuedu` next to `legado`. -->
+				<string>yuedu</string>
 			</array>
 		</dict>
 	</array>
@@ -140,6 +147,41 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
+	</array>
+	<!-- The shortcuts of the home screen — upstream `api/ShortCuts.kt`
+	     (上次阅读, 朗读, 书架). -->
+	<key>UIApplicationShortcutItems</key>
+	<array>
+		<dict>
+			<key>UIApplicationShortcutItemType</key>
+			<string>io.legado.app.shortcut.lastRead</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>上次阅读</string>
+			<key>UIApplicationShortcutItemIconType</key>
+			<string>UIApplicationShortcutIconTypeBookmark</string>
+			<key>UIApplicationShortcutItemURL</key>
+			<string>legado://shortcut/lastRead</string>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemType</key>
+			<string>io.legado.app.shortcut.readAloud</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>朗读</string>
+			<key>UIApplicationShortcutItemIconType</key>
+			<string>UIApplicationShortcutIconTypePlay</string>
+			<key>UIApplicationShortcutItemURL</key>
+			<string>legado://shortcut/readAloud</string>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemType</key>
+			<string>io.legado.app.shortcut.bookshelf</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>书架</string>
+			<key>UIApplicationShortcutItemIconType</key>
+			<string>UIApplicationShortcutIconTypeBook</string>
+			<key>UIApplicationShortcutItemURL</key>
+			<string>legado://shortcut/bookshelf</string>
+		</dict>
 	</array>
 	<key>UIFileSharingEnabled</key>
 	<true/>

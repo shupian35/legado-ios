@@ -54,6 +54,12 @@ public final class DeepLinkHandler: ObservableObject {
     /// Handles a link asynchronously.
     @MainActor
     public func handleAsync(_ url: URL, model: LegadoAppModel) async {
+        // The shortcuts of the home screen open the app with a link of the
+        // form `legado://shortcut/{name}` — upstream `api/ShortCuts.kt`.
+        if let shortcut = DeepLink.shortcut(from: url) {
+            await perform(shortcut, model: model)
+            return
+        }
         isWorking = true
         defer { isWorking = false }
         do {
@@ -121,6 +127,19 @@ public final class DeepLinkHandler: ObservableObject {
         } catch {
             lastKind = nil
             message = Self.describe(error)
+        }
+    }
+
+    /// Performs a shortcut of the home screen — upstream `api/ShortCuts.kt`.
+    @MainActor
+    public func perform(_ shortcut: ShortcutAction, model: LegadoAppModel) async {
+        switch shortcut {
+        case .bookshelf:
+            model.selectTab(.bookshelf)
+        case .lastRead:
+            await model.openLastRead()
+        case .readAloud:
+            await model.startLastReadAloud()
         }
     }
 

@@ -52,6 +52,22 @@ public struct DeepLinkRequest: Equatable, Sendable {
     }
 }
 
+// MARK: - The shortcuts of the home screen
+
+/// The shortcuts of the home screen.
+///
+/// Upstream `api/ShortCuts.kt` publishes three dynamic shortcuts: the book
+/// that was read last, the read aloud of that book and the bookshelf.
+public enum ShortcutAction: String, Equatable, CaseIterable, Sendable {
+    /// The bookshelf — upstream `buildBookShelfShortCutInfo`.
+    case bookshelf
+    /// The book that was read last — upstream `buildReadBookShortCutInfo`.
+    case lastRead
+    /// The read aloud of the book that was read last — upstream
+    /// `buildReadAloudShortCutInfo`.
+    case readAloud
+}
+
 // MARK: - The errors
 
 public enum DeepLinkError: Error, Equatable {
@@ -90,16 +106,38 @@ public enum DeepLink {
     /// The URL scheme upstream registers.
     public static let scheme = "legado"
 
+    /// The schemes upstream registers.
+    ///
+    /// Upstream `AndroidManifest.xml:337-352` registers the `OnLineImportActivity`
+    /// for the schemes `legado` AND `yuedu` — the second one is an alias of the
+    /// first one.
+    public static let schemes = ["legado", "yuedu"]
+
     /// The marker upstream uses to send a request without the user agent.
     public static let requestWithoutUserAgent = "#requestWithoutUA"
+
+    /// The shortcut a link selects, or `nil` when the link is not a shortcut.
+    ///
+    /// The shortcuts of the home screen open the app with a link of the form
+    /// `legado://shortcut/{name}`; upstream they are the intents of
+    /// `api/ShortCuts.kt`.
+    public static func shortcut(from url: URL) -> ShortcutAction? {
+        guard let scheme = url.scheme?.lowercased(), schemes.contains(scheme) else {
+            return nil
+        }
+        guard url.host?.lowercased() == "shortcut" else { return nil }
+        let name = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return ShortcutAction(rawValue: name)
+    }
 
     /// Parses a `legado://` link.
     ///
     /// - Parameter url: the link, e.g. `legado://import/bookSource?src=https://…`.
-    /// - Throws: `DeepLinkError.wrongScheme` when the scheme is not `legado`
-    ///   and `DeepLinkError.missingSource` when the `src` parameter is absent.
+    /// - Throws: `DeepLinkError.wrongScheme` when the scheme is neither
+    ///   `legado` nor `yuedu` and `DeepLinkError.missingSource` when the `src`
+    ///   parameter is absent.
     public static func parse(_ url: URL) throws -> DeepLinkRequest {
-        guard url.scheme?.lowercased() == scheme else {
+        guard let scheme = url.scheme?.lowercased(), schemes.contains(scheme) else {
             throw DeepLinkError.wrongScheme(url.scheme ?? "")
         }
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)

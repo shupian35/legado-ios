@@ -1170,6 +1170,15 @@ public final class AppSettings {
         set { set(newValue, for: .defaultHomePage) }
     }
 
+    /// The tab the app opens on — upstream `AppConfig.defaultHomePage`.
+    ///
+    /// Upstream `MainActivity.upHomePage()` (`MainActivity.kt:385-398`) knows
+    /// the four values "bookshelf", "explore", "rss" and "my".
+    public var homePage: HomePage {
+        get { HomePage(rawValue: defaultHomePage) ?? .bookshelf }
+        set { defaultHomePage = newValue.rawValue }
+    }
+
     /// Whether the app opens the last read book — upstream
     /// `PreferKey.defaultToRead`.
     public var defaultToRead: Bool {
@@ -1209,6 +1218,13 @@ public final class AppSettings {
     public var updateToVariant: String {
         get { string(.updateToVariant) ?? "default_version" }
         set { set(newValue, for: .updateToVariant) }
+    }
+
+    /// The variant of the release the update check looks for — upstream
+    /// `AppUpdateGitHub.checkVariant` (`AppUpdateGitHub.kt:19-25`).
+    public var updateVariant: AppVariant {
+        get { AppVariant(rawValue: updateToVariant) ?? .defaultVersion }
+        set { updateToVariant = newValue.rawValue }
     }
 
     // MARK: - The backup and the WebDAV

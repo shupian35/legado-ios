@@ -35,6 +35,53 @@ final class DeepLinkTests: XCTestCase {
         }
     }
 
+    // MARK: - The schemes
+
+    func testTheYueduSchemeIsAccepted() throws {
+        // Upstream `AndroidManifest.xml:337-352` registers the alias scheme
+        // `yuedu` next to `legado`.
+        let url = URL(string: "yuedu://import/bookSource?src=https://example.com/s.json")!
+        let request = try DeepLink.parse(url)
+        XCTAssertEqual(request.path, "/bookSource")
+        XCTAssertEqual(request.source, "https://example.com/s.json")
+    }
+
+    func testTheSchemesAreTheUpstreamOnes() {
+        XCTAssertEqual(DeepLink.schemes, ["legado", "yuedu"])
+        XCTAssertEqual(DeepLink.scheme, "legado")
+    }
+
+    // MARK: - The shortcuts of the home screen
+
+    func testTheShortcutLinksAreRecognised() {
+        let lastRead = URL(string: "legado://shortcut/lastRead")!
+        XCTAssertEqual(DeepLink.shortcut(from: lastRead), .lastRead)
+        let readAloud = URL(string: "legado://shortcut/readAloud")!
+        XCTAssertEqual(DeepLink.shortcut(from: readAloud), .readAloud)
+        let bookshelf = URL(string: "legado://shortcut/bookshelf")!
+        XCTAssertEqual(DeepLink.shortcut(from: bookshelf), .bookshelf)
+    }
+
+    func testTheShortcutLinksWorkWithTheAliasScheme() {
+        let url = URL(string: "yuedu://shortcut/bookshelf")!
+        XCTAssertEqual(DeepLink.shortcut(from: url), .bookshelf)
+    }
+
+    func testAnImportLinkIsNotAShortcut() {
+        let url = URL(string: "legado://import/bookSource?src=https://example.com/s.json")!
+        XCTAssertNil(DeepLink.shortcut(from: url))
+    }
+
+    func testAnUnknownShortcutIsNotRecognised() {
+        let url = URL(string: "legado://shortcut/unknown")!
+        XCTAssertNil(DeepLink.shortcut(from: url))
+    }
+
+    func testAForeignSchemeIsNotAShortcut() {
+        let url = URL(string: "https://example.com/shortcut/lastRead")!
+        XCTAssertNil(DeepLink.shortcut(from: url))
+    }
+
     // MARK: - Kind detection
 
     func testDetectsABookSource() throws {
