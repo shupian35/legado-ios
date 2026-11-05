@@ -88,7 +88,17 @@ jobs:
             EXPANDED_CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
-            | tee /tmp/xcodebuild.log | tail -n 40
+            2>&1 | tee /tmp/xcodebuild.log
+
+      # `tee` keeps the whole log, but GitHub truncates long step output from
+      # the middle — print every compiler error again at the end so it is never
+      # hidden behind a screenful of warnings.
+      - name: Show the compile errors
+        if: failure()
+        run: |
+          grep -n ": error:" /tmp/xcodebuild.log | head -n 80 || true
+          echo "--- the tail of the log ---"
+          tail -n 60 /tmp/xcodebuild.log || true
 
       - name: Assert the bundle is unsigned
         run: |

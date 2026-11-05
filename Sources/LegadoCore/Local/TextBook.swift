@@ -233,8 +233,12 @@ public final class TextBook {
             }
             for match in matches {
                 let chapterStart = match.range.location
+                // `NSString.substring(with:)` returns `String` on Darwin and
+                // `NSString` on corelibs, so the length is taken through an
+                // explicit `NSString` cast that works on both.
                 let chapterContent = nsBlock.substring(with: NSRange(location: seekPos, length: chapterStart - seekPos))
-                let chapterLength = Int64(chapterContent.data(using: charset)?.count ?? chapterContent.length)
+                let chapterContentUTF16 = (chapterContent as NSString).length
+                let chapterLength = Int64(chapterContent.data(using: charset)?.count ?? chapterContentUTF16)
                 let lastStart = toc.last?.start ?? curOffset
                 if splitLongChapter && curOffset + chapterLength - lastStart > Int64(TextBook.maxLengthWithToc) {
                     // The chapter is too long — split it.
@@ -330,7 +334,7 @@ public final class TextBook {
                     bookWordCount += chapterContent.count
                     lastChapterWordCount = 0
                 }
-                seekPos += chapterContent.length
+                seekPos += chapterContentUTF16
             }
             let wordCount = nsBlock.length - seekPos
             bookWordCount += wordCount

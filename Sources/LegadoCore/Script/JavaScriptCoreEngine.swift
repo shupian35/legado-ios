@@ -28,7 +28,7 @@ import JavaScriptCore
 @objc public final class LegadoHeaderMap: NSObject, LegadoHeaderMapExport {
     private var storage: [String: String] = [:]
 
-    public init() { super.init() }
+    public override init() { super.init() }
 
     public func put(_ key: String, value: String) { storage[key] = value }
     public func get(_ key: String) -> String { storage[key] ?? "" }
@@ -501,8 +501,6 @@ public final class JavaScriptCoreEngine: RuleScriptEngine {
     private let context: JSContext
     private let environment: ScriptEnvironment
     private let javaFacade: LegadoJavaFacade
-    /// Upstream compiles every script once and reuses the compiled form.
-    private var compiledScripts: [String: JSValue] = [:]
 
     public init(environment: ScriptEnvironment = ScriptEnvironment()) {
         self.environment = environment
@@ -510,7 +508,7 @@ public final class JavaScriptCoreEngine: RuleScriptEngine {
         self.context = context
         self.javaFacade = LegadoJavaFacade(environment: environment)
         context.exceptionHandler = { ctx, exception in
-            ctx.exception = exception
+            ctx?.exception = exception
         }
         context.setObject(javaFacade, forKeyedSubscript: "java" as NSString)
         // The capability model: a binding the script was not granted is not
@@ -549,13 +547,10 @@ public final class JavaScriptCoreEngine: RuleScriptEngine {
         for (key, value) in bindings {
             context.setObject(Self.toJS(value, in: context), forKeyedSubscript: key as NSString)
         }
-        let result: JSValue?
-        if let compiled = compiledScripts[script] {
-            result = context.invokeObject(compiled, withArguments: [])
-        } else {
-            result = context.evaluateScript(script)
-            if let result { compiledScripts[script] = result }
-        }
+        // Evaluated on every call: the old cache stored the *result* of the
+        // first evaluation, so a second run of the same script returned the
+        // stale value instead of running it again.
+        let result = context.evaluateScript(script)
         if let exception = context.exception {
             context.exception = nil
             throw ScriptEngineError.scriptFailed(Self.describe(exception))
