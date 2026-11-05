@@ -441,6 +441,18 @@ fourteen items the shell audit reported are closed:
 | The keep-awake setting | `LegadoUI/ReaderSystemIntegration.swift` → `screenTimeout` / `noteInteraction()` (the preference is a number of seconds, not a Bool) + `LegadoUI/ScreenAwake.swift` for the source check, the upstream `ReadBookActivity.kt:1703-1727` / `BookSourceActivity.kt:507,629` |
 | The E-Ink mode of the whole app | `Core/App/Theme.swift` → `AppTheme.eInk` + `currentTheme(isSystemDark:)`, the upstream `ThemeConfig.applyTheme` (deviation #38) |
 
+The closing verification pass (the same day) also fixed five smaller items in
+these areas: a theme JSON opened **as a file** is now confirmed and imported
+(it used to be refused — `LegadoUI/DeepLinkHandler.swift` → `pendingTheme`),
+the web service notification is resident and carries the 取消 action
+(`NotificationContent.webService` → `NotificationId.webService`), the
+read-aloud transport notification gained the 定时 action
+(`IntentAction.addTimer` → `ReadAloudService.addTimer()`), `readAloudByMediaButton`
+now gates starting a read aloud from a media key
+(`ReaderView.mediaButtonToggleReadAloud()`), and
+`pauseReadAloudWhilePhoneCalls` pauses the reading on an audio-session
+interruption (`ReadAloudService.observeInterruptions()`).
+
 ---
 
 ## Deliberate deviations from the Android app

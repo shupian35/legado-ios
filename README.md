@@ -19,8 +19,8 @@ its state (`[x]` done, `[~]` partial, `[ ]` not started), followed by the
 deliberate deviations. The plain-language summary — **what is done and what is
 not** — is [`Plan/01-feature-status.md`](Plan/01-feature-status.md).
 
-The port is ~82,020 lines of Swift in 302 files, with ~19,555 lines of tests
-(1,623 unit tests: 1,533 in `LegadoCoreTests`, 90 in `LegadoServerTests`) next to them.
+The port is ~82,119 lines of Swift in 302 files, with ~19,575 lines of tests
+(1,625 unit tests: 1,535 in `LegadoCoreTests`, 90 in `LegadoServerTests`) next to them.
 
 ## What is in here
 
@@ -36,7 +36,7 @@ Sources/
   LegadoApp/           a command-line shell with a headless smoke test
   LegadoAppUI/         the iOS entry point (`@main`) + the Info.plist
   LegadoShareExtension/ the share extension (the upstream SharedReceiverActivity)
-Tests/                 1,623 unit tests
+Tests/                 1,625 unit tests
 project.yml            the XcodeGen spec of the iOS application target
 Scripts/
   sw.sh                the build/test/run helper (WSL, a clean PATH, a scratch dir)
