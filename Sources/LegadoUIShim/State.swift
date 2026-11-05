@@ -222,6 +222,11 @@ public struct EnvironmentValues {
         get { EnvironmentBox.shared.value(for: \.openURL) }
         set { EnvironmentBox.shared.set(newValue, for: \.openURL) }
     }
+    /// The phase of the scene — `SwiftUI.EnvironmentValues.scenePhase`.
+    public var scenePhase: ScenePhase {
+        get { EnvironmentBox.shared.value(for: \.scenePhase) }
+        set { EnvironmentBox.shared.set(newValue, for: \.scenePhase) }
+    }
 
     public subscript<T>(keyPath: KeyPath<EnvironmentValues, T>) -> T {
         get { EnvironmentBox.shared.value(for: keyPath) }
@@ -241,6 +246,9 @@ public struct EnvironmentValues {
         }
         if key == (\EnvironmentValues.openURL as AnyKeyPath) {
             return OpenURLAction() as! T
+        }
+        if key == (\EnvironmentValues.scenePhase as AnyKeyPath) {
+            return ScenePhase.active as! T
         }
         fatalError("Unknown environment key \(key)")
     }

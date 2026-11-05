@@ -162,11 +162,15 @@ public final class ThemeManager {
         }
     }
 
+    /// The file the themes are persisted in — upstream
+    /// `ThemeConfig.configFilePath`. It is `nil` when the themes are not
+    /// persisted at all (the tests use that).
+    public var configFileURL: URL? { fileURL }
+
     /// The effective theme — upstream `getTheme()`.
     ///
     /// - Parameter isSystemDark: whether the system is in dark mode.
-    public func effectiveTheme(isSystemDark: Bool) -> EffectiveTheme {
-        switch mode {
+    public func effectiveTheme(isSystemDark: Bool) -> EffectiveTheme {        switch mode {
         case .eInk: return .eInk
         case .dark: return .dark
         case .light: return .light
@@ -298,5 +302,19 @@ public final class ThemeManager {
     public static func loadThemes(from fileURL: URL) -> [AppTheme]? {
         guard let data = try? Data(contentsOf: fileURL) else { return nil }
         return try? JSONDecoder().decode([AppTheme].self, from: data)
+    }
+
+    /// Reloads the themes from the file — upstream `ThemeConfig.upConfig()`.
+    ///
+    /// A restore writes the theme file and then asks the manager to pick the
+    /// themes up again.
+    @discardableResult
+    public func reload() -> Bool {
+        guard let fileURL, let loaded = ThemeManager.loadThemes(from: fileURL), !loaded.isEmpty else {
+            return false
+        }
+        themes = loaded
+        selectedIndex = min(max(0, selectedIndex), max(0, themes.count - 1))
+        return true
     }
 }

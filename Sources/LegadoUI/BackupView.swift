@@ -239,7 +239,8 @@ public struct BackupView: View {
             let archive = try LegadoBackup.make(
                 store: model.environment.store.tableStore,
                 settings: backupSettings(),
-                preferences: preferences()
+                preferences: preferences(),
+                extraFiles: model.backupConfigFiles()
             )
             let data = try archive.zip()
             let directory = backupDirectory
@@ -268,8 +269,9 @@ public struct BackupView: View {
                 settings: backupSettings()
             )
             let applied = applyPreferences(in: data)
+            let configs = applyConfigFiles(in: data)
             model.reloadAll()
-            status = "恢复完成：\(summary.restoredRows) 条记录，\(applied) 项设置"
+            status = "恢复完成：\(summary.restoredRows) 条记录，\(applied) 项设置，\(configs) 个配置文件"
         } catch {
             status = "恢复失败：\(error.localizedDescription)"
         }
@@ -288,6 +290,14 @@ public struct BackupView: View {
         )
     }
 
+    /// Restores the configuration files of a backup — upstream
+    /// `Restore.restoreLocked` restores `readConfig.json`,
+    /// `themeConfig.json`, `coverRule.json` and `directLinkUploadRule.json`.
+    private func applyConfigFiles(in data: Data) -> Int {
+        guard let files = try? BackupConfigFiles.files(inZipData: data) else { return 0 }
+        return model.applyBackupConfigFiles(files)
+    }
+
     private func uploadToWebDav() {
         isWorking = true
         status = nil
@@ -296,7 +306,8 @@ public struct BackupView: View {
                 let archive = try LegadoBackup.make(
                     store: model.environment.store.tableStore,
                     settings: backupSettings(),
-                    preferences: preferences()
+                    preferences: preferences(),
+                    extraFiles: model.backupConfigFiles()
                 )
                 let service = webDavService()
                 try await service.uploadBackup(archive)
@@ -333,8 +344,9 @@ public struct BackupView: View {
                     settings: backupSettings()
                 )
                 let applied = applyPreferences(in: data)
+                let configs = applyConfigFiles(in: data)
                 model.reloadAll()
-                status = "恢复完成：\(summary.restoredRows) 条记录，\(applied) 项设置"
+                status = "恢复完成：\(summary.restoredRows) 条记录，\(applied) 项设置，\(configs) 个配置文件"
             } catch {
                 status = "恢复失败：\(error.localizedDescription)"
             }

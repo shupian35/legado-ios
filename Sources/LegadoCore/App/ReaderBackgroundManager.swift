@@ -34,6 +34,11 @@ public final class ReaderBackgroundManager {
         }
     }
 
+    /// The file the presets are persisted in — upstream
+    /// `ReadBookConfig.configFilePath`. It is `nil` when the presets are not
+    /// persisted at all (the tests use that).
+    public var configFileURL: URL? { fileURL }
+
     /// The selected preset.
     public var current: ReaderBackgroundPreset {
         guard presets.indices.contains(selectedIndex) else { return ReaderBackgroundPreset.weixinRead }
@@ -73,5 +78,20 @@ public final class ReaderBackgroundManager {
     public static func loadPresets(from fileURL: URL) -> [ReaderBackgroundPreset]? {
         guard let data = try? Data(contentsOf: fileURL) else { return nil }
         return try? JSONDecoder().decode([ReaderBackgroundPreset].self, from: data)
+    }
+
+    /// Reloads the presets from the file — upstream `ReadBookConfig.upConfig`.
+    ///
+    /// A restore writes the reader configuration file and then asks the
+    /// manager to pick the presets up again.
+    @discardableResult
+    public func reload() -> Bool {
+        guard let fileURL, let loaded = ReaderBackgroundManager.loadPresets(from: fileURL),
+              !loaded.isEmpty else {
+            return false
+        }
+        presets = loaded
+        selectedIndex = min(max(0, selectedIndex), max(0, presets.count - 1))
+        return true
     }
 }

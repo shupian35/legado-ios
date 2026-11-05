@@ -25,6 +25,11 @@ public struct RootView: View {
 
     @ObservedObject var model: LegadoAppModel
 
+    /// The phase of the scene — the upstream backs up when the app is closed
+    /// (`MainActivity.onDestroy` → `Backup.autoBack`), the port does it when
+    /// the app goes to the background.
+    @Environment(\.scenePhase) private var scenePhase
+
     public init(model: LegadoAppModel) {
         self.model = model
     }
@@ -82,6 +87,13 @@ public struct RootView: View {
         // it should be restored.
         .task {
             await model.checkNewBackup()
+        }
+        // The upstream backs up once a day when the app is closed
+        // (`MainActivity.onDestroy` → `Backup.autoBack`); the port backs up
+        // when the app goes to the background.
+        .onChange(of: scenePhase) { phase in
+            guard phase == .background else { return }
+            Task { await model.autoBackup() }
         }
         // Only one alert can be attached to a view, so the error message, the
         // status message and the backup question share this one.

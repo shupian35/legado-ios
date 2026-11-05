@@ -1141,12 +1141,166 @@ public final class LegadoAppModel: ObservableObject {
                 store: environment.store.tableStore,
                 settings: settings
             )
+            if let files = try? BackupConfigFiles.files(inZipData: data) {
+                applyBackupConfigFiles(files)
+            }
             environment.localConfig.lastBackup = Date()
             reloadAll()
             errorMessage = nil
             backupMessage = "已恢复 \(summary.restoredRows) 条记录"
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// The daily automatic backup — upstream `Backup.autoBack()`.
+    ///
+    /// The upstream makes the backup when the main activity is destroyed —
+    /// that is, when the app is closed. The port does it when the app goes to
+    /// the background, which is the iOS equivalent of closing the app.
+    ///
+    /// The backup only happens once a day (`Backup.shouldBackup()`) and only
+    /// when the server does not hold a backup with today's name yet
+    /// (`AppWebDav.hasBackUp`). The reader background images go up with it
+    /// (`AppWebDav.upBgs`).
+    public func autoBackup() async {
+        guard AutoBackup.shouldBackup(lastBackup: environment.localConfig.lastBackup) else { return }
+        guard let service = webDavService() else { return }
+        do {
+            let settings = BackupSettings(
+                password: environment.localConfig.password,
+                deviceName: environment.settings.webDavDeviceName,
+                onlyLatestBackup: environment.settings.onlyLatestBackup,
+                ignoreLocalBook: false
+            )
+            let archive = try LegadoBackup.make(
+                store: environment.store.tableStore,
+                settings: settings,
+                preferences: backupPreferences(),
+                extraFiles: backupConfigFiles()
+            )
+            // Upstream `AppWebDav.hasBackUp(backupZipFileName)` — when the
+            // server already holds today's backup only the time moves on.
+            if try await service.hasBackup(named: archive.fileName) {
+                environment.localConfig.lastBackup = Date()
+                return
+            }
+            try await service.uploadBackup(archive)
+            environment.localConfig.lastBackup = Date()
+            // The reader background images are uploaded with the backup.
+            let files = backgroundImageFiles()
+            if !files.isEmpty {
+                let remote = (try? await service.backgroundFiles().map { $0.name }) ?? []
+                let pending = AutoBackup.pendingBackgrounds(local: files, remote: remote)
+                if !pending.isEmpty {
+                    try await service.uploadBackgrounds(pending)
+                }
+            }
+        } catch {
+            AppLog.shared.put("自动备份失败\n\(error.localizedDescription)", error: error)
+        }
+    }
+
+    /// The preferences that go into `config.xml` — the flat key/value pairs
+    /// of the settings store.
+    private func backupPreferences() -> [String: String] {
+        var result: [String: String] = [:]
+        for key in SettingsKey.allCases {
+            if let value = environment.settings.string(key) {
+                result[key.rawValue] = value
+            }
+        }
+        return result
+    }
+
+    /// The reader background images of the presets — upstream
+    /// `ReadBookConfig.getAllPicBgStr()` plus the file lookup of
+    /// `Backup.backup()`.
+    private func backgroundImageFiles() -> [(name: String, data: Data)] {
+        guard let root = try? LocalFileStore.documentsDirectory() else { return [] }
+        return AutoBackup.backgroundFiles(
+            presets: environment.backgroundManager.presets,
+            root: root
+        )
+    }
+
+    // MARK: - The configuration files of a backup
+
+    /// The configuration files that go into a backup beside the table dumps —
+    /// upstream `Backup.backup()` writes `readConfig.json`,
+    /// `themeConfig.json`, `coverRule.json` and `directLinkUploadRule.json`.
+    public func backupConfigFiles() -> [BackupFile] {
+        let readerConfig = environment.backgroundManager.configFileURL
+            .flatMap { try? Data(contentsOf: $0) }
+        let themeConfig = themeManager.configFileURL
+            .flatMap { try? Data(contentsOf: $0) }
+        let coverRule = BookCoverService.config(store: environment.store).jsonString
+        let directLinkUpload = environment.settings.settingsStore.string(
+            forKey: DirectLinkUpload.ruleKey
+        )
+        return BackupConfigFiles.files(
+            readerConfig: readerConfig,
+            themeConfig: themeConfig,
+            coverRule: coverRule,
+            directLinkUpload: directLinkUpload
+        )
+    }
+
+    /// Applies the configuration files of a backup — upstream
+    /// `Restore.restoreLocked` restores every configuration file into its own
+    /// place.
+    ///
+    /// - Parameter files: the configuration files of the backup, by name.
+    /// - Returns: the number of the applied files.
+    @discardableResult
+    public func applyBackupConfigFiles(_ files: [String: BackupFile]) -> Int {
+        var applied = 0
+        // The reader configuration — the background presets.
+        if let file = files[BackupConfigFiles.readerConfigFileName],
+           let url = environment.backgroundManager.configFileURL {
+            if writeBackupFile(file, to: url) {
+                environment.backgroundManager.reload()
+                applied += 1
+            }
+        }
+        // The themes.
+        if let file = files[BackupConfigFiles.themeConfigFileName],
+           let url = themeManager.configFileURL {
+            if writeBackupFile(file, to: url) {
+                themeManager.reload()
+                applied += 1
+            }
+        }
+        // The cover rule — upstream `BookCover.saveCoverRule(json)`.
+        if let file = files[BackupConfigFiles.coverRuleFileName],
+           let rule = CoverRule.parse(file.string) {
+            try? BookCoverService.save(rule, store: environment.store)
+            applied += 1
+        }
+        // The direct link upload rules — upstream `DirectLinkUpload.putConfig`.
+        if let file = files[BackupConfigFiles.directLinkUploadFileName],
+           let rule = try? JSONDecoder().decode(
+               DirectLinkUploadRule.self,
+               from: Data(file.string.utf8)
+           ) {
+            DirectLinkUpload.putConfig(rule, store: environment.settings.settingsStore)
+            applied += 1
+        }
+        return applied
+    }
+
+    /// Writes a file of a backup into the application container.
+    private func writeBackupFile(_ file: BackupFile, to url: URL) -> Bool {
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try file.data.write(to: url)
+            return true
+        } catch {
+            AppLog.shared.put("恢复配置文件失败\n\(error.localizedDescription)", error: error)
+            return false
         }
     }
 
