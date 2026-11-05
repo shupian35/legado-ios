@@ -52,7 +52,8 @@ final class HttpTtsPlaybackTests: XCTestCase {
             speechRate: rate
         )
         let title = ScriptDigest.md5Encode16("第一章")
-        let content = ScriptDigest.md5Encode16("\(url)|-\(rate)|-第一段")
+        // Upstream: `"${httpTts.url}-|-$speechRate-|-$content"`.
+        let content = ScriptDigest.md5Encode16("\(url)-|-\(rate)-|-第一段")
         XCTAssertEqual(name, "\(title)_\(content)")
     }
 

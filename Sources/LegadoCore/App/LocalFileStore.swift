@@ -44,6 +44,19 @@ public enum LocalFileStore {
         return base
     }
 
+    /// The cache directory of the app — upstream `context.cacheDir`.
+    ///
+    /// The audio of the HTTP TTS engine is cached in it
+    /// (`cacheDir/httpTTS`).
+    public static func cachesDirectory() throws -> URL {
+        guard let base = FileManager.default
+            .urls(for: .cachesDirectory, in: .userDomainMask)
+            .first else {
+            throw ImportError.noDocumentsDirectory
+        }
+        return base
+    }
+
     /// Copies the file at `url` into `<documents>/<directory>/<md5>.<suffix>`
     /// and returns the path of the copy.
     ///

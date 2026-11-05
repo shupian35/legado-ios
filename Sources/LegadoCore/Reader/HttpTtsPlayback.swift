@@ -78,7 +78,8 @@ public enum HttpTtsPlayback {
         speechRate: Int
     ) -> String {
         let title = ScriptDigest.md5Encode16(chapterTitle)
-        let content = ScriptDigest.md5Encode16("\(ttsUrl)|-\(speechRate)|-\(text)")
+        // Upstream: `"${httpTts.url}-|-$speechRate-|-$content"`.
+        let content = ScriptDigest.md5Encode16("\(ttsUrl)-|-\(speechRate)-|-\(text)")
         return "\(title)_\(content)"
     }
 

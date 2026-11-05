@@ -155,22 +155,21 @@ extension HttpTTS: AnalyzeSource {
     /// The parsed header map — upstream `BaseSource.getHeaderMap`.
     ///
     /// The header of a HTTP TTS engine is a JSON object of request headers;
-    /// the login header is merged into it.
+    /// a script rule (`@js:` / `<js>`) is evaluated, the login header is
+    /// merged into it and a default `User-Agent` is added when there is none.
     public func headerMap(
         hasLoginHeader: Bool = false,
         scriptEngine: RuleScriptEngine? = nil,
         userAgent: String = SourceSupport.defaultUserAgent,
         loginHeaderMap: [String: String]? = nil
     ) -> [String: String] {
-        var map: [String: String] = [:]
-        if let header, !header.isEmpty,
-           case let .object(parsed)? = try? JSONValue.parse(header) {
-            for (key, value) in parsed { map[key] = value.textValue ?? "" }
-        }
-        if hasLoginHeader, let loginHeaderMap {
-            map.merge(loginHeaderMap) { _, new in new }
-        }
-        return map
+        SourceSupport.headerMap(
+            header: header,
+            hasLoginHeader: hasLoginHeader,
+            scriptEngine: scriptEngine,
+            userAgent: userAgent,
+            loginHeaderMap: loginHeaderMap
+        )
     }
 }
 

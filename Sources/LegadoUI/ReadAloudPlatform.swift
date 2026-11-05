@@ -179,8 +179,21 @@ public final class HttpTtsSynthesizer: SpeechSynthesizing, @unchecked Sendable {
     public var delivery: HttpTtsDelivery = .download
     /// The upstream `speakSpeed = speechRatePlay + 5`.
     private var speed: Int = 10
+    /// The upstream `AppConfig.ttsSpeechRate` — it is part of the name of the
+    /// cached audio.
+    public var speechRate: Int = 0
     /// Upstream `AppConfig.ignoreAudioFocus`.
     public var ignoreAudioFocus: Bool = false
+    /// The folder of the cached audio — upstream `cacheDir/httpTTS`.
+    public var cacheRoot: URL?
+    /// The title of the chapter — it is part of the name of the cached audio.
+    public var chapterTitle: String = ""
+    /// The stored login header of the profile — upstream
+    /// `AnalyzeUrl(source = httpTts)` merges it into the request.
+    public var loginHeaderMap: [String: String]?
+    /// The callback that receives the error messages of the service — upstream
+    /// `AppLog.put(msg, e, true)`.
+    public var onError: ((String) -> Void)?
     /// The task of the running download.
     private var task: Task<Void, Never>?
 
@@ -207,11 +220,13 @@ public final class HttpTtsSynthesizer: SpeechSynthesizing, @unchecked Sendable {
         task?.cancel()
         task = Task {
             do {
+                let speakText = HttpTtsPlayback.speakText(text)
                 let request = try HttpTts.request(
-                    text: text,
+                    text: speakText,
                     tts: tts,
                     speed: speed,
-                    scriptEngine: scriptEngine
+                    scriptEngine: scriptEngine,
+                    loginHeaderMap: loginHeaderMap
                 )
                 if delivery == .stream {
                     // The audio is streamed straight from the server — upstream
@@ -228,19 +243,116 @@ public final class HttpTtsSynthesizer: SpeechSynthesizing, @unchecked Sendable {
                     )
                     return
                 }
+                // Upstream `hasSpeakFile(name)`: the audio that was downloaded
+                // before is played again.
+                if let root = cacheRoot,
+                   let cached = HttpTtsCache.data(
+                       root: root,
+                       text: text,
+                       chapterTitle: chapterTitle,
+                       ttsUrl: tts.url,
+                       speechRate: speechRate
+                   ) {
+                    player.play(data: cached, ignoreAudioFocus: ignoreAudioFocus, completion: completion)
+                    return
+                }
                 let response = try await client.send(request)
                 let contentType = response.headers.first { $0.key.lowercased() == "content-type" }?.value
+                var data = response.data ?? response.errorBody
+                // Upstream `analyzeUrl.evalJS(checkJs, response)`.
+                if let checkJs = tts.loginCheckJs, !checkJs.isEmpty {
+                    let body = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    let result = try HttpTts.applyLoginCheck(
+                        script: checkJs,
+                        body: body,
+                        code: response.code,
+                        headers: response.headers,
+                        scriptEngine: scriptEngine
+                    )
+                    switch result {
+                    case .unchanged:
+                        break
+                    case .body(let newBody):
+                        data = newBody.data(using: .utf8)
+                    case .failure(let message):
+                        onError?(message)
+                        completion(false)
+                        return
+                    }
+                }
+                // Upstream `getSpeakStream`: a JSON or a text response is the
+                // error message of the service.
+                let text_ = data.flatMap { String(data: $0, encoding: .utf8) }
+                if let message = HttpTts.errorMessage(contentType: contentType, body: text_, tts: tts) {
+                    onError?(message)
+                    completion(false)
+                    return
+                }
+                guard let audio = data else {
+                    completion(false)
+                    return
+                }
                 guard HttpTts.matches(contentType: contentType, tts: tts) else {
                     completion(false)
                     return
                 }
-                guard let data = response.data ?? response.errorBody else {
-                    completion(false)
-                    return
+                if let root = cacheRoot {
+                    HttpTtsCache.store(
+                        audio,
+                        root: root,
+                        text: text,
+                        chapterTitle: chapterTitle,
+                        ttsUrl: tts.url,
+                        speechRate: speechRate
+                    )
                 }
-                player.play(data: data, ignoreAudioFocus: ignoreAudioFocus, completion: completion)
+                player.play(data: audio, ignoreAudioFocus: ignoreAudioFocus, completion: completion)
             } catch {
                 completion(false)
+            }
+        }
+    }
+
+    /// Downloads the audio of the paragraphs of the next chapter — upstream
+    /// `preDownloadAudios(httpTts)`: the first ten paragraphs of the next
+    /// chapter are fetched while the current one is spoken.
+    public func preDownload(paragraphs: [String], chapterTitle: String) {
+        guard delivery == .download, let root = cacheRoot else { return }
+        let items = HttpTtsPlayback.preDownloadPlan(
+            paragraphs: paragraphs,
+            chapterTitle: chapterTitle,
+            ttsUrl: tts.url,
+            speechRate: speechRate
+        )
+        Task {
+            for item in items {
+                guard !item.isSilent else { continue }
+                if HttpTtsCache.data(
+                    root: root,
+                    text: item.text,
+                    chapterTitle: chapterTitle,
+                    ttsUrl: tts.url,
+                    speechRate: speechRate
+                ) != nil {
+                    continue
+                }
+                guard let request = try? HttpTts.request(
+                    text: item.speakText,
+                    tts: tts,
+                    speed: speed,
+                    scriptEngine: scriptEngine,
+                    loginHeaderMap: loginHeaderMap
+                ) else { continue }
+                guard let response = try? await client.send(request),
+                      let data = response.data ?? response.errorBody else { continue }
+                HttpTtsCache.store(
+                    data,
+                    root: root,
+                    text: item.text,
+                    chapterTitle: chapterTitle,
+                    ttsUrl: tts.url,
+                    speechRate: speechRate
+                )
             }
         }
     }
@@ -395,7 +507,31 @@ public final class ReadAloudService: ObservableObject {
     /// The book the reader speaks (the notification shows it).
     public var bookName: String = ""
     /// The chapter the reader speaks (the notification shows it).
-    public var chapterTitle: String = ""
+    ///
+    /// It is part of the name of the cached audio — upstream
+    /// `md5SpeakFileName(content, textChapter)`.
+    public var chapterTitle: String = "" {
+        didSet {
+            #if canImport(AVFoundation)
+            router?.http?.chapterTitle = chapterTitle
+            #endif
+        }
+    }
+
+    /// The folder of the cached audio — upstream `cacheDir/httpTTS`.
+    public var cacheRoot: URL?
+
+    /// The stored login header of the profile — upstream
+    /// `AnalyzeUrl(source = httpTts)` merges it into the request.
+    public var loginHeaderMap: [String: String]?
+
+    /// The upstream `AppConfig.ttsSpeechRate` — it is part of the name of the
+    /// cached audio.
+    public var ttsSpeechRate: Int = 0
+
+    /// The callback that receives the error messages of the service — upstream
+    /// `AppLog.put(msg, e, true)`.
+    public var onError: ((String) -> Void)?
 
     /// The sink of the transport notification (upstream
     /// `BaseReadAloudService` posts the state with the six media actions).
@@ -452,10 +588,37 @@ public final class ReadAloudService: ObservableObject {
             )
             engine.setSpeed(controller.currentConfiguration.speakSpeed)
             engine.delivery = delivery
+            engine.cacheRoot = cacheRoot
+            engine.chapterTitle = chapterTitle
+            engine.loginHeaderMap = loginHeaderMap
+            engine.speechRate = ttsSpeechRate
+            engine.onError = onError
             router?.http = engine
         } else {
             router?.http = nil
         }
+        #endif
+    }
+
+    /// Copies the settings of the service into the HTTP TTS engine.
+    public func refreshHttpTtsSettings() {
+        #if canImport(AVFoundation)
+        guard let engine = router?.http else { return }
+        engine.cacheRoot = cacheRoot
+        engine.chapterTitle = chapterTitle
+        engine.loginHeaderMap = loginHeaderMap
+        engine.speechRate = ttsSpeechRate
+        engine.onError = onError
+        #endif
+    }
+
+    /// Downloads the audio of the next chapter — upstream `preDownloadAudios`.
+    ///
+    /// The first ten paragraphs of the next chapter are fetched while the
+    /// current one is spoken.
+    public func preDownloadNextChapter(paragraphs: [String], chapterTitle: String) {
+        #if canImport(AVFoundation)
+        router?.http?.preDownload(paragraphs: paragraphs, chapterTitle: chapterTitle)
         #endif
     }
 

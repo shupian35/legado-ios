@@ -259,15 +259,27 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
         // The engine of the book wins over the global one — upstream
         // `ReadAloud.ttsEngine` (`ReadBook.book?.getTtsEngine() ?:
         // AppConfig.ttsEngine`).
-        self.readAloud.useHttpTts(
-            TtsEngine.profile(
-                of: TtsEngine.resolve(
-                    bookEngine: TtsEngine.engine(of: book),
-                    globalEngine: environment.settings.ttsEngine
-                ),
-                store: environment.store
-            )
+        let ttsProfile = TtsEngine.profile(
+            of: TtsEngine.resolve(
+                bookEngine: TtsEngine.engine(of: book),
+                globalEngine: environment.settings.ttsEngine
+            ),
+            store: environment.store
         )
+        self.readAloud.useHttpTts(ttsProfile)
+        // The audio of the HTTP TTS engine is cached — upstream
+        // `cacheDir/httpTTS`.
+        self.readAloud.cacheRoot = try? LocalFileStore.cachesDirectory()
+        // The stored login header of the profile — upstream
+        // `AnalyzeUrl(source = httpTts)`.
+        if let ttsProfile {
+            self.readAloud.loginHeaderMap = try? environment.loginService.loginHeaderMap(for: ttsProfile.key)
+        }
+        self.readAloud.ttsSpeechRate = environment.settings.ttsSpeechRate
+        self.readAloud.onError = { message in
+            AppLog.shared.put(message)
+        }
+        self.readAloud.refreshHttpTtsSettings()
         self.autoPager = AutoPager(
             configuration: AutoPager.Configuration(
                 speed: environment.settings.autoReadSpeed,
@@ -830,6 +842,27 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
             chapterIndex: index,
             startIndex: readAloudStartIndex(paragraphs: paragraphs)
         )
+        preDownloadNextChapterAudio()
+    }
+
+    /// Downloads the audio of the next chapter — upstream `preDownloadAudios`.
+    ///
+    /// The first ten paragraphs of the next chapter are fetched while the
+    /// current one is spoken.
+    private func preDownloadNextChapterAudio() {
+        guard readAloud.httpTts != nil else { return }
+        let nextIndex = readBook.durChapterIndex + 1
+        guard chapters.indices.contains(nextIndex) else { return }
+        let chapter = chapters[nextIndex]
+        Task { [weak self] in
+            guard let self else { return }
+            let units = await self.readAloudUnits(for: chapter, index: nextIndex)
+            guard !units.isEmpty else { return }
+            self.readAloud.preDownloadNextChapter(
+                paragraphs: units.map(\.text),
+                chapterTitle: chapter.title
+            )
+        }
     }
 
     /// The spoken units of a chapter.

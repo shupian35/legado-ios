@@ -483,22 +483,97 @@ public enum HttpTts {
     ///   - text: the paragraph that is spoken.
     ///   - tts: the HTTP TTS profile.
     ///   - speed: upstream `speakSpeed = speechRatePlay + 5`.
+    ///   - scriptEngine: evaluates the URL and the header rule.
+    ///   - loginHeaderMap: the stored login header of the profile — upstream
+    ///     `AnalyzeUrl(source = httpTts)` merges it into the request.
+    ///   - userAgent: the fallback `User-Agent`.
     public static func request(
         text: String,
         tts: HttpTTS,
         speed: Int = 10,
-        scriptEngine: RuleScriptEngine? = nil
+        scriptEngine: RuleScriptEngine? = nil,
+        loginHeaderMap: [String: String]? = nil,
+        userAgent: String = SourceSupport.defaultUserAgent
     ) throws -> HttpRequest {
         let url = try buildUrl(text: text, tts: tts, speed: speed, scriptEngine: scriptEngine)
-        var headers: [String: String] = [:]
-        if let header = tts.header, !header.isEmpty {
-            if case let .object(parsed)? = try? JSONValue.parse(header) {
-                for (key, value) in parsed {
-                    headers[key] = value.textValue
-                }
-            }
-        }
+        // Upstream `AnalyzeUrl(source = httpTts)`: the header rule of the
+        // profile is evaluated, the login header is merged into it and a
+        // default `User-Agent` is added when there is none.
+        let headers = tts.headerMap(
+            hasLoginHeader: true,
+            scriptEngine: scriptEngine,
+            userAgent: userAgent,
+            loginHeaderMap: loginHeaderMap
+        )
         return HttpRequest(url: url, method: "GET", headers: headers)
+    }
+
+    /// The error message of a response — upstream `getSpeakStream`.
+    ///
+    /// The upstream throws `NoStackTraceException(response.body.string())` when
+    /// the content type is `application/json` or a `text/*` type, and
+    /// `"TTS服务器返回错误：" + body` when the content type does not match the
+    /// `contentType` of the profile.
+    public static func errorMessage(contentType: String?, body: String?, tts: HttpTTS) -> String? {
+        guard let contentType else { return nil }
+        let type = (contentType.components(separatedBy: ";").first ?? contentType)
+            .trimmingCharacters(in: .whitespaces)
+            .lowercased()
+        if type == "application/json" || type.hasPrefix("text/") {
+            return body ?? ""
+        }
+        if let expected = tts.contentType, !expected.isEmpty,
+           !matches(contentType: type, tts: tts) {
+            return "TTS服务器返回错误：" + (body ?? "")
+        }
+        return nil
+    }
+
+    /// The result of the `loginCheckJs` — upstream
+    /// `analyzeUrl.evalJS(checkJs, response)`.
+    public enum LoginCheckResult: Equatable, Sendable {
+        /// The response is unchanged.
+        case unchanged
+        /// The script replaced the body of the response.
+        case body(String)
+        /// The script reported an error.
+        case failure(String)
+    }
+
+    /// Runs the `loginCheckJs` of a profile on a response.
+    ///
+    /// The upstream binds the response to `result` and uses the value the
+    /// script returns as the new response; a text is an error message and an
+    /// object with a `body` replaces the body.
+    public static func applyLoginCheck(
+        script: String,
+        body: String,
+        code: Int,
+        headers: [String: String],
+        scriptEngine: RuleScriptEngine?
+    ) throws -> LoginCheckResult {
+        let trimmed = script.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let engine = scriptEngine else { return .unchanged }
+        let response = RuleValue.scriptObject([
+            "code": .number(Double(code)),
+            "body": .text(body),
+            "headers": .object(headers.mapValues { RuleValue.text($0) })
+        ])
+        let result = try engine.evaluate(trimmed, bindings: ["result": response])
+        switch result {
+        case .null:
+            return .unchanged
+        case .text(let message):
+            return .failure(message)
+        case .scriptObject(let members):
+            if let newBody = members["body"]?.textValue { return .body(newBody) }
+            return .unchanged
+        case .object(let members):
+            if let newBody = members["body"]?.textValue { return .body(newBody) }
+            return .unchanged
+        default:
+            return .unchanged
+        }
     }
 
     /// The URL of the request — the `{{speakText}}` / `{{speakSpeed}}` bindings
