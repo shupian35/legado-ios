@@ -44,6 +44,12 @@ public struct RemoteBookView: View {
     @State private var isLogPresented = false
     /// The help — upstream `menu_help` (the `webDavBookHelp` document).
     @State private var isHelpPresented = false
+    /// The alert "是否重新加入书架？" — upstream `addToBookShelfAgain`.
+    @State private var isReAddPresented = false
+    @State private var reAddBook: RemoteBook?
+    /// The alert "压缩包没有找到" — upstream `showRemoteBookDownloadAlert`.
+    @State private var isDownloadArchivePresented = false
+    @State private var archiveBook: RemoteBook?
 
     public init(model: LegadoAppModel) {
         self.model = model
@@ -147,6 +153,26 @@ public struct RemoteBookView: View {
                 WebDavBookHelpView()
             }
         }
+        .alert("是否重新加入书架？", isPresented: $isReAddPresented) {
+            Button("确定") {
+                if let reAddBook {
+                    importBook(reAddBook)
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("重新加入书架会再次导入这本书")
+        }
+        .alert("压缩包没有找到", isPresented: $isDownloadArchivePresented) {
+            Button("确定") {
+                if let archiveBook {
+                    downloadArchive(archiveBook)
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("是否下载这本书")
+        }
         .onAppear {
             webDavUrl = model.environment.settings.webDavUrl ?? ""
             webDavAccount = model.environment.settings.webDavAccount ?? ""
@@ -212,7 +238,13 @@ public struct RemoteBookView: View {
                 .buttonStyle(PlainButtonStyle())
             } else {
                 Button {
-                    toggle(book)
+                    // Upstream `RemoteBookAdapter` — a book that is already in
+                    // the library is opened, every other book is selected.
+                    if book.isOnBookShelf {
+                        startRead(book)
+                    } else {
+                        toggle(book)
+                    }
                 } label: {
                     HStack {
                         Image(systemName: selected.contains(book.path) ? "checkmark.square" : "square")
@@ -226,6 +258,18 @@ public struct RemoteBookView: View {
                     }
                 }
                 .buttonStyle(PlainButtonStyle())
+                .contextMenu {
+                    // Upstream `RemoteBookAdapter.setOnLongClickListener` —
+                    // the long press re-imports a book that is already in the
+                    // library.
+                    Button("开始阅读") {
+                        startRead(book)
+                    }
+                    Button("重新加入书架") {
+                        reAddBook = book
+                        isReAddPresented = true
+                    }
+                }
             }
         }
     }
@@ -260,7 +304,8 @@ public struct RemoteBookView: View {
         Task {
             do {
                 let listed = try await importer.list(subPath: path.isEmpty ? nil : path.joined(separator: "/"))
-                books = RemoteBookImporter.sorted(listed, by: sort, ascending: ascending)
+                books = model.markRemoteBooksOnShelf(listed)
+                books = RemoteBookImporter.sorted(books, by: sort, ascending: ascending)
                 selected = selected.filter { path in books.contains { $0.path == path } }
             } catch {
                 status = "加载失败：\(error.localizedDescription)"
@@ -277,6 +322,52 @@ public struct RemoteBookView: View {
         Task {
             let count = await model.importRemoteBooks(chosen, importer: importer)
             selected.removeAll()
+            status = "已导入 \(count) 本书"
+            isLoading = false
+            load()
+        }
+    }
+
+    /// Starts a remote book — upstream `RemoteBookActivity.startRead`.
+    ///
+    /// A book that is already in the library is opened, an archive that is in
+    /// the local storage is unpacked, and an archive that is missing is
+    /// downloaded after the user confirms it.
+    private func startRead(_ book: RemoteBook) {
+        switch model.remoteBookAction(for: book) {
+        case .openBook(let bookUrl):
+            guard let local = try? model.environment.store.book(url: bookUrl) else { return }
+            Task { await model.openReader(for: local) }
+        case .openArchive(let fileName):
+            guard let imported = model.openLocalArchive(named: fileName) else { return }
+            Task { await model.openReader(for: imported) }
+        case .downloadArchive:
+            archiveBook = book
+            isDownloadArchivePresented = true
+        case .nothing:
+            break
+        }
+    }
+
+    /// Downloads an archive and imports the books inside it — the OK button of
+    /// the "压缩包没有找到" alert.
+    private func downloadArchive(_ book: RemoteBook) {
+        guard let importer = importer() else { return }
+        isLoading = true
+        Task {
+            let count = await model.downloadRemoteArchive(book, importer: importer)
+            status = "已导入 \(count) 本书"
+            isLoading = false
+            load()
+        }
+    }
+
+    /// Imports a book again — the OK button of the "是否重新加入书架？" alert.
+    private func importBook(_ book: RemoteBook) {
+        guard let importer = importer() else { return }
+        isLoading = true
+        Task {
+            let count = await model.importRemoteBooks([book], importer: importer)
             status = "已导入 \(count) 本书"
             isLoading = false
             load()

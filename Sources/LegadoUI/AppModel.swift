@@ -829,6 +829,99 @@ public final class LegadoAppModel: ObservableObject {
         return imported
     }
 
+    /// Marks the remote books that are already in the library — upstream
+    /// `LocalBook.isOnBookShelf(webDavFile.displayName)`.
+    ///
+    /// The upstream uses the flag to decide whether a tap opens the book or
+    /// selects it.
+    public func markRemoteBooksOnShelf(_ books: [RemoteBook]) -> [RemoteBook] {
+        let names = Set(((try? environment.store.allBooks()) ?? []).map { $0.originName })
+        return books.map { book in
+            var copy = book
+            copy.isOnBookShelf = !book.isDir && names.contains(book.filename)
+            return copy
+        }
+    }
+
+    /// What tapping a remote book does — upstream
+    /// `RemoteBookActivity.startRead`.
+    ///
+    /// - Returns: the action the browser has to carry out.
+    public func remoteBookAction(for remote: RemoteBook) -> RemoteBookAction {        let onShelf = try? environment.store.book(originName: remote.filename)
+        var archiveExists = false
+        if RemoteBookActions.isArchive(remote), let importer = localImporter {
+            let candidate = importer.booksDirectory
+                .appendingPathComponent(RemoteBookActions.localFileName(remote))
+            archiveExists = FileManager.default.fileExists(atPath: candidate.path)
+        }
+        return RemoteBookActions.startRead(
+            remote: remote,
+            bookOnShelf: onShelf,
+            archiveExists: archiveExists
+        )
+    }
+
+    /// Downloads a remote archive and imports the books inside it — the
+    /// upstream's "压缩包没有找到" alert downloads the book and starts it
+    /// again.
+    ///
+    /// - Returns: the number of the imported books.
+    @discardableResult
+    public func downloadRemoteArchive(
+        _ remote: RemoteBook,
+        importer: RemoteBookImporter
+    ) async -> Int {
+        guard let localImporter else {
+            errorMessage = "本地书导入不可用"
+            return 0
+        }
+        do {
+            let data = try await importer.download(remote)
+            let temporary = FileManager.default.temporaryDirectory
+                .appendingPathComponent(remote.filename)
+            try data.write(to: temporary)
+            defer { try? FileManager.default.removeItem(at: temporary) }
+            let books = try localImporter.importArchive(from: temporary)
+            for book in books {
+                var stored = book
+                stored.origin = importer.origin(for: remote)
+                try environment.store.update(stored)
+            }
+            reloadLocalBooks()
+            reloadBookshelf()
+            return books.count
+        } catch {
+            errorMessage = "下载失败：\(error.localizedDescription)"
+            return 0
+        }
+    }
+
+    /// Unpacks an archive that is already in the local storage — upstream
+    /// `onArchiveFileClick`.
+    ///
+    /// - Returns: the first imported book, so that the reader can open it.
+    @discardableResult
+    public func openLocalArchive(named fileName: String) -> Book? {
+        guard let localImporter else {
+            errorMessage = "本地书导入不可用"
+            return nil
+        }
+        let url = localImporter.booksDirectory.appendingPathComponent(fileName)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            errorMessage = "压缩包没有找到"
+            return nil
+        }
+        do {
+            let books = try localImporter.importArchive(from: url)
+            reloadLocalBooks()
+            reloadBookshelf()
+            return books.first
+        } catch {
+            errorMessage = "解压失败：\(error.localizedDescription)"
+            return nil
+        }
+    }
+
     // MARK: - The WebDAV servers
 
     /// The synchronisation servers — upstream `ServersDialog`.

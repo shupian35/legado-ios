@@ -64,6 +64,19 @@ public final class LegadoStore {
         return Book(row: row)
     }
 
+    /// A single book by the name of its file — upstream
+    /// `BookDao.getBookByFileName` (`select * from books where originName = ?`).
+    ///
+    /// The remote-book browser uses it to find the book that belongs to a
+    /// file on the WebDAV server.
+    public func book(originName: String) throws -> Book? {
+        guard let row = try tables.firstRow(
+            in: "books",
+            where: .equals(column: "originName", value: .text(originName))
+        ) else { return nil }
+        return Book(row: row)
+    }
+
     /// Inserts or replaces a book.
     public func insert(_ book: Book) throws {
         try tables.insert(book.row, into: "books")

@@ -1114,6 +1114,13 @@ public struct FileManageView: View {
                     BackupView(model: model)
                 }
             }
+            Section("文件浏览") {
+                // Upstream `FileManageActivity` — the browser of the app's
+                // own files folder.
+                NavigationLink("文件管理") {
+                    FileBrowserView()
+                }
+            }
             if let message {
                 Section {
                     Text(message)
