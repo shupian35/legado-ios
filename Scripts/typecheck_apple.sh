@@ -104,13 +104,23 @@ if [ -z "$PRODUCTS" ]; then
     exit 1
 fi
 echo "the built modules: $PRODUCTS"
+# The dependency module and the package targets may live in different
+# subdirectories of the build (SwiftPM puts the package's own modules in
+# `Modules/` but the dependency module can stay next to the objects), so each
+# one is looked up on its own.
 for module in SwiftSoup LegadoUIShim; do
-    if [ -d "$PRODUCTS/$module.swiftmodule" ]; then
+    if [ -e "$PRODUCTS/$module.swiftmodule" ]; then
         cp -r "$PRODUCTS/$module.swiftmodule" "$OUT/"
-    else
-        echo "!! $module.swiftmodule is missing — run 'sw.sh build' first"
-        exit 1
+        continue
     fi
+    FOUND_MODULE="$(find "$SCRATCH" -name "$module.swiftmodule" -print -quit 2>/dev/null)"
+    if [ -n "$FOUND_MODULE" ]; then
+        cp -r "$FOUND_MODULE" "$OUT/"
+        continue
+    fi
+    echo "!! $module.swiftmodule is missing — run 'sw.sh build' first"
+    find "$SCRATCH" -maxdepth 5 -name '*SwiftSoup*' 2>/dev/null | head -20
+    exit 1
 done
 
 # The zlib bridge is a C target — the module map of the build points at a

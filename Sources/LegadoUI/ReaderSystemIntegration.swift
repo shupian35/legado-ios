@@ -118,13 +118,27 @@ public final class ReaderSystemIntegration: ObservableObject {
     }
 
     #if canImport(UIKit)
-    /// Rotates the active window — `UIApplication.requestedOrientation` does
-    /// not exist; since iOS 16 the orientation is requested on the window
-    /// scene.
+    /// Rotates the active window.
+    ///
+    /// There is no `UIApplication.requestedOrientation`; since iOS 16 the
+    /// orientation is a *geometry preference* of the window scene.
     @MainActor
     private func applyOrientation(_ orientation: UIInterfaceOrientation) {
+        // A mask is the bit set of the interface orientations it allows
+        // (`UIInterfaceOrientationMask.landscapeLeft == 1 << .landscapeLeft`),
+        // so every case maps to the mask of the same name — the landscape
+        // names are only swapped between `UIDeviceOrientation` and
+        // `UIInterfaceOrientation`, never between an orientation and its mask.
+        let mask: UIInterfaceOrientationMask
+        switch orientation {
+        case .portrait: mask = .portrait
+        case .portraitUpsideDown: mask = .portraitUpsideDown
+        case .landscapeLeft: mask = .landscapeLeft
+        case .landscapeRight: mask = .landscapeRight
+        default: mask = .all
+        }
         for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
-            scene.requestedOrientation = orientation
+            scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask))
         }
     }
     #endif

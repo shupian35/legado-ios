@@ -222,8 +222,8 @@ public enum UIDeviceBatteryState: Int {
     case full = 3
 }
 
-/// `UIKit.UIInterfaceOrientation` — the concrete orientation of a window
-/// (`UIWindowScene.requestedOrientation`), as opposed to the mask.
+/// `UIKit.UIInterfaceOrientation` — the concrete orientation of a window,
+/// as opposed to the mask.
 public enum UIInterfaceOrientation: Int {
     case unknown = 0
     case portrait = 1
@@ -235,10 +235,27 @@ public enum UIInterfaceOrientation: Int {
 /// `UIKit.UIScene`.
 open class UIScene: NSObject {}
 
-/// `UIKit.UIWindowScene` — since iOS 16 the orientation is requested on the
-/// window scene, not on the application.
+/// `UIKit.UIWindowScene` — since iOS 16 the orientation is a geometry
+/// preference of the window scene, not a property of the application.
 open class UIWindowScene: UIScene {
-    open var requestedOrientation: UIInterfaceOrientation = .unknown
+
+    /// `UIKit.UIWindowScene.GeometryPreferences`.
+    open class GeometryPreferences: NSObject {
+        public override init() { super.init() }
+
+        /// `UIKit.UIWindowScene.GeometryPreferences.iOS` — the preferences of
+        /// a window scene on iOS.
+        open class iOS: GeometryPreferences {
+            public init(interfaceOrientations: UIInterfaceOrientationMask) {
+                super.init()
+            }
+        }
+    }
+
+    open func requestGeometryUpdate(
+        _ geometryPreferences: GeometryPreferences,
+        errorHandler: ((Error) -> Void)? = nil
+    ) {}
 }
 
 /// `UIKit.UIInterfaceOrientationMask`.
