@@ -517,15 +517,20 @@ import JavaScriptCore
 
 /// A `RuleScriptEngine` backed by JavaScriptCore.
 public final class JavaScriptCoreEngine: RuleScriptEngine {
-    private let context: JSContext
+    /// `nil` when the platform refused to start JavaScriptCore (a restricted
+    /// sandbox such as a sideloaded container, where `JSContext()` returns
+    /// nil). The engine then reports a script error instead of taking the
+    /// whole app down at launch.
+    private let context: JSContext?
     private let environment: ScriptEnvironment
     private let javaFacade: LegadoJavaFacade
 
     public init(environment: ScriptEnvironment = ScriptEnvironment()) {
         self.environment = environment
-        let context = JSContext()!
+        let context = JSContext()
         self.context = context
         self.javaFacade = LegadoJavaFacade(environment: environment)
+        guard let context else { return }
         context.exceptionHandler = { ctx, exception in
             ctx?.exception = exception
         }
@@ -541,7 +546,7 @@ public final class JavaScriptCoreEngine: RuleScriptEngine {
     }
 
     /// The underlying JavaScript context, so a host can install extra globals.
-    public var jsContext: JSContext { context }
+    public var jsContext: JSContext? { context }
 
     public func evaluate(_ script: String, bindings: [String: RuleValue]) throws -> RuleValue {
         try evaluate(script, bindings: bindings, source: nil)
@@ -552,6 +557,9 @@ public final class JavaScriptCoreEngine: RuleScriptEngine {
         bindings: [String: RuleValue],
         source: ScriptSourceContext?
     ) throws -> RuleValue {
+        guard let context else {
+            throw ScriptEngineError.scriptFailed("the JavaScript runtime is unavailable")
+        }
         // Upstream binds the source object as `java`, so the script always
         // talks to the source that is being evaluated.
         if let source {

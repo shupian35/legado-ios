@@ -28,7 +28,18 @@ public final class NotificationService: NSObject, NotificationPosting, UNUserNot
     /// The key of the channel inside the user info of a notification.
     public static let channelKey = "legado.channel"
 
-    private let center: UNUserNotificationCenter
+    /// Created on first use, not during startup: the service singleton is built
+    /// before the first frame (`makeDefault()` wires its handlers), and
+    /// `UNUserNotificationCenter.current()` there would put a system API on the
+    /// launch path where any failure kills the app before any UI appears.
+    private lazy var center: UNUserNotificationCenter = {
+        let center = UNUserNotificationCenter.current()
+        // The delegate makes the notification show up while the app is in the
+        // foreground — the read-aloud notification is posted while the reader
+        // is open.
+        center.delegate = self
+        return center
+    }()
 
     /// The handler of the action buttons of the notifications — upstream
     /// `BaseReadAloudService` handles the six media actions of the transport
@@ -48,12 +59,7 @@ public final class NotificationService: NSObject, NotificationPosting, UNUserNot
     public var notificationActionHandlers: [Int: (@Sendable (String) -> Void)] = [:]
 
     private override init() {
-        center = UNUserNotificationCenter.current()
         super.init()
-        // The delegate makes the notification show up while the app is in the
-        // foreground — the read-aloud notification is posted while the reader
-        // is open.
-        center.delegate = self
     }
 
     /// Asks for the permission and registers the channels.
