@@ -146,6 +146,16 @@ if ! swiftc -emit-module -emit-module-path "$OUT/LegadoCore.swiftmodule" \
     FAILED=1
 fi
 
+# LegadoUI imports LegadoServer unconditionally (the local web service), so
+# the module has to be built here first — otherwise the import cannot resolve.
+echo "== LegadoServer (the local web service) =="
+SERVER_SOURCES=$(find "$REPO/Sources/LegadoServer" -name '*.swift' | sort)
+# shellcheck disable=SC2086
+if ! swiftc -emit-module -emit-module-path "$OUT/LegadoServer.swiftmodule" \
+    -module-name LegadoServer -swift-version 5 $SEARCH $SERVER_SOURCES ; then
+    FAILED=1
+fi
+
 echo "== LegadoUI (with the Apple branches enabled) =="
 UI_SOURCES=$(find "$REPO/Sources/LegadoUI" -name '*.swift' | sort)
 # shellcheck disable=SC2086
