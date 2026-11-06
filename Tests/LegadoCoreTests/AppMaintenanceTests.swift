@@ -160,4 +160,17 @@ final class AppMaintenanceTests: XCTestCase {
         let second = try AppMaintenance.importDefaultsAfterUpgrade(store: store, localConfig: config)
         XCTAssertTrue(second.isEmpty)
     }
+
+    func testAnImportThatDidNotRunIsNotMarkedAsDone() throws {
+        // Regression: the version counter used to be raised by the check
+        // itself. When the schema creation was broken, every default import
+        // threw — but the counters had already been raised, so the defaults
+        // were never imported, not even after the schema was repaired.
+        let config = LocalConfig(store: InMemorySettingsStore())
+        XCTAssertTrue(config.needsDefaultRssSources)
+        // The check is a pure read: only a successful import advances it.
+        XCTAssertTrue(config.needsDefaultRssSources)
+        config.markDefaultRssSourcesImported()
+        XCTAssertFalse(config.needsDefaultRssSources)
+    }
 }

@@ -220,18 +220,22 @@ public enum AppMaintenance {
         var imported: [String] = []
         if localConfig.needsDefaultHttpTTS {
             try DefaultData.importDefaultHttpTTS(store: store)
+            localConfig.markDefaultHttpTTSImported()
             imported.append("httpTTS")
         }
         if localConfig.needsDefaultTxtTocRules {
             try DefaultData.importDefaultTocRules(store: store)
+            localConfig.markDefaultTxtTocRulesImported()
             imported.append("txtTocRule")
         }
         if localConfig.needsDefaultRssSources {
             try DefaultData.importDefaultRssSources(store: store)
+            localConfig.markDefaultRssSourcesImported()
             imported.append("rssSources")
         }
         if localConfig.needsDefaultDictRules {
             try DefaultData.importDefaultDictRules(store: store)
+            localConfig.markDefaultDictRulesImported()
             imported.append("dictRules")
         }
         return imported
