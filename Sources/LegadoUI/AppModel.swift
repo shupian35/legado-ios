@@ -710,6 +710,12 @@ public final class LegadoAppModel: ObservableObject {
         let tables: TableStore = MemoryTableStore()
         #endif
         let store = LegadoStore(tables: tables)
+        // A database file left behind by a build whose schema creation aborted
+        // holds only part of the tables — probing one of the last ones tells
+        // us that before the repair. The default data counters were raised by
+        // that build even though the import threw, so they have to be cleared
+        // once the schema is complete, otherwise the defaults never return.
+        let wasSchemaIncomplete = (try? store.allRssSources()) == nil
         do {
             try store.createSchema()
         } catch {
@@ -717,6 +723,10 @@ public final class LegadoAppModel: ObservableObject {
             // unrelated "statement failed" alert on a tab; keep the real
             // reason in the log.
             AppLog.shared.put("创建数据库失败\n\(error.localizedDescription)", error: error)
+        }
+        let localConfig = LocalConfig(store: UserDefaultsSettingsStore.localSuite())
+        if wasSchemaIncomplete {
+            localConfig.resetDefaultDataVersions()
         }
         // Upstream `DefaultData` fills the empty tables with the defaults
         // that ship with the app (the TXT table of contents rules, the
@@ -774,7 +784,7 @@ public final class LegadoAppModel: ObservableObject {
         let environment = AppEnvironment(
             store: store,
             settings: settings,
-            localConfig: LocalConfig(store: UserDefaultsSettingsStore.localSuite()),
+            localConfig: localConfig,
             scriptEngine: scriptEngine,
             httpClient: httpClient,
             cookieStore: cookieStore,

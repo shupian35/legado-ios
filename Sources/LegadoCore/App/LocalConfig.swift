@@ -182,6 +182,24 @@ public final class LocalConfig {
         markImported(2, forKey: "needUpDictRule")
     }
 
+    /// Forgets which default data sets were imported, so the next upgrade run
+    /// imports them again.
+    ///
+    /// A build whose schema creation failed raised those counters before the
+    /// import threw — the device then kept the counters while the tables (and
+    /// the default RSS sources) were missing. Once the schema is repaired the
+    /// counters have to be cleared for the data to come back.
+    public func resetDefaultDataVersions() {
+        for key in [
+            "httpTtsVersion",
+            "txtTocRuleVersion",
+            "rssSourceVersion",
+            "needUpDictRule"
+        ] {
+            store.set(0, forKey: key)
+        }
+    }
+
     /// The port of upstream `LocalConfig.isLastVersion`, split from the write:
     /// the version is only raised once the import **succeeded** (see
     /// `markImported`). The upstream check raises the counter first, so an

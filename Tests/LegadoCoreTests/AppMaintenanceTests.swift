@@ -173,4 +173,19 @@ final class AppMaintenanceTests: XCTestCase {
         config.markDefaultRssSourcesImported()
         XCTAssertFalse(config.needsDefaultRssSources)
     }
+
+    func testARepairedDatabaseImportsTheDefaultsAgain() throws {
+        // A build of the broken schema raised the counters and then threw, so
+        // the database was repaired later but stayed without the defaults.
+        // Clearing the counters has to bring them back.
+        let store = try makeStore()
+        let config = LocalConfig(store: InMemorySettingsStore())
+        _ = try AppMaintenance.importDefaultsAfterUpgrade(store: store, localConfig: config)
+        XCTAssertTrue(try AppMaintenance.importDefaultsAfterUpgrade(store: store, localConfig: config).isEmpty)
+
+        config.resetDefaultDataVersions()
+        let imported = try AppMaintenance.importDefaultsAfterUpgrade(store: store, localConfig: config)
+        XCTAssertEqual(Set(imported), ["httpTTS", "txtTocRule", "rssSources", "dictRules"])
+        XCTAssertFalse(try store.allRssSources().isEmpty)
+    }
 }
