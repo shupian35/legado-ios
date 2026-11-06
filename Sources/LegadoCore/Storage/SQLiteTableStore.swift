@@ -42,9 +42,14 @@ public final class SQLiteTableStore: TableStore {
     // MARK: - Schema
 
     public func createSchema() throws {
-        for table in LegadoSchema.tables {
-            try execute(table.createStatement)
-            for statement in table.createIndexStatements { try execute(statement) }
+        // One transaction, so a failing statement cannot leave a half created
+        // schema behind: the app would otherwise fail on every query of the
+        // tables that were never created.
+        try transaction {
+            for table in LegadoSchema.tables {
+                try execute(table.createStatement)
+                for statement in table.createIndexStatements { try execute(statement) }
+            }
         }
     }
 

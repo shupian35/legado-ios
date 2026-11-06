@@ -116,15 +116,19 @@ public struct TableDefinition: Equatable {
     public var createIndexStatements: [String] {
         var statements: [String] = []
         for group in uniqueKeys {
-            let name = "index_\(name)_\(group.joined(separator: "_"))"
+            // The local name must not shadow `name`: the index is created on
+            // the *table* `name`, and shadowing it produced
+            // `CREATE INDEX "index_…" ON "index_…"`, which SQLite rejects with
+            // "no such table" — and the schema creation stopped there.
+            let indexName = "index_\(name)_\(group.joined(separator: "_"))"
             statements.append(
-                "CREATE UNIQUE INDEX IF NOT EXISTS \"\(name)\" ON \"\(name)\" (\(group.map { "\"\($0)\"" }.joined(separator: ", ")))"
+                "CREATE UNIQUE INDEX IF NOT EXISTS \"\(indexName)\" ON \"\(name)\" (\(group.map { "\"\($0)\"" }.joined(separator: ", ")))"
             )
         }
         for group in indexes {
-            let name = "index_\(name)_\(group.joined(separator: "_"))"
+            let indexName = "index_\(name)_\(group.joined(separator: "_"))"
             statements.append(
-                "CREATE INDEX IF NOT EXISTS \"\(name)\" ON \"\(name)\" (\(group.map { "\"\($0)\"" }.joined(separator: ", ")))"
+                "CREATE INDEX IF NOT EXISTS \"\(indexName)\" ON \"\(name)\" (\(group.map { "\"\($0)\"" }.joined(separator: ", ")))"
             )
         }
         return statements

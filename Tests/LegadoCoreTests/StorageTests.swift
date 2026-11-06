@@ -42,6 +42,25 @@ final class LegadoSchemaTests: XCTestCase {
         XCTAssertTrue(indexes.contains { $0.contains("index_books_name_author") })
     }
 
+    func testEveryIndexIsCreatedOnItsOwnTable() {
+        // Regression: the index name used to shadow the table name, so the
+        // statement read `CREATE INDEX "index_…" ON "index_…"`. SQLite then
+        // failed with "no such table" and the whole schema creation stopped
+        // on device — every table after `books` was missing.
+        for table in LegadoSchema.tables {
+            for statement in table.createIndexStatements {
+                XCTAssertTrue(
+                    statement.contains("ON \"\(table.name)\""),
+                    "an index of \(table.name) is not created on it: \(statement)"
+                )
+                XCTAssertFalse(
+                    statement.contains("ON \"index_"),
+                    "the index name shadowed the table name: \(statement)"
+                )
+            }
+        }
+    }
+
     func testChaptersCascadeToBooks() {
         let chapters = LegadoSchema.table("chapters")
         XCTAssertNotNil(chapters)

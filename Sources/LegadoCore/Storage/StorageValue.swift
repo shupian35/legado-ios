@@ -78,7 +78,7 @@ public enum StorageValue: Equatable, Hashable {
 public typealias StorageRow = [String: StorageValue]
 
 /// Errors raised by the storage layer.
-public enum StorageError: Error, Equatable {
+public enum StorageError: Error, Equatable, LocalizedError {
     /// The store is not available on this platform.
     case unavailable(String)
     /// The table does not exist.
@@ -89,4 +89,19 @@ public enum StorageError: Error, Equatable {
     case constraintViolation(String)
     /// The statement failed.
     case statementFailed(String)
+
+    /// The message the UI shows.
+    ///
+    /// Without it `localizedDescription` is the useless "The operation
+    /// couldn't be completed. (LegadoCore.StorageError error 4.)" — the SQL
+    /// that failed is exactly what a bug report needs.
+    public var errorDescription: String? {
+        switch self {
+        case .unavailable(let reason): return "数据库不可用：\(reason)"
+        case .unknownTable(let name): return "数据表不存在：\(name)"
+        case .unknownColumn(let name): return "数据列不存在：\(name)"
+        case .constraintViolation(let detail): return "数据不符合约束：\(detail)"
+        case .statementFailed(let detail): return "数据库语句执行失败：\(detail)"
+        }
+    }
 }

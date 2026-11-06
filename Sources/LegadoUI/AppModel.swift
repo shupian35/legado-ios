@@ -710,7 +710,14 @@ public final class LegadoAppModel: ObservableObject {
         let tables: TableStore = MemoryTableStore()
         #endif
         let store = LegadoStore(tables: tables)
-        try? store.createSchema()
+        do {
+            try store.createSchema()
+        } catch {
+            // A silently half-created schema used to surface much later as an
+            // unrelated "statement failed" alert on a tab; keep the real
+            // reason in the log.
+            AppLog.shared.put("创建数据库失败\n\(error.localizedDescription)", error: error)
+        }
         // Upstream `DefaultData` fills the empty tables with the defaults
         // that ship with the app (the TXT table of contents rules, the
         // keyboard assists).
