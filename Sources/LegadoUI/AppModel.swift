@@ -1739,6 +1739,11 @@ public final class LegadoAppModel: ObservableObject {
             )
             if !imported.isEmpty {
                 AppLog.shared.put("导入默认数据：\(imported.joined(separator: ", "))")
+                // The lists were loaded when the model was built (before the
+                // import), so the freshly restored defaults have to be picked
+                // up here — otherwise the RSS tab looks empty until the next
+                // launch.
+                reloadRSS()
             }
         } catch {
             AppLog.shared.put("导入默认数据失败\n\(error.localizedDescription)", error: error)
