@@ -40,11 +40,13 @@ public struct DragGesture: Equatable {
     }
 
     /// The action run while the gesture changes.
+    @MainActor
     public func onChanged(_ action: @escaping (Value) -> Void) -> DragGestureModifier {
         DragGestureModifier()
     }
 
     /// The action run when the gesture ends.
+    @MainActor
     public func onEnded(_ action: @escaping (Value) -> Void) -> DragGestureModifier {
         DragGestureModifier()
     }
@@ -83,11 +85,13 @@ public struct MagnificationGesture: Equatable {
     public typealias Value = Double
 
     /// The action run while the gesture changes.
+    @MainActor
     public func onChanged(_ action: @escaping (Value) -> Void) -> MagnificationGestureModifier {
         MagnificationGestureModifier()
     }
 
     /// The action run when the gesture ends.
+    @MainActor
     public func onEnded(_ action: @escaping (Value) -> Void) -> MagnificationGestureModifier {
         MagnificationGestureModifier()
     }

@@ -1992,7 +1992,10 @@ public final class ReaderController: NSObject, ObservableObject, ReadBookDelegat
             chapters = toc
             await readBook.replaceBook(switched, chapters: toc)
             refreshPage()
-            model.reloadBookshelf()
+            // The state of the shelf lives on the main actor.
+            await MainActor.run {
+                model.reloadBookshelf()
+            }
         } catch {
             errorMessage = error.localizedDescription
         }

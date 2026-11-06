@@ -926,6 +926,7 @@ enum VariableKind: String, Identifiable {
     var id: String { rawValue }
 
     /// The current value of the variable.
+    @MainActor
     func variableText(book: Book, model: LegadoAppModel) -> String {
         switch self {
         case .source:
@@ -937,6 +938,7 @@ enum VariableKind: String, Identifiable {
     }
 
     /// Saves the variable.
+    @MainActor
     func save(_ text: String, book: Book, model: LegadoAppModel) {
         switch self {
         case .source:

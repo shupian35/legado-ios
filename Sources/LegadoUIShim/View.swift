@@ -21,6 +21,7 @@ import Foundation
 // MARK: - View
 
 /// The root of the view protocol — mirrors `SwiftUI.View`.
+@MainActor @preconcurrency
 public protocol View {
     associatedtype Body: View
     @ViewBuilder var body: Body { get }
@@ -66,6 +67,7 @@ public struct TupleView<T>: View {
 
 /// The result builder of SwiftUI — `SwiftUI.ViewBuilder`.
 @resultBuilder
+@MainActor
 public enum ViewBuilder {
     public static func buildBlock() -> EmptyView { EmptyView() }
     public static func buildBlock<C0: View>(_ c0: C0) -> C0 { c0 }

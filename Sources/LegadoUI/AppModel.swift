@@ -100,6 +100,14 @@ final class WeakAppModelBox: @unchecked Sendable {
 }
 
 /// The state of the application shell.
+///
+/// The whole state lives on the main actor: the publisher of Combine
+/// (`ObservableObject`) takes a lock while it sends, and SwiftUI takes its
+/// own lock while it applies an update. Two threads that publish two
+/// properties of one observable object at once can take those locks in the
+/// two orders and hang the app at launch — the state therefore has exactly
+/// one thread, the main one.
+@MainActor
 public final class LegadoAppModel: ObservableObject {
 
     /// The services.
@@ -895,7 +903,11 @@ public final class LegadoAppModel: ObservableObject {
             threadCount: environment.settings.threadCount,
             onUpdate: { [box, counter] _ in
                 let remaining = counter.finishOne()
-                box.model?.upBooksCount = remaining
+                // The workers of the update run on their own threads — the
+                // badge of the tab is published on the main one.
+                Task { @MainActor in
+                    box.model?.upBooksCount = remaining
+                }
             }
         )
         upBooksCount = counter.remaining

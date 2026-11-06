@@ -20,6 +20,7 @@ import Foundation
 // MARK: - Scene
 
 /// `SwiftUI.Scene`.
+@MainActor @preconcurrency
 public protocol Scene {
     associatedtype Body: Scene
     @SceneBuilder var body: Body { get }
@@ -30,6 +31,7 @@ public protocol Scene {
 /// The real SwiftUI `App` protocol has no `main()` — the compiler synthesises it
 /// for an `@main` type. The shim declares it (with an empty default) so the
 /// same `@main` entry point compiles on Linux as well.
+@MainActor @preconcurrency
 public protocol App {
     associatedtype Body: Scene
     init()
@@ -80,6 +82,7 @@ public struct Settings<Content: View>: Scene {
 
 /// `SwiftUI.SceneBuilder`.
 @resultBuilder
+@MainActor
 public enum SceneBuilder {
     public static func buildBlock() -> EmptyScene { EmptyScene() }
     public static func buildBlock<S: Scene>(_ scene: S) -> S { scene }

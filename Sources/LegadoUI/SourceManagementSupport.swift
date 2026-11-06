@@ -887,6 +887,7 @@ public struct TextPromptView: View {
 ///
 /// The upstream accepts a JSON object with `$.sourceUrls`, a JSON array of the
 /// sources or an absolute url that points to such a document.
+@MainActor
 public enum RssSourceImporter {
 
     /// The message of a failed import — upstream "格式不对".
@@ -974,6 +975,7 @@ public enum RssSourceImporter {
 /// Upstream `ui/association/ImportBookSourceDialog.kt` (L120-126) imports a
 /// source that is a JSON document **or** the url of such a document; the
 /// replace rules do the same (`ImportReplaceRuleDialog`).
+@MainActor
 public enum DocumentImporter {
 
     /// The message of a failed import — upstream "格式不对".

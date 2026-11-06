@@ -145,8 +145,8 @@ extension View {
     public func onOpenURL(perform action: @escaping (URL) -> Void) -> some View { ModifiedView(self) }
     public func onChange<V: Equatable>(of value: V, initial: Bool = false, _ action: @escaping (V, V) -> Void) -> some View { ModifiedView(self) }
     public func onChange<V: Equatable>(of value: V, initial: Bool = false, _ action: @escaping (V) -> Void) -> some View { ModifiedView(self) }
-    public func task(priority: TaskPriority = .userInitiated, _ action: @escaping @Sendable () async -> Void) -> some View { ModifiedView(self) }
-    public func task<V: Equatable>(id: V, priority: TaskPriority = .userInitiated, _ action: @escaping @Sendable () async -> Void) -> some View { ModifiedView(self) }
+    public func task(priority: TaskPriority = .userInitiated, @_inheritActorContext _ action: @escaping @Sendable () async -> Void) -> some View { ModifiedView(self) }
+    public func task<V: Equatable>(id: V, priority: TaskPriority = .userInitiated, @_inheritActorContext _ action: @escaping @Sendable () async -> Void) -> some View { ModifiedView(self) }
     public func refreshable(_ action: @escaping @Sendable () async -> Void) -> some View { ModifiedView(self) }
     public func animation(_ animation: Animation?, value: some Equatable) -> some View { ModifiedView(self) }
     public func animation(_ animation: Animation? = nil) -> some View { ModifiedView(self) }
@@ -412,6 +412,7 @@ public protocol ShapeStyle {}
 
 /// `SwiftUI.ToolbarContentBuilder`.
 @resultBuilder
+@MainActor
 public enum ToolbarContentBuilder {
     public static func buildBlock() -> EmptyToolbarContent { EmptyToolbarContent() }
     public static func buildBlock<C: ToolbarContent>(_ content: C) -> C { content }

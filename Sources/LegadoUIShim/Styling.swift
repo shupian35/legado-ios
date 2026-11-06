@@ -138,6 +138,7 @@ public protocol Shape: View {
     @ViewBuilder var body: Body { get }
 }
 
+@MainActor
 public extension Shape {
     /// `SwiftUI.Shape.fill(_:)` — the shape filled with a colour.
     func fill(_ color: Color) -> some View { ModifiedView(self) }

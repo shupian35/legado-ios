@@ -24,6 +24,7 @@ import Foundation
 import LegadoCore
 
 /// Handles the `legado://` links.
+@MainActor
 public final class DeepLinkHandler: ObservableObject {
 
     /// The shared handler — the iOS app uses it from `onOpenURL`.
