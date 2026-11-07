@@ -65,16 +65,20 @@ public struct RssSourceManageView: View {
     /// The import from a QR code — upstream `menu_import_qr`.
     @State private var isQRScannerPresented = false
     @State private var qrResult: String?
+    /// The scanned document, imported once the scanner has closed.
+    @State private var pendingQRPayload: String?
     /// The message of the last action.
     @State private var message: String?
     /// The group the selected sources are added to or removed from — upstream
     /// `RssSourceViewModel.selectionAddToGroups`.
     @State private var newGroup: String = ""
-    /// The sources of the import preview — upstream
-    /// `ImportRssSourceDialog`.
-    @State private var importSources: [RssSource] = []
-    /// Whether the import preview is shown.
-    @State private var isImportPreviewPresented = false
+    /// The sources the import dialog handed over — the preview is opened once
+    /// that dialog has closed. Opening the second sheet while the first one is
+    /// still on screen built the preview from the view state of the previous
+    /// body, so the list came up empty and 确定 could not insert anything.
+    @State private var pendingImportSources: [RssSource] = []
+    /// The sources of the import preview — upstream `ImportRssSourceDialog`.
+    @State private var importPreview: ImportPreview?
     /// The file that was written for the export — upstream
     /// `RssSourceViewModel.saveToFile`.
     @State private var exportedFileURL: URL?
@@ -260,28 +264,28 @@ public struct RssSourceManageView: View {
                 RssSourceGroupManageView(model: model)
             }
         }
-        .sheet(isPresented: $isImportPresented) {
+        .sheet(isPresented: $isImportPresented, onDismiss: presentPendingImport) {
             NavigationStack {
                 RssSourceImportView(model: model) { text in
                     await importText(text)
                 }
             }
         }
-        .sheet(isPresented: $isImportPreviewPresented) {
+        .sheet(item: $importPreview) { preview in
             NavigationStack {
-                RssSourceImportPreviewView(model: model, sources: importSources) { prepared in
+                RssSourceImportPreviewView(model: model, sources: preview.sources) { prepared in
                     do {
                         let count = try model.environment.insertRssSources(prepared)
                         message = "导入 \(count) 个订阅源"
                     } catch {
                         message = "导入失败: \(error.localizedDescription)"
                     }
-                    isImportPreviewPresented = false
+                    importPreview = nil
                     reload()
                 }
             }
         }
-        .sheet(isPresented: $isQRScannerPresented) {
+        .sheet(isPresented: $isQRScannerPresented, onDismiss: importPendingQRPayload) {
             NavigationStack {
                 QRScannerView(result: $qrResult)
             }
@@ -319,9 +323,10 @@ public struct RssSourceManageView: View {
         .onChange(of: qrResult) { _, value in
             guard let value, !value.isEmpty else { return }
             qrResult = nil
-            Task {
-                await importText(value)
-            }
+            // The scanner has to go before the preview is opened, or the two
+            // sheets compete for the presentation.
+            pendingQRPayload = value
+            isQRScannerPresented = false
         }
         .onAppear {
             reload()
@@ -627,6 +632,7 @@ public struct RssSourceManageView: View {
     }
 
     /// Imports a file — upstream `menu_import_local`.
+    @MainActor
     private func importFile(_ result: Result<URL, Error>) {
         guard case .success(let url) = result else { return }
         Task {
@@ -635,6 +641,7 @@ public struct RssSourceManageView: View {
                 return
             }
             await importText(text)
+            presentPendingImport()
         }
     }
 
@@ -643,9 +650,15 @@ public struct RssSourceManageView: View {
     /// The text is either an url (the document is downloaded) or a JSON
     /// document with the sources. The upstream shows the preview of the
     /// import before the sources are inserted.
-    private func importText(_ text: String) async {
+    ///
+    /// - Returns: whether the sources are waiting for the preview — the
+    ///   network dialog closes itself on `true`, and `onDismiss` opens the
+    ///   preview. A failure is in `message`.
+    @discardableResult
+    @MainActor
+    private func importText(_ text: String) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return false }
         do {
             let sources: [RssSource]
             if RssSourceImport.isAbsoluteURL(trimmed) {
@@ -658,14 +671,49 @@ public struct RssSourceManageView: View {
             }
             guard !sources.isEmpty else {
                 message = "没有可导入的订阅源"
-                return
+                return false
             }
-            importSources = sources
-            isImportPreviewPresented = true
+            pendingImportSources = sources
+            reload()
+            return true
         } catch {
             message = "导入失败: \(error.localizedDescription)"
         }
         reload()
+        return false
+    }
+
+    /// Shows the preview of the sources the import dialog handed over.
+    ///
+    /// The dialog has closed by the time this runs (`onDismiss`), so the
+    /// preview no longer competes with it for the presentation and the
+    /// sources are no longer read from a half-updated view state.
+    private func presentPendingImport() {
+        let sources = pendingImportSources
+        pendingImportSources = []
+        guard !sources.isEmpty else { return }
+        importPreview = ImportPreview(sources: sources)
+    }
+
+    /// Imports the scanned document once the scanner has closed.
+    @MainActor
+    private func importPendingQRPayload() {
+        guard let payload = pendingQRPayload else { return }
+        pendingQRPayload = nil
+        Task {
+            await importText(payload)
+            presentPendingImport()
+        }
+    }
+
+    /// The sources of an import preview.
+    ///
+    /// The preview is presented with `sheet(item:)` so that it is built with
+    /// the sources in hand instead of reading them from the view state while
+    /// the import dialog is still being dismissed.
+    struct ImportPreview: Identifiable {
+        let id = UUID()
+        let sources: [RssSource]
     }
 }
 
@@ -677,7 +725,9 @@ struct RssSourceImportView: View {
 
     @ObservedObject var model: LegadoAppModel
 
-    let onImport: (String) async -> Void
+    /// The import — the result says whether the sources are waiting for the
+    /// preview, and the dialog then closes itself.
+    let onImport: (String) async -> Bool
 
     @State private var url: String = ""
     @State private var isImporting = false
@@ -685,7 +735,9 @@ struct RssSourceImportView: View {
     /// (`RssSourceActivity.showImportDialog`).
     @State private var history: [String] = []
 
-    init(model: LegadoAppModel, onImport: @escaping (String) async -> Void) {
+    @Environment(\.dismiss) private var dismiss
+
+    init(model: LegadoAppModel, onImport: @escaping (String) async -> Bool) {
         self.model = model
         self.onImport = onImport
     }
@@ -697,9 +749,12 @@ struct RssSourceImportView: View {
                 Button {
                     isImporting = true
                     let value = url
-                    Task {
-                        await onImport(value)
+                    Task { @MainActor in
+                        let imported = await onImport(value)
                         isImporting = false
+                        if imported {
+                            dismiss()
+                        }
                     }
                 } label: {
                     if isImporting {

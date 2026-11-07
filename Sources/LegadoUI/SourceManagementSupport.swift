@@ -744,6 +744,11 @@ public struct ImportDocumentView: View {
     }
 
     /// The import itself — upstream `ImportBookSourceViewModel.importSource`.
+    ///
+    /// The state of the view is only written on the main actor: the download
+    /// and the parsing run in a task, and a `@State` write from a background
+    /// task reaches the sheet of the caller too late.
+    @MainActor
     private func performImport() {
         let payload = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !payload.isEmpty else {
@@ -764,6 +769,7 @@ public struct ImportDocumentView: View {
     }
 
     /// Downloads the document and imports it.
+    @MainActor
     private func importFromURL(_ url: String) async {
         guard let body = await DocumentImporter.download(url, model: model) else {
             message = DocumentImporter.failureMessage
@@ -799,6 +805,7 @@ public struct ImportDocumentView: View {
     /// The book sources are handed over to the preview of the import — the
     /// upstream `ImportBookSourceDialog` shows the list of the sources before
     /// they are inserted.
+    @MainActor
     private func importDocument(_ json: String) async {
         if kind == .bookSource, let onSources {
             do {

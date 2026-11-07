@@ -174,6 +174,24 @@ final class RssSourceImportTests: XCTestCase {
         XCTAssertFalse(RssSourceImport.isAbsoluteURL(""))
     }
 
+    // MARK: - The duplicate addresses
+
+    /// A source file may list the same `sourceUrl` twice. Both rows stay in
+    /// the preview, so the list of the UI has to key them by position instead
+    /// of by address.
+    func testDuplicateAddressesBothAppearInThePreview() {
+        let items = RssSourceImport.items(
+            [
+                RssSource(sourceUrl: "https://a.com/rss", sourceName: "A1"),
+                RssSource(sourceUrl: "https://a.com/rss", sourceName: "A2")
+            ],
+            local: []
+        )
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual(items.map(\.id), ["https://a.com/rss", "https://a.com/rss"])
+        XCTAssertEqual(items.map(\.source.sourceName), ["A1", "A2"])
+    }
+
     // MARK: - The favourites
 
     /// The favourite of an article — upstream `RssArticle.toStar()`.

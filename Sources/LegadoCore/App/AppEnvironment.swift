@@ -637,12 +637,28 @@ public final class AppEnvironment {
 }
 
 /// Errors of the service layer.
-public enum AppEnvironmentError: Error, Equatable {
+public enum AppEnvironmentError: Error, Equatable, LocalizedError {
     case notAnArray
     case noValidSource
     case bookNotFound(String)
     case sourceNotFound(String)
     case emptyResponse
+
+    /// The message the UI shows.
+    ///
+    /// Without it `localizedDescription` is the useless "The operation
+    /// couldn't be completed. (LegadoCore.AppEnvironmentError error 3.)" —
+    /// which case failed is what a bug report needs. The storage layer got the
+    /// same treatment in `StorageError`.
+    public var errorDescription: String? {
+        switch self {
+        case .notAnArray: return "不是书源文档"
+        case .noValidSource: return "没有可导入的书源"
+        case .bookNotFound(let url): return "未找到书籍：\(url)"
+        case .sourceNotFound(let url): return "未找到书源：\(url)"
+        case .emptyResponse: return "导入地址没有返回内容"
+        }
+    }
 }
 
 // MARK: - JSON bridge for the book sources

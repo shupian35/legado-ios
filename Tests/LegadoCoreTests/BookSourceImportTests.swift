@@ -306,4 +306,55 @@ final class BookSourceImportTests: XCTestCase {
         XCTAssertFalse(BookSourceImport.isAbsoluteURL("file:///tmp/a.json"))
         XCTAssertFalse(BookSourceImport.isAbsoluteURL("  "))
     }
+
+    // MARK: - The duplicate addresses
+
+    /// A source file may list the same `bookSourceUrl` twice — the upstream
+    /// `yck-novel.json` has 14 such pairs. Both rows stay in the preview, so
+    /// the list of the UI has to key them by position instead of by address.
+    func testDuplicateAddressesBothAppearInThePreview() {
+        let items = BookSourceImport.items(
+            [source(name: "A1"), source(name: "A2")],
+            local: []
+        )
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual(items.map(\.id), ["https://a.com", "https://a.com"])
+        XCTAssertEqual(items.map(\.source.bookSourceName), ["A1", "A2"])
+    }
+}
+
+// MARK: - The errors of the service layer
+
+final class AppEnvironmentErrorTests: XCTestCase {
+
+    /// Every case explains itself — the UI shows `localizedDescription`, which
+    /// used to read "The operation couldn't be completed.
+    /// (LegadoCore.AppEnvironmentError error 3.)".
+    func testTheErrorsExplainThemselves() {
+        XCTAssertEqual(AppEnvironmentError.notAnArray.errorDescription, "不是书源文档")
+        XCTAssertEqual(AppEnvironmentError.noValidSource.errorDescription, "没有可导入的书源")
+        XCTAssertEqual(
+            AppEnvironmentError.bookNotFound("https://a.com").errorDescription,
+            "未找到书籍：https://a.com"
+        )
+        XCTAssertEqual(
+            AppEnvironmentError.sourceNotFound("https://a.com").errorDescription,
+            "未找到书源：https://a.com"
+        )
+        XCTAssertEqual(AppEnvironmentError.emptyResponse.errorDescription, "导入地址没有返回内容")
+    }
+
+    /// The shell refuses an empty selection with its own message — the
+    /// preview of the import raises it when nothing is selected.
+    func testImportingNoSourceIsRefused() throws {
+        let store = LegadoStore(tables: MemoryTableStore())
+        try store.createSchema()
+        let environment = AppEnvironment(
+            store: store,
+            settings: AppSettings(store: InMemorySettingsStore())
+        )
+        XCTAssertThrowsError(try environment.importSources([], options: BookSourceImport.Options())) {
+            XCTAssertEqual($0 as? AppEnvironmentError, .noValidSource)
+        }
+    }
 }

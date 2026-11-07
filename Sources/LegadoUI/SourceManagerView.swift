@@ -45,13 +45,19 @@ public struct SourceManagerView: View {
     // The sheets.
     @State private var isImportPresented = false
     @State private var importText: String = ""
+    /// The sources the import dialog handed over — the preview is opened once
+    /// that dialog has closed. Opening the second sheet while the first one is
+    /// still on screen built the preview from the view state of the previous
+    /// body, so the list came up empty and 确定 submitted nothing.
+    @State private var pendingImportSources: [BookSource] = []
     /// The sources of the import — upstream `ImportBookSourceDialog` shows
     /// the preview before the sources are inserted.
-    @State private var importSources: [BookSource] = []
-    @State private var isImportPreviewPresented = false
+    @State private var importPreview: ImportPreview?
     @State private var isFileImporterPresented = false
     @State private var isQRScannerPresented = false
     @State private var qrResult: String?
+    /// The scanned document, imported once the scanner has closed.
+    @State private var pendingQRPayload: String?
     @State private var isCheckPresented = false
     @State private var checkTargets: [BookSource] = []
     @State private var isCheckConfigPresented = false
@@ -297,23 +303,22 @@ public struct SourceManagerView: View {
                     SourceGroupView(model: model)
                 }
             }
-            .sheet(isPresented: $isImportPresented) {
+            .sheet(isPresented: $isImportPresented, onDismiss: presentPendingImport) {
                 ImportDocumentView(
                     model: model,
                     kind: .bookSource,
                     text: $importText,
                     onSources: { sources in
-                        importSources = sources
-                        isImportPreviewPresented = true
+                        pendingImportSources = sources
                     }
                 )
             }
-            .sheet(isPresented: $isImportPreviewPresented) {
+            .sheet(item: $importPreview) { preview in
                 NavigationStack {
-                    BookSourceImportPreviewView(model: model, sources: importSources) { prepared in
+                    BookSourceImportPreviewView(model: model, sources: preview.sources) { prepared in
                         let count = model.importBookSources(prepared)
                         message = "导入 \(count) 个书源"
-                        isImportPreviewPresented = false
+                        importPreview = nil
                     }
                 }
             }
@@ -353,7 +358,7 @@ public struct SourceManagerView: View {
                     QRCodeView(text: sharedText)
                 }
             }
-            .sheet(isPresented: $isQRScannerPresented) {
+            .sheet(isPresented: $isQRScannerPresented, onDismiss: importPendingQRPayload) {
                 NavigationStack {
                     QRScannerView(result: $qrResult)
                 }
@@ -387,9 +392,10 @@ public struct SourceManagerView: View {
             .onChange(of: qrResult) { _, value in
                 guard let value, !value.isEmpty else { return }
                 qrResult = nil
-                Task {
-                    await importPayload(value)
-                }
+                // The scanner has to go before the preview is opened, or the
+                // two sheets compete for the presentation.
+                pendingQRPayload = value
+                isQRScannerPresented = false
             }
             .onAppear {
                 model.reloadSources()
@@ -549,6 +555,16 @@ public struct SourceManagerView: View {
 
     // MARK: - The actions
 
+    /// The sources of an import preview.
+    ///
+    /// The preview is presented with `sheet(item:)` so that it is built with
+    /// the sources in hand instead of reading them from the view state while
+    /// the import dialog is still being dismissed.
+    struct ImportPreview: Identifiable {
+        let id = UUID()
+        let sources: [BookSource]
+    }
+
     /// The accepted file types — upstream `AppPattern` accepts `txt` and
     /// `json` for the sources.
     public static var contentTypes: [UTType] {
@@ -570,6 +586,7 @@ public struct SourceManagerView: View {
     }
 
     /// Imports a local file — upstream `menu_import_local`.
+    @MainActor
     private func importFile(_ result: Result<URL, Error>) {
         guard case .success(let url) = result else { return }
         Task {
@@ -581,11 +598,38 @@ public struct SourceManagerView: View {
         }
     }
 
+    /// Shows the preview of the sources the import dialog handed over.
+    ///
+    /// The dialog has closed by the time this runs (`onDismiss`), so the
+    /// preview no longer competes with it for the presentation and the
+    /// sources are no longer read from a half-updated view state.
+    private func presentPendingImport() {
+        let sources = pendingImportSources
+        pendingImportSources = []
+        guard !sources.isEmpty else { return }
+        importPreview = ImportPreview(sources: sources)
+    }
+
+    /// Imports the scanned document once the scanner has closed.
+    @MainActor
+    private func importPendingQRPayload() {
+        guard let payload = pendingQRPayload else { return }
+        pendingQRPayload = nil
+        Task {
+            await importPayload(payload)
+        }
+    }
+
     /// Parses an imported document and shows the preview of the import —
     /// upstream `ImportBookSourceDialog`.
     ///
     /// The document is either a JSON document with the sources, a document
     /// with a list of `sourceUrls`, or the url of such a document.
+    ///
+    /// The state of the view is only written on the main actor: the parsing
+    /// runs in a task, and a `@State` write from a background task reaches the
+    /// next sheet too late (or not at all).
+    @MainActor
     private func importPayload(_ text: String) async {
         let payload = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !payload.isEmpty else { return }
@@ -601,8 +645,7 @@ public struct SourceManagerView: View {
                 message = DocumentImporter.failureMessage
                 return
             }
-            importSources = sources
-            isImportPreviewPresented = true
+            importPreview = ImportPreview(sources: sources)
         } catch {
             message = DocumentImporter.failureMessage
         }

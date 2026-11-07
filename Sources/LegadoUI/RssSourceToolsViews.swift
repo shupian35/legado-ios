@@ -56,6 +56,10 @@ public struct RssSourceImportPreviewView: View {
     /// The source whose JSON is shown — upstream `CodeDialog`.
     @State private var codeItem: RssSourceImport.Item?
 
+    /// What went wrong when the local sources were read, or why nothing can
+    /// be imported — shown in the footer.
+    @State private var message: String?
+
     public init(
         model: LegadoAppModel,
         sources: [RssSource],
@@ -69,10 +73,14 @@ public struct RssSourceImportPreviewView: View {
     public var body: some View {
         List {
             Section {
-                ForEach(items) { item in
+                // The rows are keyed by their position: a source file may
+                // list the same `sourceUrl` twice, and duplicate identifiers
+                // make the list swallow the rows.
+                ForEach(items.indices, id: \.self) { index in
+                    let item = items[index]
                     HStack(spacing: 10) {
                         Button(item.selected ? "☑" : "☐") {
-                            toggle(item.id)
+                            toggle(index)
                         }
                         .buttonStyle(PlainButtonStyle())
                         Button {
@@ -100,6 +108,11 @@ public struct RssSourceImportPreviewView: View {
                 }
                 Button("确定") {
                     confirm()
+                }
+                if let message {
+                    Text(message)
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
                 }
             }
         }
@@ -151,13 +164,23 @@ public struct RssSourceImportPreviewView: View {
     }
 
     /// Builds the preview — upstream `comparisonSource`.
+    ///
+    /// A local source list that cannot be read must not leave the preview
+    /// empty: every imported source is shown as new, and the reader of the
+    /// failure is told what the database said.
     private func reload() {
-        items = (try? model.environment.rssImportPreview(sources)) ?? []
+        do {
+            items = try model.environment.rssImportPreview(sources)
+            message = nil
+        } catch {
+            items = RssSourceImport.items(sources, local: [])
+            message = error.localizedDescription
+        }
     }
 
-    /// Selects or deselects a source.
-    private func toggle(_ id: String) {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+    /// Selects or deselects a source of the preview.
+    private func toggle(_ index: Int) {
+        guard items.indices.contains(index) else { return }
         items[index].selected.toggle()
     }
 
@@ -173,6 +196,10 @@ public struct RssSourceImportPreviewView: View {
     private func confirm() {
         let local = (try? model.environment.store.allRssSources()) ?? []
         let prepared = RssSourceImport.prepare(items, local: local, options: options)
+        guard !prepared.isEmpty else {
+            message = "没有选择订阅源"
+            return
+        }
         onImport(prepared)
     }
 }
