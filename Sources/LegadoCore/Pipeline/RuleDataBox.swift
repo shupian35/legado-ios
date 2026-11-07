@@ -33,16 +33,25 @@ public final class RuleDataBox: RuleVariableHolder, Hashable {
     ///
     /// The verification dialog shows it as the subtitle of the dialog.
     public let sourceName: String?
+    /// The source the box belongs to — upstream the rule scripts get the
+    /// whole source object as the `source` binding, so the scripts can read
+    /// its fields and call its methods.
+    ///
+    /// The pipelines build the box from `BookSource.variableBox`, which fills
+    /// this in; a book's own variable box leaves it nil.
+    public let bookSource: BookSource?
 
     public init(
         variables: [String: String] = [:],
         sourceKey: String? = nil,
         sourceName: String? = nil,
+        bookSource: BookSource? = nil,
         onChange: (([String: String]) -> Void)? = nil
     ) {
         self.variables = variables
         self.sourceKey = sourceKey
         self.sourceName = sourceName
+        self.bookSource = bookSource
         self.onChange = onChange
     }
 
@@ -51,11 +60,13 @@ public final class RuleDataBox: RuleVariableHolder, Hashable {
         json: String?,
         sourceKey: String? = nil,
         sourceName: String? = nil,
+        bookSource: BookSource? = nil,
         onChange: (([String: String]) -> Void)? = nil
     ) {
         self.variables = RuleDataBox.decode(json)
         self.sourceKey = sourceKey
         self.sourceName = sourceName
+        self.bookSource = bookSource
         self.onChange = onChange
     }
 

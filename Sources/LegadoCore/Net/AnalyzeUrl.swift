@@ -506,6 +506,10 @@ public final class AnalyzeUrl {
     // MARK: - Scripts
 
     /// Evaluate a script — upstream `evalJS`.
+    ///
+    /// The upstream binds the source object as `source` (and as `java`), so a
+    /// URL rule such as `{{source.key}}/search.php?…` reaches the address of
+    /// the source. The source context is handed to the engine for that.
     @discardableResult
     public func evalJS(_ jsString: String, result: RuleValue? = nil) throws -> RuleValue {
         guard let engine = dependencies.scriptEngine else {
@@ -520,7 +524,29 @@ public final class AnalyzeUrl {
         if let bookName { bindings["book"] = .scriptObject(["name": .text(bookName)]) }
         if let chapterTitle { bindings["chapter"] = .scriptObject(["title": .text(chapterTitle)]) }
         if let result { bindings["result"] = result }
-        return try engine.evaluate(jsString, bindings: bindings)
+        return try engine.evaluate(jsString, bindings: bindings, source: sourceContext())
+    }
+
+    /// The source a URL script belongs to — upstream binds the whole source
+    /// as `source`.
+    private func sourceContext() -> ScriptSourceContext? {
+        guard let source else { return nil }
+        if let bookSource = source as? BookSource {
+            return ScriptSourceContext(
+                key: bookSource.key,
+                name: bookSource.bookSourceName,
+                variables: bookSource.variableBox,
+                bookSource: bookSource
+            )
+        }
+        if let rssSource = source as? RssSource {
+            return ScriptSourceContext(
+                key: rssSource.key,
+                name: rssSource.sourceName,
+                variables: rssSource.variableBox
+            )
+        }
+        return ScriptSourceContext(key: source.key)
     }
 
     // MARK: - Helpers

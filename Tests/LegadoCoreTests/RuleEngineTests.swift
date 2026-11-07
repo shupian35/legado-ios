@@ -270,6 +270,58 @@ final class AnalyzeRuleTests: XCTestCase {
         XCTAssertEqual(css.lastRule, "p")
     }
 
+    /// A script engine that records the source context of the evaluation.
+    private final class ContextEngine: RuleScriptEngine {
+        var contexts: [ScriptSourceContext?] = []
+        /// The value the script answers — it can call back into the context.
+        var answer: ((ScriptSourceContext?) -> RuleValue)?
+
+        func evaluate(_ script: String, bindings: [String: RuleValue]) throws -> RuleValue {
+            try evaluate(script, bindings: bindings, source: nil)
+        }
+
+        func evaluate(
+            _ script: String,
+            bindings: [String: RuleValue],
+            source: ScriptSourceContext?
+        ) throws -> RuleValue {
+            contexts.append(source)
+            return answer?(source) ?? .text("")
+        }
+    }
+
+    /// The rule scripts see the source of the rule: the pipelines hand over a
+    /// fresh `variableBox`, so `AnalyzeRule` has to keep it alive — a weak
+    /// reference dropped it before the first script ran and every
+    /// `source.*` / `java.getVariable()` rule failed.
+    func testTheRuleScriptSeesItsSource() throws {
+        let (engine, _, _, _, _, _, _) = makeEngine()
+        let capture = ContextEngine()
+        engine.scriptEngine = capture
+        let source = BookSource(bookSourceUrl: "https://a.com", bookSourceName: "A")
+        engine.source = source.variableBox
+        _ = try engine.getString("@js:result")
+        XCTAssertEqual(capture.contexts.count, 1)
+        XCTAssertEqual(capture.contexts[0]?.bookSource?.bookSourceUrl, "https://a.com")
+        XCTAssertEqual(capture.contexts[0]?.key, "https://a.com")
+        XCTAssertNotNil(capture.contexts[0]?.variables)
+    }
+
+    /// A rule script reads a field of the page with `java.getString(rule)` —
+    /// upstream binds the running rule engine as `java`.
+    func testTheRuleScriptCanReadAFieldOfThePage() throws {
+        let (engine, css, _, _, _, _, _) = makeEngine()
+        css.stringResult = "42"
+        let capture = ContextEngine()
+        capture.answer = { context in
+            .text(context?.ruleEvaluator?("@@p") ?? "")
+        }
+        engine.scriptEngine = capture
+        engine.source = BookSource(bookSourceUrl: "https://a.com").variableBox
+        let value = try engine.getString("@js:java.getString('@@p')")
+        XCTAssertEqual(value, "42")
+    }
+
     func testGetStringListUsesTheCSSMatcher() throws {
         let (engine, css, _, _, _, _, _) = makeEngine()
         css.listResult = ["a", "b"]

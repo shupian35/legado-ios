@@ -38,8 +38,13 @@ public final class AnalyzeRule {
     /// The rule data (search result, RSS article, …).
     public weak var ruleData: RuleVariableHolder?
 
-    /// The book source the rule belongs to.
-    public weak var source: RuleVariableHolder?
+    /// The book source the rule belongs to — upstream binds it as `source`.
+    ///
+    /// The holder is kept strongly: the pipelines hand over a fresh
+    /// `bookSource.variableBox` and nothing else references it, so a weak
+    /// reference would be gone before the first script runs and every
+    /// `source.*` / `java.getVariable()` rule would fail.
+    public var source: RuleVariableHolder?
 
     /// The name of the current book — the `bookName` variable.
     public var bookName: String = ""
@@ -625,10 +630,30 @@ public final class AnalyzeRule {
         return try engine.evaluate(jsStr, bindings: bindings, source: sourceContext())
     }
 
-    /// The source the rule belongs to — the upstream `java` binding.
+    /// The source the rule belongs to — the upstream `source` binding.
+    ///
+    /// The upstream binds the running rule engine itself as `java`, so a rule
+    /// script calls `java.getString(rule)` to read one field of the page. The
+    /// evaluator closures pass that ability down to the script engine; they
+    /// hold the engine weakly so the long lived script environment does not
+    /// keep the page alive.
     private func sourceContext() -> ScriptSourceContext? {
         guard let box = source as? RuleDataBox, let key = box.sourceKey else { return nil }
-        return ScriptSourceContext(key: key, name: box.sourceName ?? "", variables: box)
+        return ScriptSourceContext(
+            key: key,
+            name: box.sourceName ?? "",
+            variables: box,
+            bookSource: box.bookSource,
+            ruleEvaluator: { [weak self] rule in
+                guard let self else { return nil }
+                return try? self.getString(rule)
+            },
+            ruleListEvaluator: { [weak self] rule in
+                guard let self else { return [] }
+                guard let values = try? self.getStringList(rule) else { return [] }
+                return values ?? []
+            }
+        )
     }
 
     // MARK: - Dispatch

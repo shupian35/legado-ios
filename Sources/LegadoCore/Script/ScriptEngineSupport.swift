@@ -126,10 +126,26 @@ public protocol ScriptFileSandbox: AnyObject {
     func deleteScriptFile(_ path: String) throws
 }
 
-/// A cookie jar exposed to rule scripts as `cookie`.
+/// A cookie jar exposed to rule scripts as `cookie` — upstream `CookieStore`.
 public protocol ScriptCookieStore: AnyObject {
+    /// Upstream `CookieStore.getCookie(url)`.
     func cookie(for url: String) -> String?
+    /// Upstream `CookieStore.setCookie(url, cookie)`.
     func setCookie(_ value: String, for url: String)
+    /// Upstream `CookieStore.getKey(url, key)` — one cookie of the url.
+    func cookieKey(for url: String, key: String) -> String
+    /// Upstream `CookieStore.removeCookie(url)`.
+    func removeCookie(for url: String)
+    /// Upstream `CookieStore.replaceCookie(url, cookie)` — merges the values.
+    func replaceCookie(_ value: String, for url: String)
+}
+
+public extension ScriptCookieStore {
+    /// The defaults keep a store that only knows the two basic operations
+    /// working.
+    func cookieKey(for url: String, key: String) -> String { "" }
+    func removeCookie(for url: String) {}
+    func replaceCookie(_ value: String, for url: String) { setCookie(value, for: url) }
 }
 
 /// A key/value cache exposed to rule scripts as `cache`.
@@ -189,6 +205,12 @@ public final class ScriptEnvironment {
     public var sourceName: String = ""
     /// The headers sent with `java.ajax` by default.
     public var defaultHeaders: [String: String]
+    /// Evaluates a rule against the content of the current page — upstream
+    /// `java` is the running `AnalyzeRule`, so `java.getString("$.x")` reads
+    /// one field of the page from inside a script.
+    public var ruleEvaluator: ((String) -> String?)?
+    /// The list form of `ruleEvaluator` — `java.getStringList(rule)`.
+    public var ruleListEvaluator: ((String) -> [String])?
     /// The capabilities the script may use.
     ///
     /// The upstream engine guards the script with a class deny-list; the port

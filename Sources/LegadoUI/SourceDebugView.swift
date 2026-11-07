@@ -347,12 +347,22 @@ public struct SourceDebugView: View {
     }
 
     /// Loads the categories of the explore page — upstream `initExploreKinds`.
+    ///
+    /// The rule may be a script that fetches a page, so the work is kept off
+    /// the main actor.
     private func loadExploreKinds() {
         guard let source else {
             exploreKinds = []
             return
         }
-        exploreKinds = ExploreKinds.parse(source.exploreUrl).filter { !($0.url ?? "").isEmpty }
+        let engine = model.environment.scriptEngine
+        Task.detached(priority: .userInitiated) {
+            let kinds = ExploreKinds.parse(source.exploreUrl, engine: engine, source: source)
+                .filter { !($0.url ?? "").isEmpty }
+            await MainActor.run {
+                exploreKinds = kinds
+            }
+        }
     }
 
     // MARK: - The debug run

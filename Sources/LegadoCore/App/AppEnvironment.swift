@@ -349,7 +349,7 @@ public final class AppEnvironment {
     /// either a JSON array of `ExploreKind` objects (`{"title":…,"url":…}`) or
     /// a list of `分类::网址` pairs separated by `(&&|\n)+`.
     public func exploreCategories(source: BookSource) -> [ExploreCategory] {
-        ExploreKinds.parse(source.exploreUrl).map {
+        ExploreKinds.parse(source.exploreUrl, engine: scriptEngine, source: source).map {
             ExploreCategory(name: $0.title, url: $0.url ?? "")
         }
     }

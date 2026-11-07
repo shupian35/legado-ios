@@ -205,6 +205,55 @@ final class AnalyzeUrlTests: XCTestCase {
         XCTAssertEqual(analyze.ruleUrl, "https://example.com/from-js")
     }
 
+    /// A script engine that resolves the embedded rules of a search url the
+    /// way the JavaScript engine does — `source.key`, `key` and `page`.
+    private final class UrlRuleEngine: RuleScriptEngine {
+        private(set) var contexts: [ScriptSourceContext?] = []
+
+        func evaluate(_ script: String, bindings: [String: RuleValue]) throws -> RuleValue {
+            try evaluate(script, bindings: bindings, source: nil)
+        }
+
+        func evaluate(
+            _ script: String,
+            bindings: [String: RuleValue],
+            source: ScriptSourceContext?
+        ) throws -> RuleValue {
+            contexts.append(source)
+            switch script.trimmingCharacters(in: .whitespacesAndNewlines) {
+            case "source.key":
+                return .text(source?.bookSource?.bookSourceUrl ?? "")
+            case "key":
+                return bindings["key"] ?? .text("")
+            case "page":
+                return bindings["page"] ?? .text("")
+            default:
+                throw ScriptEngineError.scriptFailed("unknown rule \(script)")
+            }
+        }
+    }
+
+    /// The upstream binds the source as `source` in the url scripts, so a
+    /// search url such as `{{source.key}}/search.php?…` reaches the address
+    /// of the source instead of losing the block.
+    func testTheSourceIsBoundForTheUrlRules() {
+        let engine = UrlRuleEngine()
+        let source = makeSource()
+        let analyze = AnalyzeUrl(
+            url: "{{source.key}}/search.php?keyword={{key}}&page={{page}}",
+            key: "xx",
+            page: 1,
+            baseUrl: source.bookSourceUrl,
+            source: source,
+            dependencies: AnalyzeUrlDependencies(scriptEngine: engine)
+        )
+        XCTAssertEqual(analyze.ruleUrl, "https://example.com/search.php?keyword=xx&page=1")
+        XCTAssertEqual(engine.contexts.count, 3)
+        XCTAssertTrue(
+            engine.contexts.allSatisfy { $0?.bookSource?.bookSourceUrl == "https://example.com" }
+        )
+    }
+
     func testHeaderMapIsTakenFromTheSource() {
         var source = makeSource()
         source.header = "{\"X-Test\":\"1\"}"

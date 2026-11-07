@@ -235,6 +235,18 @@ public final class CookieScriptStore: ScriptCookieStore, @unchecked Sendable {
     public func setCookie(_ value: String, for url: String) {
         cookieStore.replaceCookie(url: url, cookie: value)
     }
+
+    public func cookieKey(for url: String, key: String) -> String {
+        cookieStore.key(url: url, key: key)
+    }
+
+    public func removeCookie(for url: String) {
+        cookieStore.removeCookie(url: url)
+    }
+
+    public func replaceCookie(_ value: String, for url: String) {
+        cookieStore.replaceCookie(url: url, cookie: value)
+    }
 }
 
 // MARK: - The cache
@@ -350,10 +362,30 @@ public struct ScriptSourceContext {
     public var name: String
     /// The variables of the source.
     public var variables: RuleDataBox?
+    /// The source itself — upstream binds the whole object as `source`, so a
+    /// rule script can read `source.bookSourceUrl`, call `source.getKey()`
+    /// and reach the login data of the source.
+    public var bookSource: BookSource?
+    /// Evaluates a rule against the content of the current page — upstream
+    /// binds the running `AnalyzeRule` as `java`, so `java.getString("$.x")`
+    /// reads one field of the page from inside a script.
+    public var ruleEvaluator: ((String) -> String?)?
+    /// The list form of `ruleEvaluator` — `java.getStringList(rule)`.
+    public var ruleListEvaluator: ((String) -> [String])?
 
-    public init(key: String, name: String = "", variables: RuleDataBox? = nil) {
+    public init(
+        key: String,
+        name: String = "",
+        variables: RuleDataBox? = nil,
+        bookSource: BookSource? = nil,
+        ruleEvaluator: ((String) -> String?)? = nil,
+        ruleListEvaluator: ((String) -> [String])? = nil
+    ) {
         self.key = key
         self.name = name
         self.variables = variables
+        self.bookSource = bookSource
+        self.ruleEvaluator = ruleEvaluator
+        self.ruleListEvaluator = ruleListEvaluator
     }
 }

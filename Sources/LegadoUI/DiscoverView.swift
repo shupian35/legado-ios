@@ -353,8 +353,25 @@ public struct DiscoverView: View {
 
     // MARK: - Actions
 
+    /// Loads the categories of the selected source.
+    ///
+    /// The rule of a source may be a script that fetches a page (upstream
+    /// `exploreKinds()` runs it on `Dispatchers.IO`), so the work is kept off
+    /// the main actor; the categories are only shown when the source is still
+    /// the selected one.
     private func loadCategories() {
-        categories = selectedSource.map { model.environment.exploreCategories(source: $0) } ?? []
+        guard let source = selectedSource else {
+            categories = []
+            return
+        }
+        let environment = model.environment
+        Task.detached(priority: .userInitiated) {
+            let kinds = environment.exploreCategories(source: source)
+            await MainActor.run {
+                guard selectedSource?.bookSourceUrl == source.bookSourceUrl else { return }
+                categories = kinds
+            }
+        }
     }
 
     /// Loads a category — upstream `ExploreShowViewModel.explore`.

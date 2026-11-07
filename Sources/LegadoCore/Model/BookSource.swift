@@ -600,7 +600,8 @@ public struct BookSource: Equatable {
         return RuleDataBox(
             json: BookSourceVariables.sourceVariables(sourceKey),
             sourceKey: sourceKey,
-            sourceName: bookSourceName
+            sourceName: bookSourceName,
+            bookSource: self
         ) { variables in
             BookSourceVariables.setVariables(variables, for: sourceKey)
         }

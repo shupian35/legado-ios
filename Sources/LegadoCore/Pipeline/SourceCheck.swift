@@ -152,7 +152,8 @@ public enum SourceChecker {
                 }
             }
             if options.checkDiscovery, let exploreUrl = source.exploreUrl, !exploreUrl.isBlank {
-                let url = exploreCategories(source).first { !$0.url.isEmpty }?.url
+                let url = exploreCategories(source, engine: dependencies.scriptEngine)
+                    .first { !$0.url.isEmpty }?.url
                 if let url, !url.isEmpty {
                     source.removeGroup(Group.emptyExploreUrl)
                     let books = try await WebBook.exploreBook(
@@ -248,8 +249,11 @@ public enum SourceChecker {
     /// Upstream `BookSource.exploreKinds()` reads the `exploreUrl` field: it is
     /// either a JSON array of `ExploreKind` objects or a list of `分类::网址`
     /// pairs separated by `(&&|\n)+`.
-    public static func exploreCategories(_ source: BookSource) -> [(name: String, url: String)] {
-        ExploreKinds.parse(source.exploreUrl).map { kind in
+    public static func exploreCategories(
+        _ source: BookSource,
+        engine: RuleScriptEngine? = nil
+    ) -> [(name: String, url: String)] {
+        ExploreKinds.parse(source.exploreUrl, engine: engine, source: source).map { kind in
             (name: kind.title, url: kind.url ?? "")
         }
     }
