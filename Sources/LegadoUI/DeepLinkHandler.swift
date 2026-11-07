@@ -350,7 +350,11 @@ public struct LegadoRootScene: View {
                 }, settings: model.environment.settings)
             }
             // The local password — the key of the encrypted backup entries.
-            if model.isLocalPasswordPresented {
+            // It renders only once the splash is gone: the startup sequence
+            // can finish before the 600 ms of the splash, and the form used
+            // to appear on top of it (and, before the phase gate, under the
+            // privacy gate, blending the two texts).
+            if model.isLocalPasswordPresented && !isWelcomePresented {
                 LocalPasswordView(model: model, allowsCancel: true)
             }
             // The startup sequence — upstream `MainActivity.onPostCreate()`:

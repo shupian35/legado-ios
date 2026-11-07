@@ -684,9 +684,18 @@ public final class LegadoAppModel: ObservableObject {
     ///
     /// The upstream asks on every start until the user has chosen a password;
     /// declining stores an empty password, which stops the prompt.
+    ///
+    /// The prompt is the last step of the startup sequence: while a startup
+    /// overlay (the privacy gate, a document, the crash prompt) is on the
+    /// screen the password form must not appear under it — both used to
+    /// render at once and their texts blended.
     public func presentLocalPasswordIfNeeded() {
         guard environment.localConfig.password == nil else { return }
-        isLocalPasswordPresented = true
+        // `.done` only: `.idle` is the state *before* the sequence has run,
+        // when the privacy gate may still be about to appear above the form.
+        if startupPhase == .done {
+            isLocalPasswordPresented = true
+        }
     }
 
     /// Builds the default environment.
@@ -2831,8 +2840,14 @@ public final class LegadoAppModel: ObservableObject {
     /// The last steps of the startup sequence — the automatic update of the
     /// books (upstream `viewModel.upAllBookToc()`) and the start page
     /// (upstream `MainActivity.upHomePage()`).
+    ///
+    /// The local password is asked here as well: on the first run the welcome
+    /// splash ends while the privacy gate (or the help document) is still on
+    /// the screen, and the prompt of the splash would have been swallowed by
+    /// the `startupPhase` gate in `presentLocalPasswordIfNeeded`.
     private func finishStartup() {
         applyDefaultHomePage()
+        presentLocalPasswordIfNeeded()
         guard environment.settings.autoRefreshBook else { return }
         Task { await updateAllBooks() }
     }
