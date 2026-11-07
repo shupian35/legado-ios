@@ -111,6 +111,20 @@ public struct URLSessionHttpClient: HttpClient {
     }
 
     public func send(_ request: HttpRequest) async throws -> HttpResponse {
+        do {
+            return try await perform(request)
+        } catch let error as URLError where error.code == .networkConnectionLost {
+            // Upstream OkHttp runs with `retryOnConnectionFailure`: a server
+            // that closes the keep-alive connection (or drops it mid
+            // response) silently gets a second attempt on a fresh
+            // connection. URLSession surfaces it as
+            // "The network connection was lost." instead — the reader saw
+            // that alert on sources whose servers reset links aggressively.
+            return try await perform(request)
+        }
+    }
+
+    private func perform(_ request: HttpRequest) async throws -> HttpResponse {
         guard let url = URL(string: request.url), url.scheme != nil else {
             throw HttpError.invalidURL(request.url)
         }

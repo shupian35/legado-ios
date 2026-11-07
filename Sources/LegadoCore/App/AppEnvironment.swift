@@ -325,7 +325,13 @@ public final class AppEnvironment {
             )
         } catch {
             // Upstream `SearchModel.startSearch` catches the error of a
-            // source and continues with the next one.
+            // source, keeps it for the 日志 dialog and continues with the
+            // next one. A search that comes up empty must be explainable,
+            // so every failure lands in the app log.
+            AppLog.shared.put(
+                "搜索失败：\(source.bookSourceName)\n\(error.localizedDescription)",
+                error: error
+            )
             return []
         }
     }
